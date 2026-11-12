@@ -699,4 +699,98 @@ void main() {
       await expectation;
     });
   });
+
+  group('Tags', () {
+    late Collection collection;
+    late Unit unit;
+    setUp(() async {
+      await syncStarterWorkflow();
+      collection = await vault.createCollection('Necrons');
+      unit = await vault.addUnit(
+        collection,
+        name: 'Warriors',
+        modelCount: 10,
+        stageId: 's0',
+      );
+    });
+
+    test('are added and removed, and persist across restarts', () async {
+      await vault.addTags(unit.id, [' Warhammer 40k ', 'Necrons', '  ']);
+      await restart();
+      expect(await vault.tagsOf(unit.id), ['Necrons', 'Warhammer 40k']);
+
+      await vault.removeTag(unit.id, 'NECRONS ');
+      expect(await vault.tagsOf(unit.id), ['Warhammer 40k']);
+    });
+
+    test('are the same Tag ignoring case and outer spaces, keeping the first casing', () async {
+      await vault.addTags(unit.id, ['Necrons', ' necrons', 'NECRONS']);
+      final other = await vault.addUnit(
+        collection,
+        name: 'Immortals',
+        modelCount: 5,
+        stageId: 's0',
+      );
+      await vault.addTags(other.id, ['necrons ']);
+
+      expect(await vault.tagsOf(unit.id), ['Necrons']);
+      expect(await vault.tagsOf(other.id), ['Necrons']);
+      // The same Unit and Tag give the same row id on every device, so offline adds merge into one row.
+      expect(tagId(unit.id, ' NECRONS'), tagId(unit.id, 'Necrons'));
+      expect(tagId(other.id, 'Necrons'), isNot(tagId(unit.id, 'Necrons')));
+    });
+
+    test(
+      'are suggested by prefix from the Tags already used, once each',
+      () async {
+        final other = await vault.addUnit(
+          collection,
+          name: 'Immortals',
+          modelCount: 5,
+          stageId: 's0',
+        );
+        await vault.addTags(unit.id, [
+          'Necrons',
+          'Warhammer 40k',
+          'Nightbringer',
+        ]);
+        await vault.addTags(other.id, ['necrons', 'Kill Team']);
+
+        expect(await vault.suggestTags(' n'), ['Necrons', 'Nightbringer']);
+        expect(await vault.suggestTags('WAR'), ['Warhammer 40k']);
+        expect(await vault.suggestTags('x'), isEmpty);
+      },
+    );
+
+    test("suggestions are only the user's own: another account's database knows none of them", () async {
+      await vault.addTags(unit.id, ['Necrons']);
+      expect(await vault.suggestTags('N'), ['Necrons']);
+
+      // A second account signs in on a fresh database; sync only delivers each user their own rows (server/test).
+      await db.close();
+      await dir.delete(recursive: true);
+      dir = await Directory.systemTemp.createTemp('domain_core_test');
+      await launch();
+      expect(await vault.suggestTags(''), isEmpty);
+    });
+
+    test('are deleted with their Unit, uploading the deletes', () async {
+      await vault.addTags(unit.id, ['Necrons', 'Warhammer 40k']);
+      await vault.deleteUnit(unit.id);
+
+      expect(await db.getAll('SELECT * FROM unit_tags'), isEmpty);
+      final uploads = [
+        for (final op in (await db.getCrudBatch(limit: 100))!.crud)
+          if (op.op == UpdateType.delete) op.table,
+      ];
+      expect(uploads, ['unit_tags', 'unit_tags', 'units']);
+    });
+
+    test('are watched: the stream emits again after a change', () async {
+      final tags = vault.watchTags(unit.id);
+      final expectation = expectLater(tags, emitsThrough(['Necrons']));
+      await vault.addTags(unit.id, ['Necrons']);
+      await expectation;
+    });
+  });
 }

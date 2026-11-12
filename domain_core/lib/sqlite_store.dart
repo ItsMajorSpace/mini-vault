@@ -41,6 +41,8 @@ class SqliteVaultStore implements VaultStore {
       Column.integer('model_count'),
       Column.text('happened_at'),
     ]),
+    // One row per Tag on a Unit; its id is [tagId], so the same Tag added on two devices is one row.
+    Table('unit_tags', [Column.text('unit_id'), Column.text('name')]),
   ]);
 
   // Stage order is (position, id): concurrent reorders on two devices can merge into equal positions, and the id
@@ -306,7 +308,44 @@ class SqliteVaultStore implements VaultStore {
 
   // Its Stage Changes are append-only, so they are not deleted here: the server deletes them with the Unit,
   // and sync then removes them from this device.
+  // Tags first, so their deletes upload too and nothing points at the deleted Unit.
   @override
-  Future<void> deleteUnit(String id) =>
-      _db.execute('DELETE FROM units WHERE id = ?', [id]);
+  Future<void> deleteUnit(String id) => _db.writeTransaction((tx) async {
+    await tx.execute('DELETE FROM unit_tags WHERE unit_id = ?', [id]);
+    await tx.execute('DELETE FROM units WHERE id = ?', [id]);
+  });
+
+  @override
+  Stream<List<String>> watchTags(String unitId) => _db
+      .watch(
+        'SELECT name FROM unit_tags WHERE unit_id = ? ORDER BY name COLLATE NOCASE',
+        parameters: [unitId],
+      )
+      .map((rows) => [for (final r in rows) r['name'] as String]);
+
+  // addTags reuses a Tag's first casing, so casings differ only after offline adds on two devices; ORDER BY
+  // makes the pick the same everywhere.
+  @override
+  Future<List<String>> allTagNames() async => [
+    for (final r in await _db.getAll(
+      'SELECT DISTINCT name FROM unit_tags ORDER BY name',
+    ))
+      r['name'] as String,
+  ];
+
+  @override
+  Future<void> insertTags(String unitId, Map<String, String> namesById) =>
+      _db.writeTransaction((tx) async {
+        for (final MapEntry(key: id, value: name) in namesById.entries) {
+          await tx.execute(
+            'INSERT INTO unit_tags (id, unit_id, name) SELECT ?, ?, ? '
+            'WHERE NOT EXISTS (SELECT 1 FROM unit_tags WHERE id = ?)',
+            [id, unitId, name, id],
+          );
+        }
+      });
+
+  @override
+  Future<void> deleteTag(String id) =>
+      _db.execute('DELETE FROM unit_tags WHERE id = ?', [id]);
 }

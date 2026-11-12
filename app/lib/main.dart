@@ -297,16 +297,21 @@ class _CollectionScreenState extends State<CollectionScreen> {
   Future<void> _add(List<Stage> stages) async {
     final result = await showDialog<_UnitFields>(
       context: context,
-      builder: (_) => _UnitDialog(title: 'New Unit', stages: stages),
+      builder: (_) => _UnitDialog(
+        title: 'New Unit',
+        stages: stages,
+        suggestTags: widget.vault.suggestTags,
+      ),
     );
     if (result == null) return;
-    await widget.vault.addUnit(
+    final unit = await widget.vault.addUnit(
       widget.collection,
       name: result.name,
       modelCount: result.modelCount,
       notes: result.notes,
       stageId: result.stageId!,
     );
+    await widget.vault.addTags(unit.id, result.tags);
   }
 
   @override
@@ -409,9 +414,16 @@ class _UnitScreenState extends State<UnitScreen> {
   late final _history = widget.vault.watchHistory(widget.unitId);
 
   Future<void> _edit(Unit unit) async {
+    final tags = await widget.vault.tagsOf(unit.id);
+    if (!mounted) return;
     final result = await showDialog<_UnitFields>(
       context: context,
-      builder: (_) => _UnitDialog(title: 'Edit Unit', unit: unit),
+      builder: (_) => _UnitDialog(
+        title: 'Edit Unit',
+        unit: unit,
+        tags: tags,
+        suggestTags: widget.vault.suggestTags,
+      ),
     );
     if (result == null) return;
     if (result.delete) {
@@ -419,6 +431,11 @@ class _UnitScreenState extends State<UnitScreen> {
       if (mounted) Navigator.pop(context);
       return;
     }
+    final kept = {for (final t in result.tags) tagKey(t)};
+    for (final t in tags.where((t) => !kept.contains(tagKey(t)))) {
+      await widget.vault.removeTag(unit.id, t);
+    }
+    await widget.vault.addTags(unit.id, result.tags);
     // Only changed fields, so edits to other fields on other devices are kept.
     await widget.vault.editUnit(
       unit.id,
@@ -542,16 +559,25 @@ typedef _UnitFields = ({
   int modelCount,
   String notes,
   String? stageId,
+  List<String> tags,
   bool delete,
 });
 
 /// Adds a Unit (with a starting Stage from [stages]) or edits [unit] (with a Delete button).
 class _UnitDialog extends StatefulWidget {
-  const _UnitDialog({required this.title, this.stages = const [], this.unit});
+  const _UnitDialog({
+    required this.title,
+    this.stages = const [],
+    this.unit,
+    this.tags = const [],
+    required this.suggestTags,
+  });
 
   final String title;
   final List<Stage> stages;
   final Unit? unit;
+  final List<String> tags;
+  final Future<List<String>> Function(String prefix) suggestTags;
 
   @override
   State<_UnitDialog> createState() => _UnitDialogState();
@@ -565,22 +591,37 @@ class _UnitDialogState extends State<_UnitDialog> {
   );
   late final _notes = TextEditingController(text: widget.unit?.notes);
   late String? _stageId = widget.stages.firstOrNull?.id;
+  late final _tags = [...widget.tags];
+  final _tag = TextEditingController();
+  final _tagFocus = FocusNode();
+
+  void _addTag(String name) {
+    final key = tagKey(name);
+    if (key.isNotEmpty && !_tags.any((t) => tagKey(t) == key)) {
+      setState(() => _tags.add(name.trim()));
+    }
+    _tag.clear();
+  }
 
   @override
   void dispose() {
     _name.dispose();
     _count.dispose();
     _notes.dispose();
+    _tag.dispose();
+    _tagFocus.dispose();
     super.dispose();
   }
 
   void _close({bool delete = false}) {
     if (!delete && !_form.currentState!.validate()) return;
+    _addTag(_tag.text); // A Tag typed but not yet submitted.
     Navigator.pop<_UnitFields>(context, (
       name: _name.text.trim(),
       modelCount: int.tryParse(_count.text.trim()) ?? 0,
       notes: _notes.text.trim(),
       stageId: _stageId,
+      tags: _tags,
       delete: delete,
     ));
   }
@@ -623,6 +664,36 @@ class _UnitDialogState extends State<_UnitDialog> {
                   ],
                   onChanged: (id) => _stageId = id,
                 ),
+              Autocomplete<String>(
+                textEditingController: _tag,
+                focusNode: _tagFocus,
+                optionsBuilder: (value) async => [
+                  for (final t in await widget.suggestTags(value.text))
+                    if (!_tags.any((added) => tagKey(added) == tagKey(t))) t,
+                ],
+                fieldViewBuilder: (context, field, focus, submit) =>
+                    TextFormField(
+                      controller: field,
+                      focusNode: focus,
+                      decoration: const InputDecoration(labelText: 'Add Tag'),
+                      onFieldSubmitted: (v) {
+                        _addTag(v);
+                        focus.requestFocus(); // Ready for the next Tag.
+                      },
+                    ),
+                onSelected: _addTag,
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final t in _tags)
+                    InputChip(
+                      label: Text(t),
+                      onDeleted: () => setState(() => _tags.remove(t)),
+                      deleteButtonTooltipMessage: 'Remove Tag $t',
+                    ),
+                ],
+              ),
             ],
           ),
         ),
