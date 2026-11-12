@@ -4,6 +4,8 @@ library;
 import 'dart:async';
 import 'dart:math';
 
+import 'package:uuid/uuid.dart';
+
 /// One step in a [Workflow].
 class Stage {
   const Stage({required this.id, required this.name});
@@ -223,7 +225,19 @@ abstract interface class VaultStore {
     int? modelCount,
     String? notes,
   });
+
+  /// Deletes the Unit and its Tags.
   Future<void> deleteUnit(String id);
+
+  /// Emits the Unit's Tags, by name, now and again whenever they change.
+  Stream<List<String>> watchTags(String unitId);
+
+  /// Every Tag name on any of the user's Units.
+  Future<List<String>> allTagNames();
+
+  /// Adds Tags to a Unit, keyed by their [tagId]; a Tag whose id is already there is left as it is.
+  Future<void> insertTags(String unitId, Map<String, String> namesById);
+  Future<void> deleteTag(String id);
 }
 
 /// The domain operations a collector can perform.
@@ -509,7 +523,55 @@ class Vault {
   );
 
   Future<void> deleteUnit(String id) => _store.deleteUnit(id);
+
+  /// The Unit's Tags, by name, emitted again whenever they change.
+  Stream<List<String>> watchTags(String unitId) => _store.watchTags(unitId);
+
+  /// The Unit's Tags, by name. With [addTags], what a Split needs to copy them to the new Unit.
+  Future<List<String>> tagsOf(String unitId) => _store.watchTags(unitId).first;
+
+  /// Adds Tags to a Unit, skipping blank names and ones it already has (ignoring case and outer spaces).
+  /// A Tag the user has used before keeps the casing it was first entered with.
+  Future<void> addTags(String unitId, Iterable<String> names) async {
+    final known = _byKey(await _store.allTagNames());
+    final namesById = <String, String>{};
+    for (final name in names.map((n) => n.trim()).where((n) => n.isNotEmpty)) {
+      final display = known[tagKey(name)] ?? name;
+      namesById.putIfAbsent(tagId(unitId, display), () => display);
+    }
+    if (namesById.isNotEmpty) await _store.insertTags(unitId, namesById);
+  }
+
+  Future<void> removeTag(String unitId, String name) =>
+      _store.deleteTag(tagId(unitId, name));
+
+  /// The user's Tags that start with [prefix] (ignoring case and outer spaces), by name.
+  Future<List<String>> suggestTags(String prefix) async {
+    final key = tagKey(prefix);
+    return [
+      for (final MapEntry(key: k, value: name) in _byKey(
+        await _store.allTagNames(),
+      ).entries)
+        if (k.startsWith(key)) name,
+    ]..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  }
+
+  static Map<String, String> _byKey(Iterable<String> names) {
+    final byKey = <String, String>{};
+    for (final n in names) {
+      byKey.putIfAbsent(tagKey(n), () => n);
+    }
+    return byKey;
+  }
 }
+
+/// What makes two Tag names the same Tag: case and outer spaces are ignored.
+String tagKey(String name) => name.trim().toLowerCase();
+
+/// The id of [name] as a Tag on Unit [unitId]: the same on every device, so two devices adding the same Tag
+/// to the same Unit offline write the same row instead of a duplicate. The write API checks it.
+String tagId(String unitId, String name) =>
+    const Uuid().v5(unitId, tagKey(name));
 
 /// Throws an [ArgumentError] unless a Unit has at least one model. The server's database enforces the same rule.
 int validModelCount(int count) => count >= 1

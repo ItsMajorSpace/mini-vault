@@ -32,6 +32,7 @@ const _writable = {
     'model_count': 'int',
     'happened_at': 'timestamptz',
   },
+  'unit_tags': {'unit_id': 'uuid', 'name': 'text'},
 };
 
 /// Columns that point at another synced row, and that row's table. The row must exist and be the user's own.
@@ -94,6 +95,15 @@ CREATE TABLE IF NOT EXISTS stage_changes (
   happened_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS stage_changes_unit_id ON stage_changes (unit_id);
+-- A Tag on a Unit. The id is derived from the Unit and the Tag name (domain_core's tagId), so the same Tag added
+-- on two devices is one row. Deleted with its Unit.
+CREATE TABLE IF NOT EXISTS unit_tags (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  unit_id uuid NOT NULL REFERENCES units ON DELETE CASCADE,
+  name text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS unit_tags_unit_id ON unit_tags (unit_id);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -121,7 +131,7 @@ DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
     CREATE PUBLICATION powersync;
   END IF;
-  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes'])
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags'])
     EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
   LOOP
     EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
@@ -263,6 +273,7 @@ Future<Set<String>> _apply(
     );
     if (used.isNotEmpty) throw _Rejected(409, 'A Collection uses Workflow $id');
   }
+  if (table == 'unit_tags') _checkTag(op['op'], id, data);
   final touched = {
     if (table == 'workflows') id,
     if (table == 'stages') ...[
@@ -284,6 +295,9 @@ Future<Set<String>> _apply(
   ];
 
   switch (op['op']) {
+    // The same Tag added again, e.g. from another device: the first-entered casing stays.
+    case 'PUT' when table == 'unit_tags' && existing.isNotEmpty:
+      break;
     case 'PUT' when existing.isEmpty:
       await tx.execute(
         'INSERT INTO $table (id, owner_id${columns.map((c) => ', $c').join()}) '
@@ -351,6 +365,20 @@ Future<Set<String>> _apply(
     }
   }
   return touched;
+}
+
+/// A Tag is never edited, only added and removed, and its id must be [tagId] of its Unit and name.
+void _checkTag(Object? op, String id, Map<String, Object?> data) {
+  if (op == 'PATCH') throw _Rejected(422, 'Tags cannot be edited');
+  if (op != 'PUT') return;
+  if (data case {'unit_id': final String unitId, 'name': final String name}) {
+    try {
+      if (tagId(unitId, name) == id) return;
+    } on FormatException {
+      // Falls through to the rejection.
+    }
+  }
+  throw _Rejected(422, 'Tag $id must have the id of its unit_id and name');
 }
 
 /// Rejects the batch if it leaves a (still existing) Workflow without its Owned and Finished Stage among its own
