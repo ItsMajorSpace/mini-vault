@@ -25,6 +25,13 @@ const _writable = {
     'model_count': 'int',
     'notes': 'text',
   },
+  'stage_changes': {
+    'unit_id': 'uuid',
+    'from_stage_id': 'uuid',
+    'to_stage_id': 'uuid',
+    'model_count': 'int',
+    'happened_at': 'timestamptz',
+  },
 };
 
 /// Columns that point at another synced row, and that row's table. The row must exist and be the user's own.
@@ -33,6 +40,9 @@ const _references = {
   'workflow_id': 'workflows',
   'collection_id': 'collections',
   'stage_id': 'stages',
+  'unit_id': 'units',
+  'from_stage_id': 'stages',
+  'to_stage_id': 'stages',
 };
 
 /// Creates the synced tables, the trigger that gives each new account its starter Workflow,
@@ -73,6 +83,17 @@ CREATE TABLE IF NOT EXISTS units (
   model_count integer NOT NULL CHECK (model_count >= 1),
   notes text NOT NULL DEFAULT ''
 );
+-- Append-only. Deleting a Unit deletes its Stage Changes.
+CREATE TABLE IF NOT EXISTS stage_changes (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  unit_id uuid NOT NULL REFERENCES units ON DELETE CASCADE,
+  from_stage_id uuid,
+  to_stage_id uuid NOT NULL,
+  model_count integer NOT NULL CHECK (model_count >= 1),
+  happened_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS stage_changes_unit_id ON stage_changes (unit_id);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -100,7 +121,7 @@ DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
     CREATE PUBLICATION powersync;
   END IF;
-  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units'])
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes'])
     EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
   LOOP
     EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
@@ -113,7 +134,8 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 /// `POST /upload` with `{"operations": [CrudEntry.toJson(), ...]}` and the user's GoTrue access token.
 /// Applies the operations in one transaction. Answers 401 for a bad token, 403 if any operation touches
 /// or points at another user's row, 409 for deleting a Workflow a Collection uses or a Stage that holds Units,
-/// 422 for an invalid operation (including a reference to a missing row) or a batch that leaves a Workflow invalid
+/// 422 for an invalid operation (including a reference to a missing row, or a PATCH or DELETE of an append-only
+/// Stage Change) or a batch that leaves a Workflow invalid
 /// (nothing is written in those cases), and 204 on success.
 /// Conflicts are the latest write wins per field, and deletes win: a PATCH to a deleted row is ignored.
 Handler writeApi(Pool<void> db, {required String jwtSecret}) =>
@@ -198,11 +220,21 @@ Future<Set<String>> _apply(
   if (existing.isNotEmpty && existing.first.first != owner) {
     throw _Rejected(403, 'Not your row: $table $id');
   }
+  if (table == 'stage_changes') {
+    if (op['op'] != 'PUT') {
+      throw _Rejected(422, 'Stage Changes are append-only');
+    }
+    // A repeated upload of a Stage Change already stored (a retry) changes nothing.
+    if (existing.isNotEmpty) return {};
+  }
 
   // Skipped for a PATCH to a deleted row, which is ignored anyway (deletes win).
   // FOR SHARE holds off a concurrent delete of the referenced row until this batch commits.
   if (existing.isNotEmpty || op['op'] == 'PUT') {
-    for (final column in data.keys.where(_references.containsKey)) {
+    // A null reference (a Unit's initial Stage Change has no from-Stage) points at nothing; NOT NULL columns reject it.
+    for (final column in data.keys.where(
+      (c) => _references.containsKey(c) && data[c] != null,
+    )) {
       final referenced = await tx.execute(
         'SELECT owner_id::text FROM ${_references[column]} WHERE id = \$1::uuid FOR SHARE',
         parameters: [data[column]],
@@ -274,17 +306,47 @@ Future<Set<String>> _apply(
       throw _Rejected(422, 'Unknown op ${op['op']}');
   }
 
+  // units.stage_id is re-derived from the latest Stage Change (device timestamp, then id) after every write to a Unit or its Stage Changes, so upload order and a client's stale stage_id never decide it.
+  final unitId = switch (table) {
+    'units' => id,
+    'stage_changes' => data['unit_id'],
+    _ => null,
+  };
+  if (unitId != null) {
+    await tx.execute(
+      r'''UPDATE units u SET stage_id = latest.to_stage_id
+        FROM (SELECT to_stage_id FROM stage_changes WHERE unit_id = $1::uuid
+          ORDER BY happened_at DESC, id DESC LIMIT 1) latest
+        WHERE u.id = $1::uuid AND u.stage_id <> latest.to_stage_id''',
+      parameters: [unitId],
+    );
+  }
+  if (table == 'stage_changes') {
+    final outside = await tx.execute(
+      'SELECT FROM stage_changes sc JOIN units u ON u.id = sc.unit_id '
+      'JOIN collections c ON c.id = u.collection_id JOIN stages s ON s.id = sc.to_stage_id '
+      'WHERE sc.id = \$1::uuid AND s.workflow_id <> c.workflow_id',
+      parameters: [id],
+    );
+    if (outside.isNotEmpty) {
+      throw _Rejected(
+        422,
+        "Stage Change $id: its to-Stage is not in its Unit's Collection's Workflow",
+      );
+    }
+  }
+
   // Checked after the write, so it holds whichever of the two columns changed. The transaction rolls back if not.
-  if (table == 'units') {
+  if (unitId != null) {
     final mismatched = await tx.execute(
       'SELECT FROM units u JOIN collections c ON c.id = u.collection_id JOIN stages s ON s.id = u.stage_id '
       'WHERE u.id = \$1::uuid AND s.workflow_id <> c.workflow_id',
-      parameters: [id],
+      parameters: [unitId],
     );
     if (mismatched.isNotEmpty) {
       throw _Rejected(
         422,
-        "Unit $id's Stage is not in its Collection's Workflow",
+        "Unit $unitId's Stage is not in its Collection's Workflow",
       );
     }
   }

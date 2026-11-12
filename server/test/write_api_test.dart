@@ -523,12 +523,21 @@ void main() {
     final bob = await signUp();
     final id = await createCollection(alice);
     final unitId = await newId();
+    final stageChangeId = await newId();
+    final wishlist = await stageOf(alice.id, 'Wishlist');
     await upload(alice.token, [
-      putUnit(
-        unitId,
-        collectionId: id,
-        stageId: await stageOf(alice.id, 'Wishlist'),
-      ),
+      putUnit(unitId, collectionId: id, stageId: wishlist),
+      {
+        'op': 'PUT',
+        'type': 'stage_changes',
+        'id': stageChangeId,
+        'data': {
+          'unit_id': unitId,
+          'to_stage_id': wishlist,
+          'model_count': 10,
+          'happened_at': '2026-11-13T09:00:00.000Z',
+        },
+      },
     ]);
 
     /// The ids in one full sync of [token]'s rows, read from PowerSync's sync stream.
@@ -563,11 +572,11 @@ void main() {
 
     // Replication from Postgres is asynchronous: wait until Alice's Collection reaches her stream.
     var aliceIds = <String>{};
-    for (var i = 0; i < 20 && !aliceIds.contains(unitId); i++) {
+    for (var i = 0; i < 20 && !aliceIds.contains(stageChangeId); i++) {
       if (i > 0) await Future<void>.delayed(const Duration(milliseconds: 250));
       aliceIds = await syncedIds(alice.token);
     }
-    expect(aliceIds, containsAll([id, unitId]));
+    expect(aliceIds, containsAll([id, unitId, stageChangeId]));
     expect(aliceIds, contains(await workflowOf(alice.id)));
 
     final bobIds = await syncedIds(bob.token);
@@ -815,5 +824,209 @@ void main() {
       401,
     );
     expect((await upload(forged, [op])).statusCode, 401);
+  });
+
+  group('Stage Changes', () {
+    Map<String, Object?> putStageChange(
+      String id, {
+      required String unitId,
+      String? fromStageId,
+      required String toStageId,
+      required String happenedAt,
+    }) => {
+      'op': 'PUT',
+      'type': 'stage_changes',
+      'id': id,
+      'data': {
+        'unit_id': unitId,
+        'from_stage_id': fromStageId,
+        'to_stage_id': toStageId,
+        'model_count': 10,
+        'happened_at': happenedAt,
+      },
+    };
+
+    /// The Unit's history as to-Stage names, oldest first.
+    Future<List<Object?>> history(String unitId) async => [
+      for (final row in await db.execute(
+        r'''SELECT s.name FROM stage_changes sc JOIN stages s ON s.id = sc.to_stage_id
+          WHERE sc.unit_id = $1::uuid ORDER BY sc.happened_at, sc.id''',
+        parameters: [unitId],
+      ))
+        row.first,
+    ];
+
+    /// A user with a Unit created at Wishlist, as the app uploads it: the Unit, then its initial Stage Change.
+    Future<({String token, String id, String unitId})> userWithUnit() async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final wishlist = await stageOf(user.id, 'Wishlist');
+      final unitId = await newId();
+      final created = await upload(user.token, [
+        putUnit(unitId, collectionId: collectionId, stageId: wishlist),
+        putStageChange(
+          await newId(),
+          unitId: unitId,
+          toStageId: wishlist,
+          happenedAt: '2026-11-13T09:00:00.000Z',
+        ),
+      ]);
+      expect(created.statusCode, 204, reason: created.body);
+      return (token: user.token, id: user.id, unitId: unitId);
+    }
+
+    test('two offline moves uploaded out of order are both kept, and the later one by device timestamp is current', () async {
+      final user = await userWithUnit();
+      final wishlist = await stageOf(user.id, 'Wishlist');
+      final primed = await stageOf(user.id, 'Primed');
+      final painted = await stageOf(user.id, 'Painted');
+
+      // Device B moved to Painted at 11:00 and uploads first; device A moved to Primed at 10:00 and uploads second.
+      for (final (stageId, at) in [
+        (painted, '2026-11-13T11:00:00.000Z'),
+        (primed, '2026-11-13T10:00:00.000Z'),
+      ]) {
+        final response = await upload(user.token, [
+          {
+            'op': 'PATCH',
+            'type': 'units',
+            'id': user.unitId,
+            'data': {'stage_id': stageId},
+          },
+          putStageChange(
+            await newId(),
+            unitId: user.unitId,
+            fromStageId: wishlist,
+            toStageId: stageId,
+            happenedAt: at,
+          ),
+        ]);
+        expect(response.statusCode, 204, reason: response.body);
+      }
+
+      expect(await history(user.unitId), ['Wishlist', 'Primed', 'Painted']);
+      expect((await unit(user.unitId)).single.last, 'Painted');
+    });
+
+    test(
+      'cannot be edited or deleted; deleting the Unit removes them',
+      () async {
+        final user = await userWithUnit();
+        final id = await newId();
+        final primed = await stageOf(user.id, 'Primed');
+        final move = putStageChange(
+          id,
+          unitId: user.unitId,
+          toStageId: primed,
+          happenedAt: '2026-11-13T10:00:00.000Z',
+        );
+        expect((await upload(user.token, [move])).statusCode, 204);
+
+        for (final op in [
+          {
+            'op': 'PATCH',
+            'type': 'stage_changes',
+            'id': id,
+            'data': {'to_stage_id': await stageOf(user.id, 'Done')},
+          },
+          {'op': 'DELETE', 'type': 'stage_changes', 'id': id},
+        ]) {
+          final response = await upload(user.token, [op]);
+          expect(response.statusCode, 422, reason: '${op['op']}');
+        }
+        // A retried upload of the same insert, even with other data, changes nothing.
+        final retried = await upload(user.token, [
+          putStageChange(
+            id,
+            unitId: user.unitId,
+            toStageId: await stageOf(user.id, 'Done'),
+            happenedAt: '2026-11-14T10:00:00.000Z',
+          ),
+        ]);
+        expect(retried.statusCode, 204, reason: retried.body);
+        expect(await history(user.unitId), ['Wishlist', 'Primed']);
+        expect((await unit(user.unitId)).single.last, 'Primed');
+
+        final deleted = await upload(user.token, [
+          {'op': 'DELETE', 'type': 'units', 'id': user.unitId},
+        ]);
+        expect(deleted.statusCode, 204, reason: deleted.body);
+        expect(await history(user.unitId), isEmpty);
+      },
+    );
+
+    test("cannot point at another user's Unit or Stage", () async {
+      final alice = await userWithUnit();
+      final bob = await userWithUnit();
+      final aliceStage = await stageOf(alice.id, 'Primed');
+      final bobStage = await stageOf(bob.id, 'Primed');
+
+      for (final (reason, op) in [
+        (
+          "another user's Unit",
+          putStageChange(
+            await newId(),
+            unitId: alice.unitId,
+            toStageId: bobStage,
+            happenedAt: '2026-11-13T10:00:00.000Z',
+          ),
+        ),
+        (
+          "another user's to-Stage",
+          putStageChange(
+            await newId(),
+            unitId: bob.unitId,
+            toStageId: aliceStage,
+            happenedAt: '2026-11-13T10:00:00.000Z',
+          ),
+        ),
+        (
+          "another user's from-Stage",
+          putStageChange(
+            await newId(),
+            unitId: bob.unitId,
+            fromStageId: aliceStage,
+            toStageId: bobStage,
+            happenedAt: '2026-11-13T10:00:00.000Z',
+          ),
+        ),
+      ]) {
+        final response = await upload(bob.token, [op]);
+        expect(response.statusCode, 403, reason: reason);
+      }
+
+      expect(await history(alice.unitId), ['Wishlist']);
+      expect(await history(bob.unitId), ['Wishlist']);
+      expect((await unit(alice.unitId)).single.last, 'Wishlist');
+    });
+
+    test(
+      "a move to a Stage outside the Collection's Workflow is rejected",
+      () async {
+        final user = await userWithUnit();
+        final otherWorkflow = await newId();
+        final otherStages = [await newId(), await newId()];
+        expect(
+          (await upload(
+            user.token,
+            newWorkflow(otherWorkflow, otherStages),
+          )).statusCode,
+          204,
+        );
+
+        final response = await upload(user.token, [
+          putStageChange(
+            await newId(),
+            unitId: user.unitId,
+            toStageId: otherStages.first,
+            happenedAt: '2026-11-13T10:00:00.000Z',
+          ),
+        ]);
+
+        expect(response.statusCode, 422, reason: response.body);
+        expect(await history(user.unitId), ['Wishlist']);
+        expect((await unit(user.unitId)).single.last, 'Wishlist');
+      },
+    );
   });
 }
