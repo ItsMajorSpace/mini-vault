@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:powersync/powersync.dart' hide Column;
 
 import 'sync.dart';
+import 'workflows.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -161,12 +162,9 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
   late final _collections = widget.vault.watchCollections();
 
   Future<void> _create() async {
-    final name = await _askName('New Collection', '');
-    if (name == null) return;
-    try {
-      await widget.vault.createCollection(name);
-    } on StateError {
-      if (!mounted) return;
+    final workflows = await widget.vault.workflows();
+    if (!mounted) return;
+    if (workflows.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -174,21 +172,24 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
           ),
         ),
       );
+      return;
+    }
+    final picked = await showDialog<(String, String)>(
+      context: context,
+      builder: (_) => NewCollectionDialog(workflows: workflows),
+    );
+    if (picked case (final name, final workflowId) when mounted) {
+      await attempt(
+        context,
+        () => widget.vault.createCollection(name, workflowId: workflowId),
+      );
     }
   }
 
   Future<void> _rename(Collection collection) async {
-    final name = await _askName('Rename Collection', collection.name);
+    final name = await askName(context, 'Rename Collection', collection.name);
     if (name == null) return;
     await widget.vault.renameCollection(collection.id, name);
-  }
-
-  Future<String?> _askName(String title, String initial) async {
-    final name = await showDialog<String>(
-      context: context,
-      builder: (_) => _NameDialog(title: title, initial: initial),
-    );
-    return (name == null || name.trim().isEmpty) ? null : name;
   }
 
   @override
@@ -197,6 +198,16 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
       appBar: AppBar(
         title: const Text('Collections'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.account_tree),
+            tooltip: 'Workflows',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => WorkflowsScreen(vault: widget.vault),
+              ),
+            ),
+          ),
           if (widget.onSignOut case final signOut?)
             IconButton(
               icon: const Icon(Icons.logout),
@@ -532,47 +543,6 @@ class _SyncStatusBarState extends State<SyncStatusBar> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [Icon(icon, size: 16), const SizedBox(width: 8), Text(text)],
       ),
-    );
-  }
-}
-
-class _NameDialog extends StatefulWidget {
-  const _NameDialog({required this.title, required this.initial});
-
-  final String title;
-  final String initial;
-
-  @override
-  State<_NameDialog> createState() => _NameDialogState();
-}
-
-class _NameDialogState extends State<_NameDialog> {
-  late final _controller = TextEditingController(text: widget.initial);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    void save() => Navigator.pop(context, _controller.text);
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: 'Name'),
-        onSubmitted: (_) => save(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        TextButton(onPressed: save, child: const Text('Save')),
-      ],
     );
   }
 }
