@@ -32,7 +32,7 @@ void main() {
   Future<String> syncStarterWorkflow() async {
     const workflowId = '00000000-0000-4000-8000-000000000001';
     await db.execute(
-      "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES (?, 'Starter', 's1', 's6')",
+      "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id, starter) VALUES (?, 'Starter', 's1', 's6', 1)",
       [workflowId],
     );
     for (final (position, name) in Vault.starterStageNames.indexed) {
@@ -67,6 +67,199 @@ void main() {
     });
   });
 
+  group('Workflow', () {
+    List<String> names(Workflow w) => [for (final s in w.stages) s.name];
+    Future<Workflow> reload(String id) async =>
+        (await vault.workflows()).firstWhere((w) => w.id == id);
+
+    test('is created with the starter Stages and renamed, and persists across restarts', () async {
+      await syncStarterWorkflow();
+      final created = await vault.createWorkflow(' Speed painting ');
+      await vault.renameWorkflow(created.id, 'Batch painting');
+      await restart();
+
+      final [starter, workflow] = await vault.workflows();
+      expect(starter.name, 'Starter');
+      expect(workflow.name, 'Batch painting');
+      expect(names(workflow), Vault.starterStageNames);
+      expect(workflow.ownedStage.name, 'Unassembled');
+      expect(workflow.finishedStage.name, 'Done');
+      expect((await vault.starterWorkflow())!.id, starter.id);
+      expect(() => vault.renameWorkflow(created.id, ' '), throwsArgumentError);
+    });
+
+    test('Stages are added at any position, renamed and moved', () async {
+      final w = await vault.createWorkflow('Mine');
+      await vault.addStage(w.id, 'Washed', 3);
+      await vault.addStage(w.id, 'Bought', 0);
+      final last = await vault.addStage(w.id, 'Shelved', 99);
+      await vault.renameStage(last.id, 'Displayed');
+      await restart();
+      expect(names(await reload(w.id)), [
+        'Bought',
+        'Wishlist',
+        'Unassembled',
+        'Assembled',
+        'Washed',
+        'Primed',
+        'Painted',
+        'Based',
+        'Done',
+        'Displayed',
+      ]);
+
+      final washed = (await reload(w.id)).stages[4];
+      await vault.moveStage(w.id, washed.id, 2);
+      expect(names(await reload(w.id)).take(4), [
+        'Bought',
+        'Wishlist',
+        'Washed',
+        'Unassembled',
+      ]);
+    });
+
+    test(
+      'only positions that change are uploaded when a Stage moves',
+      () async {
+        final w = await vault.createWorkflow('Mine');
+        await (await db.getCrudBatch(limit: 1000))!.complete();
+        await vault.moveStage(w.id, w.stages[3].id, 2);
+
+        final ops = (await db.getCrudBatch())!.crud;
+        expect(ops.map((e) => '${e.id} ${e.opData}'), [
+          '${w.stages[3].id} {position: 2}',
+          '${w.stages[2].id} {position: 3}',
+        ]);
+      },
+    );
+
+    test('concurrent reorders that merge into equal positions still read as one order', () async {
+      final w = await vault.createWorkflow('Mine');
+      // Per-field last-write-wins can leave two Stages at the same position.
+      await db.execute('UPDATE stages SET position = 1 WHERE id IN (?, ?)', [
+        w.stages[2].id,
+        w.stages[3].id,
+      ]);
+      final read = await reload(w.id);
+      expect(read.stages, hasLength(7));
+      expect(read.stages.map((s) => s.id).toSet(), hasLength(7));
+
+      // The next move renumbers them into a clean order again.
+      await vault.moveStage(w.id, w.stages.last.id, 6);
+      final rows = await db.getAll(
+        'SELECT position FROM stages WHERE workflow_id = ? ORDER BY position',
+        [w.id],
+      );
+      expect(rows.map((r) => r['position']), [0, 1, 2, 3, 4, 5, 6]);
+    });
+
+    test('the Owned Stage may not come after the Finished Stage', () async {
+      final w = await vault.createWorkflow('Mine');
+      final [wishlist, unassembled, ..., based, done] = w.stages;
+
+      await vault.setOwnedStage(w.id, wishlist.id);
+      await vault.setFinishedStage(w.id, based.id);
+      var read = await reload(w.id);
+      expect(
+        (read.ownedStage.name, read.finishedStage.name),
+        ('Wishlist', 'Based'),
+      );
+
+      await expectLater(
+        vault.setOwnedStage(w.id, done.id),
+        throwsArgumentError,
+      );
+      await vault.setFinishedStage(w.id, unassembled.id);
+      await expectLater(
+        vault.setFinishedStage(w.id, 'not-a-stage'),
+        throwsArgumentError,
+      );
+      // Moving the Finished Stage (now Unassembled) above the Owned Stage (Wishlist) is refused.
+      await expectLater(
+        vault.moveStage(w.id, unassembled.id, 0),
+        throwsArgumentError,
+      );
+      read = await reload(w.id);
+      expect(
+        (read.ownedStage.name, read.finishedStage.name),
+        ('Wishlist', 'Unassembled'),
+      );
+      expect(names(read).first, 'Wishlist');
+    });
+
+    test('an empty Stage is deleted, but never the last one, nor the Owned or Finished Stage', () async {
+      final w = await vault.createWorkflow('Mine');
+      final [wishlist, unassembled, ..., done] = w.stages;
+
+      await expectLater(
+        vault.deleteStage(w.id, unassembled.id),
+        throwsStateError,
+      );
+      await expectLater(vault.deleteStage(w.id, done.id), throwsStateError);
+      await vault.deleteStage(w.id, wishlist.id);
+      for (final s in w.stages.sublist(2, 6)) {
+        await vault.deleteStage(w.id, s.id);
+      }
+      await vault.setFinishedStage(w.id, unassembled.id);
+      await vault.deleteStage(w.id, done.id);
+
+      expect(names(await reload(w.id)), ['Unassembled']);
+      await expectLater(
+        vault.deleteStage(w.id, unassembled.id),
+        throwsStateError,
+      );
+    });
+
+    test(
+      'is deleted with its Stages only while no Collection uses it',
+      () async {
+        await syncStarterWorkflow();
+        final used = await vault.createWorkflow('Used');
+        final unused = await vault.createWorkflow('Unused');
+        await vault.createCollection('Space Marines', workflowId: used.id);
+
+        await expectLater(vault.deleteWorkflow(used.id), throwsStateError);
+        await vault.deleteWorkflow(unused.id);
+
+        expect((await vault.workflows()).map((w) => w.name), [
+          'Starter',
+          'Used',
+        ]);
+        final stages = await db.get(
+          'SELECT count(*) AS n FROM stages WHERE workflow_id = ?',
+          [unused.id],
+        );
+        expect(stages['n'], 0);
+      },
+    );
+
+    test('changes apply to every Collection using it', () async {
+      await syncStarterWorkflow();
+      final w = await vault.createWorkflow('Shared');
+      final a = await vault.createCollection('Space Marines', workflowId: w.id);
+      final b = await vault.createCollection('Orks', workflowId: w.id);
+      await vault.renameStage(w.stages.first.id, 'Wanted');
+
+      final workflows = await vault.workflows();
+      for (final c in [a, b]) {
+        expect(
+          workflows.firstWhere((x) => x.id == c.workflowId).stages.first.name,
+          'Wanted',
+        );
+      }
+    });
+
+    test('are watched: the stream emits again after a Stage change', () async {
+      final w = await vault.createWorkflow('Mine');
+      final firstStages = vault.watchWorkflows().map(
+        (ws) => ws.single.stages.first.name,
+      );
+      final expectation = expectLater(firstStages, emitsThrough('Wanted'));
+      await vault.renameStage(w.stages.first.id, 'Wanted');
+      await expectation;
+    });
+  });
+
   group('Collection', () {
     test('cannot be created before the starter Workflow has synced', () async {
       await expectLater(
@@ -93,6 +286,18 @@ void main() {
       );
       expect(collection.name, 'Space Marines');
       expect(collection.workflowId, workflowId);
+    });
+
+    test('is created with a picked Workflow', () async {
+      await syncStarterWorkflow();
+      final w = await vault.createWorkflow('Speed painting');
+      await vault.createCollection('Orks', workflowId: w.id);
+      await expectLater(
+        vault.createCollection('Orks', workflowId: 'nope'),
+        throwsArgumentError,
+      );
+
+      expect((await vault.collections()).single.workflowId, w.id);
     });
 
     test('is renamed, and the new name persists across restarts', () async {
@@ -181,6 +386,24 @@ void main() {
         );
       },
     );
+
+    test('keeps its Stage from being deleted until the Unit is gone', () async {
+      final unit = await vault.addUnit(
+        collection,
+        name: 'Intercessors',
+        modelCount: 10,
+        stageId: 's3',
+      );
+
+      await expectLater(
+        vault.deleteStage(collection.workflowId, 's3'),
+        throwsStateError,
+      );
+      await vault.deleteUnit(unit.id);
+      await vault.deleteStage(collection.workflowId, 's3');
+
+      expect(await groups(), isNot(contains(startsWith('Primed'))));
+    });
 
     test('cannot be added with a blank name, no models, or a Stage outside the Workflow', () async {
       Future<Unit> add({

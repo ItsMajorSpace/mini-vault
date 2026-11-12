@@ -18,6 +18,8 @@ class SqliteVaultStore implements VaultStore {
       Column.text('name'),
       Column.text('owned_stage_id'),
       Column.text('finished_stage_id'),
+      // Set by the server on the account's starter Workflow; read-only for the client.
+      Column.integer('starter'),
     ]),
     Table('stages', [
       Column.text('workflow_id'),
@@ -34,12 +36,16 @@ class SqliteVaultStore implements VaultStore {
     ]),
   ]);
 
+  // Stage order is (position, id): concurrent reorders on two devices can merge into equal positions, and the id
+  // breaks the tie the same way everywhere (as on the server), so every merge still reads as one clean order.
   @override
   Future<List<Workflow>> workflows() => _db.readTransaction((tx) async {
     final stages = await tx.getAll(
-      'SELECT id, workflow_id, name FROM stages ORDER BY position',
+      'SELECT id, workflow_id, name FROM stages ORDER BY position, id',
     );
-    final workflows = await tx.getAll('SELECT * FROM workflows');
+    final workflows = await tx.getAll(
+      'SELECT * FROM workflows ORDER BY starter IS NOT 1, name COLLATE NOCASE, id',
+    );
     return [
       for (final w in workflows)
         Workflow(
@@ -55,6 +61,98 @@ class SqliteVaultStore implements VaultStore {
         ),
     ];
   });
+
+  @override
+  Stream<List<Workflow>> watchWorkflows() =>
+      _db.onChange(['workflows', 'stages']).asyncMap((_) => workflows());
+
+  @override
+  Future<void> insertWorkflow(Workflow workflow) =>
+      _db.writeTransaction((tx) async {
+        await tx.execute(
+          'INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES (?, ?, ?, ?)',
+          [
+            workflow.id,
+            workflow.name,
+            workflow.ownedStageId,
+            workflow.finishedStageId,
+          ],
+        );
+        for (final (position, stage) in workflow.stages.indexed) {
+          await tx.execute(
+            'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
+            [stage.id, workflow.id, stage.name, position],
+          );
+        }
+      });
+
+  @override
+  Future<void> renameWorkflow(String id, String name) =>
+      _db.execute('UPDATE workflows SET name = ? WHERE id = ?', [name, id]);
+
+  // Stages first, so the server never sees a moment where the Workflow is gone but its Stages are not.
+  @override
+  Future<void> deleteWorkflow(String id) => _db.writeTransaction((tx) async {
+    await tx.execute('DELETE FROM stages WHERE workflow_id = ?', [id]);
+    await tx.execute('DELETE FROM workflows WHERE id = ?', [id]);
+  });
+
+  @override
+  Future<void> setOwnedStage(String workflowId, String stageId) => _db.execute(
+    'UPDATE workflows SET owned_stage_id = ? WHERE id = ?',
+    [stageId, workflowId],
+  );
+
+  @override
+  Future<void> setFinishedStage(String workflowId, String stageId) =>
+      _db.execute('UPDATE workflows SET finished_stage_id = ? WHERE id = ?', [
+        stageId,
+        workflowId,
+      ]);
+
+  @override
+  Future<void> insertStage(
+    String workflowId,
+    Stage stage,
+    List<String> order,
+  ) => _db.writeTransaction((tx) async {
+    await tx.execute(
+      'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, 0)',
+      [stage.id, workflowId, stage.name],
+    );
+    await _writeOrder(tx, order);
+  });
+
+  @override
+  Future<void> renameStage(String id, String name) =>
+      _db.execute('UPDATE stages SET name = ? WHERE id = ?', [name, id]);
+
+  @override
+  Future<void> reorderStages(List<String> order) =>
+      _db.writeTransaction((tx) => _writeOrder(tx, order));
+
+  /// Renumbers the Stages 0, 1, 2... in [order], writing (and so uploading) only the positions that change.
+  static Future<void> _writeOrder(
+    SqliteWriteContext tx,
+    List<String> order,
+  ) async {
+    for (final (position, id) in order.indexed) {
+      await tx.execute(
+        'UPDATE stages SET position = ? WHERE id = ? AND position IS NOT ?',
+        [position, id, position],
+      );
+    }
+  }
+
+  @override
+  Future<void> deleteStage(String id) =>
+      _db.execute('DELETE FROM stages WHERE id = ?', [id]);
+
+  @override
+  Future<bool> stageHoldsUnits(String id) async => (await _db.getAll(
+    'SELECT 1 FROM units WHERE stage_id = ? LIMIT 1',
+    [id],
+  )).isNotEmpty;
 
   static const _collectionsQuery =
       'SELECT * FROM collections ORDER BY name COLLATE NOCASE';

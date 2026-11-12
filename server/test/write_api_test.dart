@@ -134,7 +134,7 @@ void main() {
       final user = await signUp();
 
       final workflows = await db.execute(
-        r'''SELECT w.name, owned.name, finished.name
+        r'''SELECT w.name, owned.name, finished.name, w.starter
           FROM workflows w
           JOIN stages owned ON owned.id = w.owned_stage_id
           JOIN stages finished ON finished.id = w.finished_stage_id
@@ -142,7 +142,7 @@ void main() {
         parameters: [user.id],
       );
       expect(workflows.map((r) => r.toList()), [
-        ['Starter', 'Unassembled', 'Done'],
+        ['Starter', 'Unassembled', 'Done', true],
       ]);
       final stages = await db.execute(
         r'SELECT name FROM stages WHERE owner_id = $1::uuid ORDER BY position',
@@ -273,6 +273,31 @@ void main() {
     ]);
     expect(deleted.statusCode, 204, reason: deleted.body);
     expect(await unit(id), isEmpty);
+  });
+
+  test('a Stage holding Units cannot be deleted until they are gone', () async {
+    final user = await signUp();
+    final collectionId = await createCollection(user);
+    final primed = await stageOf(user.id, 'Primed');
+    final id = await newId();
+    expect(
+      (await upload(user.token, [
+        putUnit(id, collectionId: collectionId, stageId: primed),
+      ])).statusCode,
+      204,
+    );
+
+    final blocked = await upload(user.token, [
+      {'op': 'DELETE', 'type': 'stages', 'id': primed},
+    ]);
+    expect(blocked.statusCode, 409, reason: blocked.body);
+    expect(await unit(id), isNotEmpty);
+
+    final deleted = await upload(user.token, [
+      {'op': 'DELETE', 'type': 'units', 'id': id},
+      {'op': 'DELETE', 'type': 'stages', 'id': primed},
+    ]);
+    expect(deleted.statusCode, 204, reason: deleted.body);
   });
 
   test('a Unit must have at least one model', () async {
@@ -549,6 +574,236 @@ void main() {
     expect(bobIds, contains(await workflowOf(bob.id)));
     expect(bobIds.intersection(aliceIds), isEmpty);
   });
+
+  /// The operations that create a Workflow with Stages [stageIds] at positions 0, 1, 2..., the second Owned and the last Finished.
+  List<Map<String, Object?>> newWorkflow(String id, List<String> stageIds) => [
+    {
+      'op': 'PUT',
+      'type': 'workflows',
+      'id': id,
+      'data': {
+        'name': 'Speed painting',
+        'owned_stage_id': stageIds[1],
+        'finished_stage_id': stageIds.last,
+      },
+    },
+    for (final (i, stageId) in stageIds.indexed)
+      {
+        'op': 'PUT',
+        'type': 'stages',
+        'id': stageId,
+        'data': {'workflow_id': id, 'name': 'Stage $i', 'position': i},
+      },
+  ];
+
+  Future<List<String>> stagesOf(String workflowId) async => [
+    for (final row in await db.execute(
+      r'SELECT name FROM stages WHERE workflow_id = $1::uuid ORDER BY position, id',
+      parameters: [workflowId],
+    ))
+      row.first as String,
+  ];
+
+  test('a Workflow is created with its Stages, and edited', () async {
+    final user = await signUp();
+    final id = await newId();
+    final stages = [await newId(), await newId(), await newId()];
+
+    final created = await upload(user.token, newWorkflow(id, stages));
+    expect(created.statusCode, 204, reason: created.body);
+    expect(await stagesOf(id), ['Stage 0', 'Stage 1', 'Stage 2']);
+
+    // Move Stage 2 to the top as the new Owned Stage, make Stage 1 the Finished Stage, and delete Stage 0.
+    final edited = await upload(user.token, [
+      {
+        'op': 'PATCH',
+        'type': 'stages',
+        'id': stages[2],
+        'data': {'position': 0},
+      },
+      {
+        'op': 'PATCH',
+        'type': 'stages',
+        'id': stages[0],
+        'data': {'position': 1},
+      },
+      {
+        'op': 'PATCH',
+        'type': 'stages',
+        'id': stages[1],
+        'data': {'position': 2},
+      },
+      {
+        'op': 'PATCH',
+        'type': 'workflows',
+        'id': id,
+        'data': {'owned_stage_id': stages[2], 'finished_stage_id': stages[1]},
+      },
+      {'op': 'DELETE', 'type': 'stages', 'id': stages[0]},
+    ]);
+    expect(edited.statusCode, 204, reason: edited.body);
+    expect(await stagesOf(id), ['Stage 2', 'Stage 1']);
+  });
+
+  test(
+    'a batch that leaves a Workflow invalid is rejected as a whole',
+    () async {
+      final user = await signUp();
+      final id = await newId();
+      final stages = [await newId(), await newId(), await newId()];
+      await upload(user.token, newWorkflow(id, stages));
+      final otherId = await newId();
+      final otherStages = [await newId(), await newId()];
+      await upload(user.token, newWorkflow(otherId, otherStages));
+
+      for (final (reason, ops) in [
+        (
+          'Owned after Finished',
+          [
+            {
+              'op': 'PATCH',
+              'type': 'stages',
+              'id': stages[1],
+              'data': {'position': 5},
+            },
+          ],
+        ),
+        (
+          'Owned Stage deleted',
+          [
+            {'op': 'DELETE', 'type': 'stages', 'id': stages[1]},
+          ],
+        ),
+        (
+          'Finished Stage of another Workflow',
+          [
+            {
+              'op': 'PATCH',
+              'type': 'workflows',
+              'id': id,
+              'data': {'finished_stage_id': otherStages.last},
+            },
+          ],
+        ),
+        (
+          'Finished Stage moved to another Workflow',
+          [
+            {
+              'op': 'PATCH',
+              'type': 'stages',
+              'id': stages.last,
+              'data': {'workflow_id': otherId},
+            },
+          ],
+        ),
+        (
+          'all Stages deleted',
+          [
+            for (final s in stages) {'op': 'DELETE', 'type': 'stages', 'id': s},
+          ],
+        ),
+      ]) {
+        final response = await upload(user.token, ops);
+        expect(response.statusCode, 422, reason: reason);
+      }
+      expect(await stagesOf(id), ['Stage 0', 'Stage 1', 'Stage 2']);
+    },
+  );
+
+  test(
+    "Stages and Collections cannot point at another user's Workflow",
+    () async {
+      final alice = await signUp();
+      final bob = await signUp();
+      final aliceWorkflow = await workflowOf(alice.id);
+
+      for (final op in [
+        {
+          'op': 'PUT',
+          'type': 'collections',
+          'id': await newId(),
+          'data': {'name': 'Planted', 'workflow_id': aliceWorkflow},
+        },
+        {
+          'op': 'PUT',
+          'type': 'stages',
+          'id': await newId(),
+          'data': {
+            'name': 'Planted',
+            'workflow_id': aliceWorkflow,
+            'position': 0,
+          },
+        },
+        {
+          'op': 'PUT',
+          'type': 'collections',
+          'id': await newId(),
+          'data': {'name': 'Dangling', 'workflow_id': await newId()},
+        },
+      ]) {
+        final response = await upload(bob.token, [op]);
+        // Another user's Workflow is forbidden (403); one that doesn't exist is invalid (422).
+        expect(
+          response.statusCode,
+          (op['data'] as Map)['name'] == 'Dangling' ? 422 : 403,
+          reason: '${op['type']}: ${response.body}',
+        );
+      }
+
+      expect(
+        (await db.execute(
+          r'SELECT count(*) FROM stages WHERE workflow_id = $1::uuid',
+          parameters: [aliceWorkflow],
+        )).single.first,
+        Vault.starterStageNames.length,
+      );
+      expect(
+        (await db.execute(
+          r"SELECT count(*) FROM collections WHERE name IN ('Planted', 'Dangling')",
+        )).single.first,
+        0,
+      );
+    },
+  );
+
+  test(
+    'a Workflow a Collection uses cannot be deleted; an unused one can',
+    () async {
+      final user = await signUp();
+      final used = await workflowOf(user.id);
+      await upload(user.token, [
+        {
+          'op': 'PUT',
+          'type': 'collections',
+          'id': await newId(),
+          'data': {'name': 'Space Marines', 'workflow_id': used},
+        },
+      ]);
+      final unused = await newId();
+      final unusedStages = [await newId(), await newId()];
+      await upload(user.token, newWorkflow(unused, unusedStages));
+
+      final blocked = await upload(user.token, [
+        {'op': 'DELETE', 'type': 'workflows', 'id': used},
+      ]);
+      expect(blocked.statusCode, 409, reason: blocked.body);
+
+      final deleted = await upload(user.token, [
+        for (final s in unusedStages)
+          {'op': 'DELETE', 'type': 'stages', 'id': s},
+        {'op': 'DELETE', 'type': 'workflows', 'id': unused},
+      ]);
+      expect(deleted.statusCode, 204, reason: deleted.body);
+
+      expect(
+        (await db.execute(
+          r'SELECT id::text FROM workflows WHERE owner_id = $1::uuid',
+          parameters: [user.id],
+        )).map((r) => r.first),
+        [used],
+      );
+    },
+  );
 
   test('uploads without a valid access token are rejected', () async {
     final op = {'op': 'DELETE', 'type': 'collections', 'id': await newId()};

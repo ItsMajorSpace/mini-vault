@@ -29,8 +29,15 @@ class Workflow {
   final String ownedStageId;
   final String finishedStageId;
 
-  Stage get ownedStage => stages.firstWhere((s) => s.id == ownedStageId);
-  Stage get finishedStage => stages.firstWhere((s) => s.id == finishedStageId);
+  // Fall back to the glossary defaults if a merge from another device deleted the Stage the id points at.
+  Stage get ownedStage => stages.firstWhere(
+    (s) => s.id == ownedStageId,
+    orElse: () => stages[min(1, stages.length - 1)],
+  );
+  Stage get finishedStage => stages.firstWhere(
+    (s) => s.id == finishedStageId,
+    orElse: () => stages.last,
+  );
 }
 
 /// A named set of Units owned by one person, all progressing through the same Workflow.
@@ -88,7 +95,30 @@ List<StageGroup> groupByStage(Workflow workflow, Iterable<Unit> units) => [
 /// The narrow storage interface the domain core talks to.
 /// The app implements it over local SQLite (`package:domain_core/sqlite_store.dart`).
 abstract interface class VaultStore {
+  /// The starter Workflow first, then the rest by name. Each Workflow's Stages are in Workflow order.
   Future<List<Workflow>> workflows();
+
+  /// Emits the Workflows now and again whenever they or their Stages change.
+  Stream<List<Workflow>> watchWorkflows();
+
+  /// Inserts the Workflow and its Stages, positioned in list order.
+  Future<void> insertWorkflow(Workflow workflow);
+  Future<void> renameWorkflow(String id, String name);
+
+  /// Deletes the Workflow and its Stages.
+  Future<void> deleteWorkflow(String id);
+  Future<void> setOwnedStage(String workflowId, String stageId);
+  Future<void> setFinishedStage(String workflowId, String stageId);
+
+  /// Inserts [stage] into the Workflow and stores [order] (all its Stage ids, the new one included) as the Stage order.
+  Future<void> insertStage(String workflowId, Stage stage, List<String> order);
+  Future<void> renameStage(String id, String name);
+
+  /// Stores [order] (all of a Workflow's Stage ids) as its Stage order.
+  Future<void> reorderStages(List<String> order);
+  Future<void> deleteStage(String id);
+  Future<bool> stageHoldsUnits(String id);
+
   Future<List<Collection>> collections();
 
   /// Emits the Collections now and again whenever they change, locally or through sync.
@@ -127,18 +157,137 @@ class Vault {
   ];
 
   /// The server creates the starter Workflow when the account is created; it is null until the first sync delivers it.
-  // shortcut: returns whichever Workflow exists, since there is only ever one; pick by user choice once Workflows can be created.
+  /// If it was deleted, the first other Workflow stands in for it.
   Future<Workflow?> starterWorkflow() async =>
       (await _store.workflows()).firstOrNull;
+
+  Future<List<Workflow>> workflows() => _store.workflows();
+
+  Stream<List<Workflow>> watchWorkflows() => _store.watchWorkflows();
+
+  /// Creates a Workflow with the starter Stages, the second Stage Owned and the last Finished.
+  Future<Workflow> createWorkflow(String name) async {
+    final stages = [
+      for (final name in starterStageNames) Stage(id: _newId(), name: name),
+    ];
+    final workflow = Workflow(
+      id: _newId(),
+      name: validName(name),
+      stages: stages,
+      ownedStageId: stages[1].id,
+      finishedStageId: stages.last.id,
+    );
+    await _store.insertWorkflow(workflow);
+    return workflow;
+  }
+
+  Future<void> renameWorkflow(String id, String name) =>
+      _store.renameWorkflow(id, validName(name));
+
+  /// Throws a [StateError] while any Collection uses the Workflow.
+  Future<void> deleteWorkflow(String id) async {
+    if ((await _store.collections()).any((c) => c.workflowId == id)) {
+      throw StateError('A Collection uses this Workflow');
+    }
+    await _store.deleteWorkflow(id);
+  }
+
+  /// Throws an [ArgumentError] if the Stage is not in the Workflow or comes after its Finished Stage.
+  Future<void> setOwnedStage(String workflowId, String stageId) async {
+    final w = await _workflow(workflowId);
+    _checkOrder(w.stages, owned: stageId, finished: w.finishedStage.id);
+    await _store.setOwnedStage(workflowId, stageId);
+  }
+
+  /// Throws an [ArgumentError] if the Stage is not in the Workflow or comes before its Owned Stage.
+  Future<void> setFinishedStage(String workflowId, String stageId) async {
+    final w = await _workflow(workflowId);
+    _checkOrder(w.stages, owned: w.ownedStage.id, finished: stageId);
+    await _store.setFinishedStage(workflowId, stageId);
+  }
+
+  /// Adds a Stage at [index] (0 is first; clamped to the end).
+  Future<Stage> addStage(String workflowId, String name, int index) async {
+    final w = await _workflow(workflowId);
+    final stage = Stage(id: _newId(), name: validName(name));
+    final order = [for (final s in w.stages) s.id]
+      ..insert(index.clamp(0, w.stages.length), stage.id);
+    await _store.insertStage(workflowId, stage, order);
+    return stage;
+  }
+
+  Future<void> renameStage(String id, String name) =>
+      _store.renameStage(id, validName(name));
+
+  /// Moves a Stage to [index] in the Workflow's order.
+  /// Throws an [ArgumentError] if that would put the Owned Stage after the Finished Stage.
+  Future<void> moveStage(String workflowId, String stageId, int index) async {
+    final w = await _workflow(workflowId);
+    final stage = w.stages.firstWhere(
+      (s) => s.id == stageId,
+      orElse: () =>
+          throw ArgumentError.value(stageId, 'stageId', 'not in this Workflow'),
+    );
+    final order = [...w.stages]..remove(stage);
+    order.insert(index.clamp(0, order.length), stage);
+    _checkOrder(order, owned: w.ownedStage.id, finished: w.finishedStage.id);
+    await _store.reorderStages([for (final s in order) s.id]);
+  }
+
+  /// Throws a [StateError] if it is the Workflow's only Stage, its Owned or Finished Stage, or holds Units.
+  Future<void> deleteStage(String workflowId, String stageId) async {
+    final w = await _workflow(workflowId);
+    if (!w.stages.any((s) => s.id == stageId)) {
+      throw ArgumentError.value(stageId, 'stageId', 'not in this Workflow');
+    }
+    if (w.stages.length == 1) {
+      throw StateError('A Workflow needs at least one Stage');
+    }
+    if (stageId == w.ownedStage.id || stageId == w.finishedStage.id) {
+      throw StateError('Pick another Owned or Finished Stage first');
+    }
+    if (await _store.stageHoldsUnits(stageId)) {
+      throw StateError('This Stage holds Units');
+    }
+    await _store.deleteStage(stageId);
+  }
+
+  Future<Workflow> _workflow(String id) async =>
+      (await _store.workflows()).firstWhere(
+        (w) => w.id == id,
+        orElse: () =>
+            throw ArgumentError.value(id, 'workflowId', 'no such Workflow'),
+      );
+
+  static void _checkOrder(
+    List<Stage> stages, {
+    required String owned,
+    required String finished,
+  }) {
+    final ids = [for (final s in stages) s.id];
+    final (o, f) = (ids.indexOf(owned), ids.indexOf(finished));
+    if (o < 0 || f < 0) {
+      throw ArgumentError(
+        'The Owned and Finished Stage must be in this Workflow',
+      );
+    }
+    if (o > f) {
+      throw ArgumentError(
+        'The Owned Stage may not come after the Finished Stage',
+      );
+    }
+  }
 
   Future<List<Collection>> collections() => _store.collections();
 
   Stream<List<Collection>> watchCollections() => _store.watchCollections();
 
-  /// Creates a Collection that uses the starter Workflow.
-  /// Throws a [StateError] while the starter Workflow has not synced yet.
-  Future<Collection> createCollection(String name) async {
-    final workflow = await starterWorkflow();
+  /// Creates a Collection that uses the given Workflow, or the starter Workflow.
+  /// Throws a [StateError] while there is no Workflow yet (the starter Workflow has not synced).
+  Future<Collection> createCollection(String name, {String? workflowId}) async {
+    final workflow = workflowId == null
+        ? await starterWorkflow()
+        : await _workflow(workflowId);
     if (workflow == null) {
       throw StateError('The starter Workflow has not synced yet');
     }
