@@ -624,4 +624,79 @@ void main() {
       );
     });
   });
+
+  group('Stage Change', () {
+    late Collection collection;
+    late Unit unit;
+    setUp(() async {
+      await syncStarterWorkflow();
+      collection = await vault.createCollection('Space Marines');
+      unit = await vault.addUnit(
+        collection,
+        name: 'Intercessors',
+        modelCount: 10,
+        stageId: 's1',
+      );
+    });
+
+    /// The Unit's history as "from -> to (models)", oldest first.
+    Future<List<String>> history() async => [
+      for (final c in await vault.watchHistory(unit.id).first)
+        '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
+    ];
+    Future<Unit> reload() async =>
+        (await vault.watchStageGroups(collection).first)
+            .expand((g) => g.units)
+            .single;
+
+    test('creating a Unit records its starting Stage', () async {
+      expect(await history(), ['null -> s1 (10)']);
+    });
+
+    test('moves a Unit forward and back, recording each move in order, across restarts', () async {
+      await vault.moveUnit(unit, 's4');
+      await vault.moveUnit(await reload(), 's2');
+      await restart();
+
+      expect((await reload()).stageId, 's2');
+      expect(await history(), [
+        'null -> s1 (10)',
+        's1 -> s4 (10)',
+        's4 -> s2 (10)',
+      ]);
+      final times = [
+        for (final c in await vault.watchHistory(unit.id).first) c.happenedAt,
+      ];
+      expect(times, orderedEquals([...times]..sort()));
+    });
+
+    test('moving to the current Stage records nothing', () async {
+      await vault.moveUnit(unit, 's1');
+      expect(await history(), hasLength(1));
+    });
+
+    test('a Stage outside the Workflow is rejected', () async {
+      await expectLater(vault.moveUnit(unit, 'elsewhere'), throwsArgumentError);
+      expect((await reload()).stageId, 's1');
+      expect(await history(), hasLength(1));
+    });
+
+    test('a move uploads a Stage Change insert', () async {
+      await db.execute('DELETE FROM ps_crud');
+      await vault.moveUnit(unit, 's4');
+
+      final ops = (await db.getCrudBatch())!.crud;
+      expect(ops.map((e) => (e.op, e.table)), [
+        (UpdateType.patch, 'units'),
+        (UpdateType.put, 'stage_changes'),
+      ]);
+    });
+
+    test('history is watched: the stream emits again after a move', () async {
+      final lengths = vault.watchHistory(unit.id).map((h) => h.length);
+      final expectation = expectLater(lengths, emitsThrough(2));
+      await vault.moveUnit(unit, 's3');
+      await expectation;
+    });
+  });
 }

@@ -73,6 +73,32 @@ class Unit {
   final String notes;
 }
 
+/// A record that a Unit moved from one Stage to another, and when. A Unit's Stage Changes form its history.
+/// Append-only: never edited or deleted on its own (deleting the Unit removes them).
+class StageChange {
+  const StageChange({
+    required this.id,
+    required this.unitId,
+    required this.fromStageId,
+    required this.toStageId,
+    required this.modelCount,
+    required this.happenedAt,
+  });
+
+  final String id;
+  final String unitId;
+
+  /// Null for the Stage Change that records where the Unit was created.
+  final String? fromStageId;
+  final String toStageId;
+
+  /// The number of models moved.
+  final int modelCount;
+
+  /// The device's clock when it happened. Used only to order Stage Changes: the latest sets the Unit's Stage.
+  final DateTime happenedAt;
+}
+
 /// One Stage of a Collection's Workflow, with the Collection's Units at it.
 class StageGroup {
   const StageGroup(this.stage, this.units);
@@ -180,7 +206,15 @@ abstract interface class VaultStore {
 
   /// Emits the Collection's Units, by name, now and again whenever they change.
   Stream<List<Unit>> watchUnits(String collectionId);
-  Future<void> insertUnit(Unit unit);
+
+  /// Inserts the Unit and the Stage Change that records its starting Stage, in one transaction.
+  Future<void> insertUnit(Unit unit, StageChange initial);
+
+  /// Appends [change] and sets its Unit's Stage to its to-Stage, in one transaction.
+  Future<void> insertStageChange(StageChange change);
+
+  /// Emits the Unit's Stage Changes, oldest first, now and again whenever they change.
+  Stream<List<StageChange>> watchStageChanges(String unitId);
 
   /// Updates only the given fields, so concurrent edits of other fields on other devices are kept.
   Future<void> updateUnit(
@@ -425,9 +459,41 @@ class Vault {
       modelCount: validModelCount(modelCount),
       notes: notes.trim(),
     );
-    await _store.insertUnit(unit);
+    await _store.insertUnit(unit, _stageChange(unit, null, stageId));
     return unit;
   }
+
+  /// Moves the whole Unit to [stageId], any Stage of its Collection's Workflow, forward or back.
+  /// Does nothing if it is already there.
+  Future<void> moveUnit(Unit unit, String stageId) async {
+    final collection = (await _store.collections()).firstWhere(
+      (c) => c.id == unit.collectionId,
+      orElse: () => throw StateError('The Collection has not synced yet'),
+    );
+    if (!(await workflowOf(collection)).stages.any((s) => s.id == stageId)) {
+      throw ArgumentError.value(
+        stageId,
+        'stageId',
+        "is not a Stage of the Collection's Workflow",
+      );
+    }
+    if (stageId == unit.stageId) return;
+    await _store.insertStageChange(_stageChange(unit, unit.stageId, stageId));
+  }
+
+  /// The Unit's history, oldest first, emitted again whenever it changes.
+  Stream<List<StageChange>> watchHistory(String unitId) =>
+      _store.watchStageChanges(unitId);
+
+  static StageChange _stageChange(Unit unit, String? from, String to) =>
+      StageChange(
+        id: _newId(),
+        unitId: unit.id,
+        fromStageId: from,
+        toStageId: to,
+        modelCount: unit.modelCount,
+        happenedAt: DateTime.now().toUtc(),
+      );
 
   /// Changes only the given fields of a Unit.
   Future<void> editUnit(

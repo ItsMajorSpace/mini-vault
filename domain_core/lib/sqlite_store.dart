@@ -34,6 +34,13 @@ class SqliteVaultStore implements VaultStore {
       Column.integer('model_count'),
       Column.text('notes'),
     ]),
+    Table('stage_changes', [
+      Column.text('unit_id'),
+      Column.text('from_stage_id'),
+      Column.text('to_stage_id'),
+      Column.integer('model_count'),
+      Column.text('happened_at'),
+    ]),
   ]);
 
   // Stage order is (position, id): concurrent reorders on two devices can merge into equal positions, and the id
@@ -207,17 +214,75 @@ class SqliteVaultStore implements VaultStore {
       );
 
   @override
-  Future<void> insertUnit(Unit unit) => _db.execute(
-    'INSERT INTO units (id, collection_id, stage_id, name, model_count, notes) VALUES (?, ?, ?, ?, ?, ?)',
+  Future<void> insertUnit(Unit unit, StageChange initial) =>
+      _db.writeTransaction((tx) async {
+        await tx.execute(
+          'INSERT INTO units (id, collection_id, stage_id, name, model_count, notes) VALUES (?, ?, ?, ?, ?, ?)',
+          [
+            unit.id,
+            unit.collectionId,
+            unit.stageId,
+            unit.name,
+            unit.modelCount,
+            unit.notes,
+          ],
+        );
+        await _insertStageChange(tx, initial);
+      });
+
+  // stage_id is written here only so the move shows at once offline; the server re-derives it from the latest Stage Change.
+  @override
+  Future<void> insertStageChange(StageChange change) =>
+      _db.writeTransaction((tx) async {
+        await tx.execute('UPDATE units SET stage_id = ? WHERE id = ?', [
+          change.toStageId,
+          change.unitId,
+        ]);
+        await _insertStageChange(tx, change);
+      });
+
+  static Future<void> _insertStageChange(
+    SqliteWriteContext tx,
+    StageChange c,
+  ) => tx.execute(
+    'INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES (?, ?, ?, ?, ?, ?)',
     [
-      unit.id,
-      unit.collectionId,
-      unit.stageId,
-      unit.name,
-      unit.modelCount,
-      unit.notes,
+      c.id,
+      c.unitId,
+      c.fromStageId,
+      c.toStageId,
+      c.modelCount,
+      c.happenedAt.toUtc().toIso8601String(),
     ],
   );
+
+  // Sorted after parsing: synced timestamps come back from Postgres in a different text format than local ones.
+  // Ties break on id, as on the server.
+  @override
+  Stream<List<StageChange>> watchStageChanges(String unitId) => _db
+      .watch(
+        'SELECT * FROM stage_changes WHERE unit_id = ?',
+        parameters: [unitId],
+      )
+      .map(
+        (rows) =>
+            [
+              for (final c in rows)
+                StageChange(
+                  id: c['id'] as String,
+                  unitId: c['unit_id'] as String,
+                  fromStageId: c['from_stage_id'] as String?,
+                  toStageId: c['to_stage_id'] as String,
+                  modelCount: c['model_count'] as int,
+                  happenedAt: DateTime.parse(c['happened_at'] as String),
+                ),
+            ]..sort(
+              (a, b) => switch (a.happenedAt.compareTo(b.happenedAt)) {
+                0 => a.id.compareTo(b.id),
+                final order => order,
+              },
+            ),
+      );
 
   // Only the given columns, so sync uploads a PATCH of just those fields.
   @override
@@ -239,6 +304,8 @@ class SqliteVaultStore implements VaultStore {
     );
   }
 
+  // Its Stage Changes are append-only, so they are not deleted here: the server deletes them with the Unit,
+  // and sync then removes them from this device.
   @override
   Future<void> deleteUnit(String id) =>
       _db.execute('DELETE FROM units WHERE id = ?', [id]);

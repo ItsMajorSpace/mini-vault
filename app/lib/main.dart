@@ -309,24 +309,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
     );
   }
 
-  Future<void> _edit(Unit unit) async {
-    final result = await showDialog<_UnitFields>(
-      context: context,
-      builder: (_) => _UnitDialog(title: 'Edit Unit', unit: unit),
-    );
-    if (result == null) return;
-    if (result.delete) return widget.vault.deleteUnit(unit.id);
-    // Only changed fields, so edits to other fields on other devices are kept.
-    await widget.vault.editUnit(
-      unit.id,
-      name: result.name == unit.name ? null : result.name,
-      modelCount: result.modelCount == unit.modelCount
-          ? null
-          : result.modelCount,
-      notes: result.notes == unit.notes ? null : result.notes,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
@@ -376,7 +358,16 @@ class _CollectionScreenState extends State<CollectionScreen> {
                       title: Text(u.name),
                       subtitle: u.notes.isEmpty ? null : Text(u.notes),
                       trailing: Text('${u.modelCount}'),
-                      onTap: () => _edit(u),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => UnitScreen(
+                            vault: widget.vault,
+                            collection: widget.collection,
+                            unitId: u.id,
+                          ),
+                        ),
+                      ),
                     ),
                 ],
               ],
@@ -389,6 +380,157 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   tooltip: 'New Unit',
                   child: const Icon(Icons.add),
                 ),
+        );
+      },
+    );
+  }
+}
+
+/// A Unit's fields, its Stage (with a Move action) and its history of Stage Changes.
+class UnitScreen extends StatefulWidget {
+  const UnitScreen({
+    super.key,
+    required this.vault,
+    required this.collection,
+    required this.unitId,
+  });
+
+  final Vault vault;
+  final Collection collection;
+  final String unitId;
+
+  @override
+  State<UnitScreen> createState() => _UnitScreenState();
+}
+
+class _UnitScreenState extends State<UnitScreen> {
+  // The Stage groups carry both the Workflow's Stages and the Unit's current fields.
+  late final _groups = widget.vault.watchStageGroups(widget.collection);
+  late final _history = widget.vault.watchHistory(widget.unitId);
+
+  Future<void> _edit(Unit unit) async {
+    final result = await showDialog<_UnitFields>(
+      context: context,
+      builder: (_) => _UnitDialog(title: 'Edit Unit', unit: unit),
+    );
+    if (result == null) return;
+    if (result.delete) {
+      await widget.vault.deleteUnit(unit.id);
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+    // Only changed fields, so edits to other fields on other devices are kept.
+    await widget.vault.editUnit(
+      unit.id,
+      name: result.name == unit.name ? null : result.name,
+      modelCount: result.modelCount == unit.modelCount
+          ? null
+          : result.modelCount,
+      notes: result.notes == unit.notes ? null : result.notes,
+    );
+  }
+
+  Future<void> _move(Unit unit, List<Stage> stages) async {
+    final stageId = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Move to Stage'),
+        children: [
+          for (final s in stages)
+            ListTile(
+              leading: Icon(
+                s.id == unit.stageId ? Icons.check : null,
+                semanticLabel: s.id == unit.stageId ? 'Current Stage' : null,
+              ),
+              title: Text(s.name),
+              onTap: () => Navigator.pop(context, s.id),
+            ),
+        ],
+      ),
+    );
+    if (stageId != null && mounted) {
+      await attempt(context, () => widget.vault.moveUnit(unit, stageId));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: _groups,
+      builder: (context, snapshot) {
+        final groups = snapshot.data ?? const [];
+        final stages = [for (final g in groups) g.stage];
+        final unit = groups
+            .expand((g) => g.units)
+            .where((u) => u.id == widget.unitId)
+            .firstOrNull;
+        String stageName(String? id) =>
+            stages.where((s) => s.id == id).firstOrNull?.name ??
+            'a deleted Stage';
+        final localizations = MaterialLocalizations.of(context);
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(unit?.name ?? ''),
+            actions: [
+              if (unit != null)
+                IconButton(
+                  icon: const Icon(Icons.edit),
+                  tooltip: 'Edit Unit',
+                  onPressed: () => _edit(unit),
+                ),
+            ],
+          ),
+          body: switch (snapshot) {
+            AsyncSnapshot(:final error?) => Center(
+              child: Text('Could not load the Unit: $error'),
+            ),
+            _ when unit == null => const Center(
+              child: CircularProgressIndicator(),
+            ),
+            _ => ListView(
+              children: [
+                ListTile(
+                  title: Text(stageName(unit.stageId)),
+                  subtitle: Text(
+                    unit.modelCount == 1
+                        ? '1 model'
+                        : '${unit.modelCount} models',
+                  ),
+                  trailing: FilledButton(
+                    onPressed: () => _move(unit, stages),
+                    child: const Text('Move'),
+                  ),
+                ),
+                if (unit.notes.isNotEmpty) ListTile(title: Text(unit.notes)),
+                ListTile(
+                  title: Text(
+                    'History',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                StreamBuilder(
+                  stream: _history,
+                  builder: (context, history) => Column(
+                    children: [
+                      for (final c in (history.data ?? const []).reversed)
+                        ListTile(
+                          title: Text(
+                            c.fromStageId == null
+                                ? 'Added at ${stageName(c.toStageId)}'
+                                : '${stageName(c.fromStageId)} → ${stageName(c.toStageId)}',
+                          ),
+                          subtitle: Text(
+                            '${localizations.formatMediumDate(c.happenedAt.toLocal())} '
+                            '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(c.happenedAt.toLocal()))}',
+                          ),
+                          trailing: Text('${c.modelCount}'),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          },
         );
       },
     );
