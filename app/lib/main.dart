@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:powersync/powersync.dart' hide Column;
 
+import 'progress.dart';
 import 'sync.dart';
 import 'workflows.dart';
 
@@ -239,7 +240,9 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
             children: [
               for (final c in collections)
                 ListTile(
+                  key: ValueKey(c.id),
                   title: Text(c.name),
+                  subtitle: ProgressSummary(vault: widget.vault, collection: c),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute<void>(
@@ -347,6 +350,13 @@ class _CollectionScreenState extends State<CollectionScreen> {
             ),
             _ => ListView(
               children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ProgressSummary(
+                    vault: widget.vault,
+                    collection: widget.collection,
+                  ),
+                ),
                 for (final g in groups) ...[
                   ListTile(
                     title: Text(
