@@ -111,6 +111,14 @@ void main() {
     },
   };
 
+  /// Puts Tag [name] on Unit [unitId], with the id the app gives it.
+  Map<String, Object?> putTag(String unitId, String name) => {
+    'op': 'PUT',
+    'type': 'unit_tags',
+    'id': tagId(unitId, name),
+    'data': {'unit_id': unitId, 'name': name},
+  };
+
   Future<List<List<Object?>>> unit(String id) async => [
     for (final row in await db.execute(
       r'''SELECT u.owner_id::text, u.name, u.model_count, u.notes, s.name
@@ -518,6 +526,122 @@ void main() {
     expect(await collection(id), isEmpty);
   });
 
+  group('Tags', () {
+    /// Creates a Unit for [user] through the API and returns its id.
+    Future<String> createUnit(({String token, String id}) user) async {
+      final id = await newId();
+      final response = await upload(user.token, [
+        putUnit(
+          id,
+          collectionId: await createCollection(user),
+          stageId: await stageOf(user.id, 'Primed'),
+        ),
+      ]);
+      expect(response.statusCode, 204, reason: response.body);
+      return id;
+    }
+
+    Future<List<List<Object?>>> tagsOf(String unitId) async => [
+      for (final row in await db.execute(
+        r'SELECT owner_id::text, name FROM unit_tags WHERE unit_id = $1::uuid ORDER BY name',
+        parameters: [unitId],
+      ))
+        row.toList(),
+    ];
+
+    test('are added and removed, and deleted with their Unit', () async {
+      final user = await signUp();
+      final unitId = await createUnit(user);
+
+      final added = await upload(user.token, [
+        putTag(unitId, ' Necrons '),
+        putTag(unitId, 'Warhammer 40k'),
+      ]);
+      expect(added.statusCode, 204, reason: added.body);
+      expect(await tagsOf(unitId), [
+        [user.id, 'Necrons'],
+        [user.id, 'Warhammer 40k'],
+      ]);
+
+      final removed = await upload(user.token, [
+        {'op': 'DELETE', 'type': 'unit_tags', 'id': tagId(unitId, 'necrons')},
+      ]);
+      expect(removed.statusCode, 204, reason: removed.body);
+      expect(await tagsOf(unitId), [
+        [user.id, 'Warhammer 40k'],
+      ]);
+
+      // An older app could delete the Unit without its Tags: the server deletes them anyway.
+      final deleted = await upload(user.token, [
+        {'op': 'DELETE', 'type': 'units', 'id': unitId},
+      ]);
+      expect(deleted.statusCode, 204, reason: deleted.body);
+      expect(await tagsOf(unitId), isEmpty);
+    });
+
+    test("cannot be put on another user's Unit", () async {
+      final alice = await signUp();
+      final bob = await signUp();
+      final unitId = await createUnit(alice);
+
+      final response = await upload(bob.token, [putTag(unitId, 'Necrons')]);
+      expect(response.statusCode, 403, reason: response.body);
+      expect(await tagsOf(unitId), isEmpty);
+    });
+
+    test('added again from a second device keeps one row and its first casing, and the batch goes through', () async {
+      final user = await signUp();
+      final unitId = await createUnit(user);
+      expect(
+        (await upload(user.token, [putTag(unitId, 'Necrons')])).statusCode,
+        204,
+      );
+
+      // The second device tagged the same Unit offline, in the same batch as an edit.
+      final second = await upload(user.token, [
+        putTag(unitId, 'necrons'),
+        {
+          'op': 'PATCH',
+          'type': 'units',
+          'id': unitId,
+          'data': {'notes': 'Dynasty colours'},
+        },
+      ]);
+      expect(second.statusCode, 204, reason: second.body);
+      expect(await tagsOf(unitId), [
+        [user.id, 'Necrons'],
+      ]);
+      expect((await unit(unitId)).single[3], 'Dynasty colours');
+    });
+
+    test(
+      'must have the id of their Unit and name, and are never edited',
+      () async {
+        final user = await signUp();
+        final unitId = await createUnit(user);
+        final wrongId = {...putTag(unitId, 'Necrons'), 'id': await newId()};
+
+        expect((await upload(user.token, [wrongId])).statusCode, 422);
+        expect(
+          (await upload(user.token, [putTag(unitId, 'Necrons')])).statusCode,
+          204,
+        );
+        final edit = await upload(user.token, [
+          {
+            'op': 'PATCH',
+            'type': 'unit_tags',
+            'id': tagId(unitId, 'Necrons'),
+            'data': {'name': 'Orks'},
+          },
+        ]);
+        expect(edit.statusCode, 422);
+        expect(await tagsOf(unitId), [
+          [user.id, 'Necrons'],
+        ]);
+      },
+    );
+  });
+
   test('PowerSync sends each user only their own rows', () async {
     final alice = await signUp();
     final bob = await signUp();
@@ -525,7 +649,8 @@ void main() {
     final unitId = await newId();
     final stageChangeId = await newId();
     final wishlist = await stageOf(alice.id, 'Wishlist');
-    await upload(alice.token, [
+    final tag = putTag(unitId, 'Necrons');
+    final uploaded = await upload(alice.token, [
       putUnit(unitId, collectionId: id, stageId: wishlist),
       {
         'op': 'PUT',
@@ -538,7 +663,9 @@ void main() {
           'happened_at': '2026-11-13T09:00:00.000Z',
         },
       },
+      tag,
     ]);
+    expect(uploaded.statusCode, 204, reason: uploaded.body);
 
     /// The ids in one full sync of [token]'s rows, read from PowerSync's sync stream.
     Future<Set<String>> syncedIds(String token) async {
@@ -572,11 +699,15 @@ void main() {
 
     // Replication from Postgres is asynchronous: wait until Alice's Collection reaches her stream.
     var aliceIds = <String>{};
-    for (var i = 0; i < 20 && !aliceIds.contains(stageChangeId); i++) {
+    for (
+      var i = 0;
+      i < 20 && !aliceIds.containsAll([stageChangeId, tag['id']]);
+      i++
+    ) {
       if (i > 0) await Future<void>.delayed(const Duration(milliseconds: 250));
       aliceIds = await syncedIds(alice.token);
     }
-    expect(aliceIds, containsAll([id, unitId, stageChangeId]));
+    expect(aliceIds, containsAll([id, unitId, stageChangeId, tag['id']]));
     expect(aliceIds, contains(await workflowOf(alice.id)));
 
     final bobIds = await syncedIds(bob.token);
