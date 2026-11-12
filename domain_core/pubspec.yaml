@@ -1,0 +1,14 @@
+name: domain_core
+description: Mini Vault's domain operations, shared by the app and the server. Pure Dart, no Flutter.
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.14.0
+
+dependencies:
+  sqlite_async: ^0.14.8
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.31.0

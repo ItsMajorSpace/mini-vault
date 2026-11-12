@@ -1,0 +1,9 @@
+name: mini_vault_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.14.0
+
+workspace:
+  - app
+  - domain_core
