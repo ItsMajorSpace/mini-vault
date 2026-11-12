@@ -61,6 +61,7 @@ void main() {
       }
 
       expect(find.text('Ultramarines'), findsOneWidget);
+      expect(find.text('0 / 0 finished'), findsOneWidget);
       expect(find.text('2 changes waiting to sync'), findsOneWidget);
       expect(find.byTooltip('New Collection'), findsOneWidget);
 
@@ -132,6 +133,8 @@ void main() {
         for (final text in rows) tester.getTopLeft(find.text(text)).dy,
       ];
       expect(ys, orderedEquals([...ys]..sort()));
+      // Owned and Finished Stage are both Unassembled: Primed counts as finished, Wishlist as wanted.
+      expect(find.text('11 / 11 finished · 5 wanted'), findsOneWidget);
       expect(find.byTooltip('New Unit'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());

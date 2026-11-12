@@ -541,4 +541,87 @@ void main() {
       await expectation;
     });
   });
+
+  // The starter Workflow: s0 Wishlist, s1 Unassembled (Owned), s2 Assembled, s3 Primed, s4 Painted, s5 Based,
+  // s6 Done (Finished).
+  group('Progress', () {
+    late String workflowId;
+    late Collection collection;
+    setUp(() async {
+      workflowId = await syncStarterWorkflow();
+      collection = await vault.createCollection('Space Marines');
+    });
+
+    Future<void> add(int modelCount, String stageId) => vault.addUnit(
+      collection,
+      name: 'Unit at $stageId',
+      modelCount: modelCount,
+      stageId: stageId,
+    );
+    Future<Progress> progress() => vault.watchProgress(collection).first;
+    Progress p(int wanted, int owned, int finished) =>
+        Progress(wanted: wanted, owned: owned, finished: finished);
+
+    test('of an empty Collection is 0 / 0, with no division by zero', () async {
+      final empty = await progress();
+      expect(empty, p(0, 0, 0));
+      expect(empty.finishedShare, 0);
+    });
+
+    test('counts models before the Owned Stage as wanted only, and after the Finished Stage as finished', () async {
+      await vault.setFinishedStage(workflowId, 's4');
+      await add(5, 's0');
+      await add(10, 's1');
+      await add(2, 's3');
+      await add(3, 's4');
+      await add(4, 's6');
+      final other = await vault.createCollection('Orks');
+      await vault.addUnit(other, name: 'Boyz', modelCount: 20, stageId: 's6');
+
+      final totals = await progress();
+      expect(totals, p(5, 19, 7));
+      expect(totals.finishedShare, 7 / 19);
+    });
+
+    test('with the Owned and Finished Stage the same Stage', () async {
+      await vault.setFinishedStage(workflowId, 's1');
+      await add(5, 's0');
+      await add(10, 's1');
+      await add(2, 's3');
+
+      expect(await progress(), p(5, 12, 12));
+    });
+
+    test('follows the Stage order', () async {
+      await add(5, 's0');
+      // Wishlist moved after Unassembled, so the Owned Stage comes first and Wishlist models are owned.
+      await vault.moveStage(workflowId, 's0', 1);
+
+      expect(await progress(), p(0, 5, 0));
+    });
+
+    test('is watched: emits again after a Unit change and after the Owned or Finished Stage changes', () async {
+      await add(5, 's0');
+      await add(10, 's2');
+      final totals = vault.watchProgress(collection).asBroadcastStream();
+      Future<void> expectAfter(
+        Future<void> Function() change,
+        Progress expected,
+      ) async {
+        final expectation = expectLater(totals, emitsThrough(expected));
+        await change();
+        await expectation;
+      }
+
+      await expectAfter(() => add(3, 's3'), p(5, 13, 0));
+      await expectAfter(
+        () => vault.setOwnedStage(workflowId, 's0'),
+        p(0, 18, 0),
+      );
+      await expectAfter(
+        () => vault.setFinishedStage(workflowId, 's2'),
+        p(0, 18, 13),
+      );
+    });
+  });
 }
