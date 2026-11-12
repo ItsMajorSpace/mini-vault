@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS workflows (
   owned_stage_id uuid NOT NULL,
   finished_stage_id uuid NOT NULL
 );
+-- Marks the account's starter Workflow, the default for a new Collection. Not writable by clients.
+ALTER TABLE workflows ADD COLUMN IF NOT EXISTS starter boolean NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS stages (
   id uuid PRIMARY KEY,
   owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
@@ -81,8 +83,8 @@ DECLARE
   new_workflow_id uuid := gen_random_uuid();
 BEGIN
   -- The Owned Stage is the second Stage and the Finished Stage the last, as the glossary defaults say.
-  INSERT INTO workflows (id, owner_id, name, owned_stage_id, finished_stage_id)
-  VALUES (new_workflow_id, NEW.id, 'Starter', stage_ids[2], stage_ids[array_length(stage_ids, 1)]);
+  INSERT INTO workflows (id, owner_id, name, owned_stage_id, finished_stage_id, starter)
+  VALUES (new_workflow_id, NEW.id, 'Starter', stage_ids[2], stage_ids[array_length(stage_ids, 1)], true);
   INSERT INTO stages (id, owner_id, workflow_id, name, position)
   SELECT stage_ids[i], NEW.id, new_workflow_id, stage_names[i], i - 1
   FROM generate_subscripts(stage_names, 1) AS i;
@@ -110,7 +112,9 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 
 /// `POST /upload` with `{"operations": [CrudEntry.toJson(), ...]}` and the user's GoTrue access token.
 /// Applies the operations in one transaction. Answers 401 for a bad token, 403 if any operation touches
-/// or points at another user's row, 422 for an invalid operation (including a reference to a missing row) (nothing is written in those cases), and 204 on success.
+/// or points at another user's row, 409 for deleting a Workflow a Collection uses or a Stage that holds Units,
+/// 422 for an invalid operation (including a reference to a missing row) or a batch that leaves a Workflow invalid
+/// (nothing is written in those cases), and 204 on success.
 /// Conflicts are the latest write wins per field, and deletes win: a PATCH to a deleted row is ignored.
 Handler writeApi(Pool<void> db, {required String jwtSecret}) =>
     (request) async {
@@ -143,9 +147,11 @@ Handler writeApi(Pool<void> db, {required String jwtSecret}) =>
 
       try {
         await db.runTx((tx) async {
+          final touched = <String>{};
           for (final op in operations) {
-            await _apply(tx, owner, op);
+            touched.addAll(await _apply(tx, owner, op));
           }
+          await _checkWorkflows(tx, touched);
         });
         return Response(204);
       } on _Rejected catch (e) {
@@ -160,7 +166,12 @@ Handler writeApi(Pool<void> db, {required String jwtSecret}) =>
       }
     };
 
-Future<void> _apply(TxSession tx, String owner, Map<String, Object?> op) async {
+/// Applies [op] and returns the ids of the Workflows it may have changed, to check once the batch is applied.
+Future<Set<String>> _apply(
+  TxSession tx,
+  String owner,
+  Map<String, Object?> op,
+) async {
   final table = op['type'];
   final id = op['id'];
   final data = op['data'] as Map<String, Object?>? ?? {};
@@ -189,10 +200,11 @@ Future<void> _apply(TxSession tx, String owner, Map<String, Object?> op) async {
   }
 
   // Skipped for a PATCH to a deleted row, which is ignored anyway (deletes win).
+  // FOR SHARE holds off a concurrent delete of the referenced row until this batch commits.
   if (existing.isNotEmpty || op['op'] == 'PUT') {
     for (final column in data.keys.where(_references.containsKey)) {
       final referenced = await tx.execute(
-        'SELECT owner_id::text FROM ${_references[column]} WHERE id = \$1::uuid',
+        'SELECT owner_id::text FROM ${_references[column]} WHERE id = \$1::uuid FOR SHARE',
         parameters: [data[column]],
       );
       if (referenced.isEmpty) {
@@ -203,6 +215,33 @@ Future<void> _apply(TxSession tx, String owner, Map<String, Object?> op) async {
       }
     }
   }
+  // A Stage holding Units can't be deleted or moved to another Workflow: its Units would lose their place.
+  if (table == 'stages' &&
+      (op['op'] == 'DELETE' || data.containsKey('workflow_id'))) {
+    final held = await tx.execute(
+      'SELECT FROM units WHERE stage_id = \$1::uuid LIMIT 1',
+      parameters: [id],
+    );
+    if (held.isNotEmpty) throw _Rejected(409, 'Units are at Stage $id');
+  }
+  if (table == 'workflows' && op['op'] == 'DELETE') {
+    final used = await tx.execute(
+      'SELECT FROM collections WHERE workflow_id = \$1::uuid LIMIT 1',
+      parameters: [id],
+    );
+    if (used.isNotEmpty) throw _Rejected(409, 'A Collection uses Workflow $id');
+  }
+  final touched = {
+    if (table == 'workflows') id,
+    if (table == 'stages') ...[
+      for (final row in await tx.execute(
+        'SELECT workflow_id::text FROM stages WHERE id = \$1::uuid',
+        parameters: [id],
+      ))
+        row.first as String,
+      if (data['workflow_id'] case final String workflowId) workflowId,
+    ],
+  };
 
   // Column names come from _writable, never from the payload, so interpolating them is safe.
   final columns = data.keys.toList();
@@ -248,6 +287,29 @@ Future<void> _apply(TxSession tx, String owner, Map<String, Object?> op) async {
         "Unit $id's Stage is not in its Collection's Workflow",
       );
     }
+  }
+  return touched;
+}
+
+/// Rejects the batch if it leaves a (still existing) Workflow without its Owned and Finished Stage among its own
+/// Stages, in that order. Checked after the whole batch, since a client writes a new Workflow before its Stages.
+/// Stage order is (position, id), as on the client.
+Future<void> _checkWorkflows(TxSession tx, Set<String> workflowIds) async {
+  if (workflowIds.isEmpty) return;
+  final invalid = await tx.execute(
+    r'''SELECT w.id::text FROM workflows w
+      WHERE w.id::text = ANY($1) AND NOT EXISTS (
+        SELECT FROM stages o, stages f
+        WHERE o.id = w.owned_stage_id AND o.workflow_id = w.id
+          AND f.id = w.finished_stage_id AND f.workflow_id = w.id
+          AND (o.position, o.id) <= (f.position, f.id))''',
+    parameters: [TypedValue(Type.textArray, workflowIds.toList())],
+  );
+  if (invalid.isNotEmpty) {
+    throw _Rejected(
+      422,
+      'Workflow ${invalid.first.first}: its Owned and Finished Stage must be its own Stages, in that order',
+    );
   }
 }
 
