@@ -1,33 +1,31 @@
-/// [VaultStore] over local SQLite, used by the app. Kept out of `domain_core.dart` so the server never needs it.
+/// [VaultStore] over the app's local SQLite database, managed by PowerSync. Kept out of `domain_core.dart` so the server never needs it.
 library;
 
+import 'package:powersync/powersync.dart';
 import 'package:sqlite_async/sqlite_async.dart';
 
 import 'domain_core.dart';
 
 class SqliteVaultStore implements VaultStore {
-  /// Takes any sqlite_async connection, so a `PowerSyncDatabase` can be passed in later.
+  /// Takes the app's `PowerSyncDatabase`, opened with [schema].
   SqliteVaultStore(this._db);
 
   final SqliteConnection _db;
 
-  /// Tables are shaped like PowerSync's synced views: a text UUID `id`, plain columns, no constraints.
-  // shortcut: hand-written tables with no migrations; replaced by a PowerSync Schema when sync lands (#5).
-  static Future<void> createTables(SqliteConnection db) =>
-      db.writeTransaction((tx) async {
-        await tx.execute(
-          'CREATE TABLE IF NOT EXISTS workflows '
-          '(id TEXT PRIMARY KEY NOT NULL, name TEXT, owned_stage_id TEXT, finished_stage_id TEXT)',
-        );
-        await tx.execute(
-          'CREATE TABLE IF NOT EXISTS stages '
-          '(id TEXT PRIMARY KEY NOT NULL, workflow_id TEXT, name TEXT, position INTEGER)',
-        );
-        await tx.execute(
-          'CREATE TABLE IF NOT EXISTS collections '
-          '(id TEXT PRIMARY KEY NOT NULL, name TEXT, workflow_id TEXT)',
-        );
-      });
+  /// The synced tables, as PowerSync views. Each row's `owner_id` stays on the server: sync only sends a user their own rows.
+  static const schema = Schema([
+    Table('workflows', [
+      Column.text('name'),
+      Column.text('owned_stage_id'),
+      Column.text('finished_stage_id'),
+    ]),
+    Table('stages', [
+      Column.text('workflow_id'),
+      Column.text('name'),
+      Column.integer('position'),
+    ]),
+    Table('collections', [Column.text('name'), Column.text('workflow_id')]),
+  ]);
 
   @override
   Future<List<Workflow>> workflows() => _db.readTransaction((tx) async {
@@ -51,37 +49,26 @@ class SqliteVaultStore implements VaultStore {
     ];
   });
 
-  @override
-  Future<void> insertWorkflow(Workflow workflow) =>
-      _db.writeTransaction((tx) async {
-        await tx.execute(
-          'INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES (?, ?, ?, ?)',
-          [
-            workflow.id,
-            workflow.name,
-            workflow.ownedStageId,
-            workflow.finishedStageId,
-          ],
-        );
-        for (final (position, stage) in workflow.stages.indexed) {
-          await tx.execute(
-            'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
-            [stage.id, workflow.id, stage.name, position],
-          );
-        }
-      });
+  static const _collectionsQuery =
+      'SELECT * FROM collections ORDER BY name COLLATE NOCASE';
 
   @override
-  Future<List<Collection>> collections() async => [
-    for (final c in await _db.getAll(
-      'SELECT * FROM collections ORDER BY name COLLATE NOCASE',
-    ))
-      Collection(
-        id: c['id'] as String,
-        name: c['name'] as String,
-        workflowId: c['workflow_id'] as String,
-      ),
-  ];
+  Future<List<Collection>> collections() async =>
+      _toCollections(await _db.getAll(_collectionsQuery));
+
+  @override
+  Stream<List<Collection>> watchCollections() =>
+      _db.watch(_collectionsQuery).map(_toCollections);
+
+  static List<Collection> _toCollections(Iterable<Map<String, Object?>> rows) =>
+      [
+        for (final c in rows)
+          Collection(
+            id: c['id'] as String,
+            name: c['name'] as String,
+            workflowId: c['workflow_id'] as String,
+          ),
+      ];
 
   @override
   Future<void> insertCollection(Collection collection) => _db.execute(
@@ -89,7 +76,7 @@ class SqliteVaultStore implements VaultStore {
     [collection.id, collection.name, collection.workflowId],
   );
 
-  // An UPDATE of one column, so sync can send it as a per-field change.
+  // An UPDATE of one column, so sync uploads it as a per-field change (PATCH).
   @override
   Future<void> renameCollection(String id, String name) =>
       _db.execute('UPDATE collections SET name = ? WHERE id = ?', [name, id]);

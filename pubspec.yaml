@@ -7,3 +7,4 @@ environment:
 workspace:
   - app
   - domain_core
+  - server
