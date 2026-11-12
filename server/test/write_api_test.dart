@@ -68,6 +68,58 @@ void main() {
           )).first.first
           as String;
 
+  Future<String> stageOf(String userId, String name) async =>
+      (await db.execute(
+            r'SELECT id::text FROM stages WHERE owner_id = $1::uuid AND name = $2',
+            parameters: [userId, name],
+          )).first.first
+          as String;
+
+  /// Creates a Collection for [user] through the API and returns its id.
+  Future<String> createCollection(({String token, String id}) user) async {
+    final id = await newId();
+    final response = await upload(user.token, [
+      {
+        'op': 'PUT',
+        'type': 'collections',
+        'id': id,
+        'data': {
+          'name': 'Space Marines',
+          'workflow_id': await workflowOf(user.id),
+        },
+      },
+    ]);
+    expect(response.statusCode, 204, reason: response.body);
+    return id;
+  }
+
+  Map<String, Object?> putUnit(
+    String id, {
+    required String collectionId,
+    required String stageId,
+    int modelCount = 10,
+  }) => {
+    'op': 'PUT',
+    'type': 'units',
+    'id': id,
+    'data': {
+      'name': 'Intercessors',
+      'model_count': modelCount,
+      'notes': '',
+      'collection_id': collectionId,
+      'stage_id': stageId,
+    },
+  };
+
+  Future<List<List<Object?>>> unit(String id) async => [
+    for (final row in await db.execute(
+      r'''SELECT u.owner_id::text, u.name, u.model_count, u.notes, s.name
+        FROM units u JOIN stages s ON s.id = u.stage_id WHERE u.id = $1::uuid''',
+      parameters: [id],
+    ))
+      row.toList(),
+  ];
+
   Future<List<List<Object?>>> collection(String id) async => [
     for (final row in await db.execute(
       r'SELECT owner_id::text, name FROM collections WHERE id = $1::uuid',
@@ -186,6 +238,186 @@ void main() {
     },
   );
 
+  test('a Unit is created at a Stage, edited per field and deleted', () async {
+    final user = await signUp();
+    final collectionId = await createCollection(user);
+    final id = await newId();
+
+    final created = await upload(user.token, [
+      putUnit(
+        id,
+        collectionId: collectionId,
+        stageId: await stageOf(user.id, 'Primed'),
+      ),
+    ]);
+    expect(created.statusCode, 204, reason: created.body);
+    expect(await unit(id), [
+      [user.id, 'Intercessors', 10, '', 'Primed'],
+    ]);
+
+    final edited = await upload(user.token, [
+      {
+        'op': 'PATCH',
+        'type': 'units',
+        'id': id,
+        'data': {'model_count': 5, 'notes': 'Jump packs'},
+      },
+    ]);
+    expect(edited.statusCode, 204, reason: edited.body);
+    expect(await unit(id), [
+      [user.id, 'Intercessors', 5, 'Jump packs', 'Primed'],
+    ]);
+
+    final deleted = await upload(user.token, [
+      {'op': 'DELETE', 'type': 'units', 'id': id},
+    ]);
+    expect(deleted.statusCode, 204, reason: deleted.body);
+    expect(await unit(id), isEmpty);
+  });
+
+  test('a Unit must have at least one model', () async {
+    final user = await signUp();
+    final collectionId = await createCollection(user);
+    final stageId = await stageOf(user.id, 'Wishlist');
+    final id = await newId();
+    await upload(user.token, [
+      putUnit(id, collectionId: collectionId, stageId: stageId),
+    ]);
+
+    final created = await upload(user.token, [
+      putUnit(
+        await newId(),
+        collectionId: collectionId,
+        stageId: stageId,
+        modelCount: 0,
+      ),
+    ]);
+    final edited = await upload(user.token, [
+      {
+        'op': 'PATCH',
+        'type': 'units',
+        'id': id,
+        'data': {'model_count': 0},
+      },
+    ]);
+
+    expect(created.statusCode, 422);
+    expect(edited.statusCode, 422);
+    expect((await unit(id)).single[2], 10);
+  });
+
+  test(
+    "rows cannot point at another user's rows, or at rows that do not exist",
+    () async {
+      final alice = await signUp();
+      final bob = await signUp();
+      final aliceCollection = await createCollection(alice);
+      final bobCollection = await createCollection(bob);
+      final aliceStage = await stageOf(alice.id, 'Wishlist');
+      final bobStage = await stageOf(bob.id, 'Wishlist');
+
+      final cases = {
+        "a Unit in another user's Collection": (
+          403,
+          putUnit(
+            await newId(),
+            collectionId: aliceCollection,
+            stageId: bobStage,
+          ),
+        ),
+        "a Unit at another user's Stage": (
+          403,
+          putUnit(
+            await newId(),
+            collectionId: bobCollection,
+            stageId: aliceStage,
+          ),
+        ),
+        "a Collection with another user's Workflow": (
+          403,
+          {
+            'op': 'PUT',
+            'type': 'collections',
+            'id': await newId(),
+            'data': {
+              'name': 'Planted',
+              'workflow_id': await workflowOf(alice.id),
+            },
+          },
+        ),
+        'a Unit in a missing Collection': (
+          422,
+          putUnit(
+            await newId(),
+            collectionId: await newId(),
+            stageId: bobStage,
+          ),
+        ),
+        'a Collection with a missing Workflow': (
+          422,
+          {
+            'op': 'PUT',
+            'type': 'collections',
+            'id': await newId(),
+            'data': {'name': 'Planted', 'workflow_id': await newId()},
+          },
+        ),
+      };
+      for (final MapEntry(key: reason, value: (status, op)) in cases.entries) {
+        final response = await upload(bob.token, [op]);
+        expect(response.statusCode, status, reason: reason);
+      }
+
+      final units = await db.execute(
+        r'SELECT count(*) FROM units WHERE owner_id IN ($1::uuid, $2::uuid)',
+        parameters: [alice.id, bob.id],
+      );
+      expect(units.single.first, 0);
+    },
+  );
+
+  test("a Unit's Stage must be in its Collection's Workflow", () async {
+    final user = await signUp();
+    final collectionId = await createCollection(user);
+    // A second Workflow of the same user, with one Stage.
+    final otherWorkflow = await newId();
+    final otherStage = await newId();
+    await db.execute(
+      r'''INSERT INTO workflows (id, owner_id, name, owned_stage_id, finished_stage_id)
+        VALUES ($1::uuid, $3::uuid, 'Other', $2::uuid, $2::uuid)''',
+      parameters: [otherWorkflow, otherStage, user.id],
+    );
+    await db.execute(
+      r'''INSERT INTO stages (id, owner_id, workflow_id, name, position)
+        VALUES ($2::uuid, $3::uuid, $1::uuid, 'Elsewhere', 0)''',
+      parameters: [otherWorkflow, otherStage, user.id],
+    );
+    final id = await newId();
+
+    final created = await upload(user.token, [
+      putUnit(await newId(), collectionId: collectionId, stageId: otherStage),
+    ]);
+    await upload(user.token, [
+      putUnit(
+        id,
+        collectionId: collectionId,
+        stageId: await stageOf(user.id, 'Wishlist'),
+      ),
+    ]);
+    final moved = await upload(user.token, [
+      {
+        'op': 'PATCH',
+        'type': 'units',
+        'id': id,
+        'data': {'stage_id': otherStage},
+      },
+    ]);
+
+    expect(created.statusCode, 422);
+    expect(moved.statusCode, 422);
+    expect((await unit(id)).single.last, 'Wishlist');
+  });
+
   test('the owner cannot be set from the payload', () async {
     final alice = await signUp();
     final bob = await signUp();
@@ -264,17 +496,14 @@ void main() {
   test('PowerSync sends each user only their own rows', () async {
     final alice = await signUp();
     final bob = await signUp();
-    final id = await newId();
+    final id = await createCollection(alice);
+    final unitId = await newId();
     await upload(alice.token, [
-      {
-        'op': 'PUT',
-        'type': 'collections',
-        'id': id,
-        'data': {
-          'name': 'Space Marines',
-          'workflow_id': await workflowOf(alice.id),
-        },
-      },
+      putUnit(
+        unitId,
+        collectionId: id,
+        stageId: await stageOf(alice.id, 'Wishlist'),
+      ),
     ]);
 
     /// The ids in one full sync of [token]'s rows, read from PowerSync's sync stream.
@@ -309,11 +538,11 @@ void main() {
 
     // Replication from Postgres is asynchronous: wait until Alice's Collection reaches her stream.
     var aliceIds = <String>{};
-    for (var i = 0; i < 20 && !aliceIds.contains(id); i++) {
+    for (var i = 0; i < 20 && !aliceIds.contains(unitId); i++) {
       if (i > 0) await Future<void>.delayed(const Duration(milliseconds: 250));
       aliceIds = await syncedIds(alice.token);
     }
-    expect(aliceIds, contains(id));
+    expect(aliceIds, containsAll([id, unitId]));
     expect(aliceIds, contains(await workflowOf(alice.id)));
 
     final bobIds = await syncedIds(bob.token);

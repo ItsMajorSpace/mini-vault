@@ -6,7 +6,7 @@ import 'package:domain_core/sqlite_store.dart';
 import 'package:gotrue/gotrue.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:powersync/powersync.dart';
+import 'package:powersync/powersync.dart' hide Column;
 
 import 'sync.dart';
 
@@ -229,6 +229,16 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
               for (final c in collections)
                 ListTile(
                   title: Text(c.name),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => CollectionScreen(
+                        vault: widget.vault,
+                        db: widget.db,
+                        collection: c,
+                      ),
+                    ),
+                  ),
                   trailing: IconButton(
                     icon: const Icon(Icons.edit),
                     tooltip: 'Rename Collection',
@@ -244,6 +254,228 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
         tooltip: 'New Collection',
         child: const Icon(Icons.add),
       ),
+    );
+  }
+}
+
+/// A Collection's Units, grouped by Stage in Workflow order, with a model count per Stage.
+class CollectionScreen extends StatefulWidget {
+  const CollectionScreen({
+    super.key,
+    required this.vault,
+    required this.db,
+    required this.collection,
+  });
+
+  final Vault vault;
+
+  /// For the sync status only; Units go through [vault].
+  final PowerSyncDatabase db;
+  final Collection collection;
+
+  @override
+  State<CollectionScreen> createState() => _CollectionScreenState();
+}
+
+class _CollectionScreenState extends State<CollectionScreen> {
+  late final _groups = widget.vault.watchStageGroups(widget.collection);
+
+  Future<void> _add(List<Stage> stages) async {
+    final result = await showDialog<_UnitFields>(
+      context: context,
+      builder: (_) => _UnitDialog(title: 'New Unit', stages: stages),
+    );
+    if (result == null) return;
+    await widget.vault.addUnit(
+      widget.collection,
+      name: result.name,
+      modelCount: result.modelCount,
+      notes: result.notes,
+      stageId: result.stageId!,
+    );
+  }
+
+  Future<void> _edit(Unit unit) async {
+    final result = await showDialog<_UnitFields>(
+      context: context,
+      builder: (_) => _UnitDialog(title: 'Edit Unit', unit: unit),
+    );
+    if (result == null) return;
+    if (result.delete) return widget.vault.deleteUnit(unit.id);
+    // Only changed fields, so edits to other fields on other devices are kept.
+    await widget.vault.editUnit(
+      unit.id,
+      name: result.name == unit.name ? null : result.name,
+      modelCount: result.modelCount == unit.modelCount
+          ? null
+          : result.modelCount,
+      notes: result.notes == unit.notes ? null : result.notes,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: _groups,
+      builder: (context, snapshot) {
+        final groups = snapshot.data;
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(widget.collection.name),
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(32),
+              child: SyncStatusBar(db: widget.db),
+            ),
+          ),
+          body: switch (snapshot) {
+            AsyncSnapshot(:final error?) => Center(
+              child: Text('Could not load Units: $error'),
+            ),
+            _ when groups == null => const Center(
+              child: CircularProgressIndicator(),
+            ),
+            _ => ListView(
+              children: [
+                for (final g in groups) ...[
+                  ListTile(
+                    title: Text(
+                      g.stage.name,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    trailing: Text(
+                      g.modelCount == 1 ? '1 model' : '${g.modelCount} models',
+                    ),
+                  ),
+                  for (final u in g.units)
+                    ListTile(
+                      contentPadding: const EdgeInsets.only(
+                        left: 32,
+                        right: 16,
+                      ),
+                      title: Text(u.name),
+                      subtitle: u.notes.isEmpty ? null : Text(u.notes),
+                      trailing: Text('${u.modelCount}'),
+                      onTap: () => _edit(u),
+                    ),
+                ],
+              ],
+            ),
+          },
+          floatingActionButton: groups == null
+              ? null
+              : FloatingActionButton(
+                  onPressed: () => _add([for (final g in groups) g.stage]),
+                  tooltip: 'New Unit',
+                  child: const Icon(Icons.add),
+                ),
+        );
+      },
+    );
+  }
+}
+
+typedef _UnitFields = ({
+  String name,
+  int modelCount,
+  String notes,
+  String? stageId,
+  bool delete,
+});
+
+/// Adds a Unit (with a starting Stage from [stages]) or edits [unit] (with a Delete button).
+class _UnitDialog extends StatefulWidget {
+  const _UnitDialog({required this.title, this.stages = const [], this.unit});
+
+  final String title;
+  final List<Stage> stages;
+  final Unit? unit;
+
+  @override
+  State<_UnitDialog> createState() => _UnitDialogState();
+}
+
+class _UnitDialogState extends State<_UnitDialog> {
+  final _form = GlobalKey<FormState>();
+  late final _name = TextEditingController(text: widget.unit?.name);
+  late final _count = TextEditingController(
+    text: '${widget.unit?.modelCount ?? 1}',
+  );
+  late final _notes = TextEditingController(text: widget.unit?.notes);
+  late String? _stageId = widget.stages.firstOrNull?.id;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _count.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  void _close({bool delete = false}) {
+    if (!delete && !_form.currentState!.validate()) return;
+    Navigator.pop<_UnitFields>(context, (
+      name: _name.text.trim(),
+      modelCount: int.tryParse(_count.text.trim()) ?? 0,
+      notes: _notes.text.trim(),
+      stageId: _stageId,
+      delete: delete,
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Form(
+        key: _form,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _name,
+                autofocus: widget.unit == null,
+                decoration: const InputDecoration(labelText: 'Name'),
+                validator: (v) => v!.trim().isEmpty ? 'Enter a name' : null,
+              ),
+              TextFormField(
+                controller: _count,
+                decoration: const InputDecoration(labelText: 'Models'),
+                keyboardType: TextInputType.number,
+                validator: (v) =>
+                    (int.tryParse(v!.trim()) ?? 0) < 1 ? 'At least 1' : null,
+              ),
+              TextFormField(
+                controller: _notes,
+                decoration: const InputDecoration(labelText: 'Notes'),
+                maxLines: null,
+              ),
+              if (widget.stages.isNotEmpty)
+                DropdownButtonFormField<String>(
+                  initialValue: _stageId,
+                  decoration: const InputDecoration(labelText: 'Stage'),
+                  items: [
+                    for (final s in widget.stages)
+                      DropdownMenuItem(value: s.id, child: Text(s.name)),
+                  ],
+                  onChanged: (id) => _stageId = id,
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        if (widget.unit != null)
+          TextButton(
+            onPressed: () => _close(delete: true),
+            child: const Text('Delete'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(onPressed: _close, child: const Text('Save')),
+      ],
     );
   }
 }
