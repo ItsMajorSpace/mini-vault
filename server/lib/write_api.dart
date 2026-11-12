@@ -18,6 +18,21 @@ const _writable = {
   },
   'stages': {'workflow_id': 'uuid', 'name': 'text', 'position': 'int'},
   'collections': {'name': 'text', 'workflow_id': 'uuid'},
+  'units': {
+    'collection_id': 'uuid',
+    'stage_id': 'uuid',
+    'name': 'text',
+    'model_count': 'int',
+    'notes': 'text',
+  },
+};
+
+/// Columns that point at another synced row, and that row's table. The row must exist and be the user's own.
+// owned_stage_id and finished_stage_id are left out: a Workflow is created before its Stages.
+const _references = {
+  'workflow_id': 'workflows',
+  'collection_id': 'collections',
+  'stage_id': 'stages',
 };
 
 /// Creates the synced tables, the trigger that gives each new account its starter Workflow,
@@ -47,6 +62,15 @@ CREATE TABLE IF NOT EXISTS collections (
   name text NOT NULL,
   workflow_id uuid NOT NULL
 );
+CREATE TABLE IF NOT EXISTS units (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  collection_id uuid NOT NULL,
+  stage_id uuid NOT NULL,
+  name text NOT NULL,
+  model_count integer NOT NULL CHECK (model_count >= 1),
+  notes text NOT NULL DEFAULT ''
+);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -69,11 +93,16 @@ DROP TRIGGER IF EXISTS create_starter_workflow ON auth.users;
 CREATE TRIGGER create_starter_workflow AFTER INSERT ON auth.users
 FOR EACH ROW EXECUTE FUNCTION public.create_starter_workflow();
 
--- PowerSync replicates these tables. A new synced table must be added here too (ALTER PUBLICATION).
-DO \$\$ BEGIN
+-- PowerSync replicates these tables. A new synced table must be added to this list too; existing databases get it added.
+DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
-    CREATE PUBLICATION powersync FOR TABLE workflows, stages, collections;
+    CREATE PUBLICATION powersync;
   END IF;
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units'])
+    EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
+  LOOP
+    EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
+  END LOOP;
 END \$\$;
 ''';
 
@@ -81,7 +110,7 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 
 /// `POST /upload` with `{"operations": [CrudEntry.toJson(), ...]}` and the user's GoTrue access token.
 /// Applies the operations in one transaction. Answers 401 for a bad token, 403 if any operation touches
-/// another user's row, 422 for an invalid operation (nothing is written in those cases), and 204 on success.
+/// or points at another user's row, 422 for an invalid operation (including a reference to a missing row) (nothing is written in those cases), and 204 on success.
 /// Conflicts are the latest write wins per field, and deletes win: a PATCH to a deleted row is ignored.
 Handler writeApi(Pool<void> db, {required String jwtSecret}) =>
     (request) async {
@@ -159,6 +188,22 @@ Future<void> _apply(TxSession tx, String owner, Map<String, Object?> op) async {
     throw _Rejected(403, 'Not your row: $table $id');
   }
 
+  // Skipped for a PATCH to a deleted row, which is ignored anyway (deletes win).
+  if (existing.isNotEmpty || op['op'] == 'PUT') {
+    for (final column in data.keys.where(_references.containsKey)) {
+      final referenced = await tx.execute(
+        'SELECT owner_id::text FROM ${_references[column]} WHERE id = \$1::uuid',
+        parameters: [data[column]],
+      );
+      if (referenced.isEmpty) {
+        throw _Rejected(422, '$column ${data[column]} does not exist');
+      }
+      if (referenced.first.first != owner) {
+        throw _Rejected(403, 'Not your row: $column ${data[column]}');
+      }
+    }
+  }
+
   // Column names come from _writable, never from the payload, so interpolating them is safe.
   final columns = data.keys.toList();
   final values = [id, owner, ...data.values];
@@ -188,6 +233,21 @@ Future<void> _apply(TxSession tx, String owner, Map<String, Object?> op) async {
       );
     default:
       throw _Rejected(422, 'Unknown op ${op['op']}');
+  }
+
+  // Checked after the write, so it holds whichever of the two columns changed. The transaction rolls back if not.
+  if (table == 'units') {
+    final mismatched = await tx.execute(
+      'SELECT FROM units u JOIN collections c ON c.id = u.collection_id JOIN stages s ON s.id = u.stage_id '
+      'WHERE u.id = \$1::uuid AND s.workflow_id <> c.workflow_id',
+      parameters: [id],
+    );
+    if (mismatched.isNotEmpty) {
+      throw _Rejected(
+        422,
+        "Unit $id's Stage is not in its Collection's Workflow",
+      );
+    }
   }
 }
 

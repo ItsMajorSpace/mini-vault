@@ -46,6 +46,45 @@ class Collection {
   final String workflowId;
 }
 
+/// A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection.
+class Unit {
+  const Unit({
+    required this.id,
+    required this.collectionId,
+    required this.stageId,
+    required this.name,
+    required this.modelCount,
+    required this.notes,
+  });
+
+  final String id;
+  final String collectionId;
+  final String stageId;
+  final String name;
+  final int modelCount;
+  final String notes;
+}
+
+/// One Stage of a Collection's Workflow, with the Collection's Units at it.
+class StageGroup {
+  const StageGroup(this.stage, this.units);
+
+  final Stage stage;
+  final List<Unit> units;
+
+  int get modelCount => units.fold(0, (sum, u) => sum + u.modelCount);
+}
+
+/// Groups [units] by Stage: one group per Stage of [workflow], in Workflow order, including Stages without Units.
+// shortcut: Units at a Stage outside the Workflow are left out (the write API rejects them); revisit if Stages can be deleted (#11).
+List<StageGroup> groupByStage(Workflow workflow, Iterable<Unit> units) => [
+  for (final stage in workflow.stages)
+    StageGroup(stage, [
+      for (final u in units)
+        if (u.stageId == stage.id) u,
+    ]),
+];
+
 /// The narrow storage interface the domain core talks to.
 /// The app implements it over local SQLite (`package:domain_core/sqlite_store.dart`).
 abstract interface class VaultStore {
@@ -56,6 +95,19 @@ abstract interface class VaultStore {
   Stream<List<Collection>> watchCollections();
   Future<void> insertCollection(Collection collection);
   Future<void> renameCollection(String id, String name);
+
+  /// Emits the Collection's Units, by name, now and again whenever they change.
+  Stream<List<Unit>> watchUnits(String collectionId);
+  Future<void> insertUnit(Unit unit);
+
+  /// Updates only the given fields, so concurrent edits of other fields on other devices are kept.
+  Future<void> updateUnit(
+    String id, {
+    String? name,
+    int? modelCount,
+    String? notes,
+  });
+  Future<void> deleteUnit(String id);
 }
 
 /// The domain operations a collector can perform.
@@ -101,7 +153,69 @@ class Vault {
 
   Future<void> renameCollection(String id, String name) =>
       _store.renameCollection(id, validName(name));
+
+  /// The Workflow [collection] uses. Throws a [StateError] if it has not synced.
+  Future<Workflow> workflowOf(Collection collection) async =>
+      (await _store.workflows()).firstWhere(
+        (w) => w.id == collection.workflowId,
+        orElse: () => throw StateError('The Workflow has not synced yet'),
+      );
+
+  /// The Collection's Units grouped by Stage in Workflow order, emitted again whenever they change.
+  Stream<List<StageGroup>> watchStageGroups(Collection collection) => _store
+      .watchUnits(collection.id)
+      .asyncMap(
+        (units) async => groupByStage(await workflowOf(collection), units),
+      );
+
+  /// Adds a Unit at [stageId], which must be a Stage of the Collection's Workflow.
+  Future<Unit> addUnit(
+    Collection collection, {
+    required String name,
+    required int modelCount,
+    String notes = '',
+    required String stageId,
+  }) async {
+    final workflow = await workflowOf(collection);
+    if (!workflow.stages.any((s) => s.id == stageId)) {
+      throw ArgumentError.value(
+        stageId,
+        'stageId',
+        "is not a Stage of the Collection's Workflow",
+      );
+    }
+    final unit = Unit(
+      id: _newId(),
+      collectionId: collection.id,
+      stageId: stageId,
+      name: validName(name),
+      modelCount: validModelCount(modelCount),
+      notes: notes.trim(),
+    );
+    await _store.insertUnit(unit);
+    return unit;
+  }
+
+  /// Changes only the given fields of a Unit.
+  Future<void> editUnit(
+    String id, {
+    String? name,
+    int? modelCount,
+    String? notes,
+  }) => _store.updateUnit(
+    id,
+    name: name == null ? null : validName(name),
+    modelCount: modelCount == null ? null : validModelCount(modelCount),
+    notes: notes?.trim(),
+  );
+
+  Future<void> deleteUnit(String id) => _store.deleteUnit(id);
 }
+
+/// Throws an [ArgumentError] unless a Unit has at least one model. The server's database enforces the same rule.
+int validModelCount(int count) => count >= 1
+    ? count
+    : throw ArgumentError.value(count, 'modelCount', 'must be at least 1');
 
 /// Trims [name], throwing an [ArgumentError] if it is blank. Shared with the write API, which validates uploaded names.
 String validName(String name) {
