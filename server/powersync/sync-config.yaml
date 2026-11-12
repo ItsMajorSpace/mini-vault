@@ -12,3 +12,4 @@ streams:
       - SELECT * FROM stages WHERE owner_id = auth.user_id()
       - SELECT * FROM collections WHERE owner_id = auth.user_id()
       - SELECT * FROM units WHERE owner_id = auth.user_id()
+      - SELECT * FROM stage_changes WHERE owner_id = auth.user_id()
