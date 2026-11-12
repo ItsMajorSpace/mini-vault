@@ -1,6 +1,7 @@
 /// Mini Vault's domain operations. Pure Dart: shared by the app and the server.
 library;
 
+import 'dart:async';
 import 'dart:math';
 
 /// One step in a [Workflow].
@@ -91,6 +92,57 @@ List<StageGroup> groupByStage(Workflow workflow, Iterable<Unit> units) => [
         if (u.stageId == stage.id) u,
     ]),
 ];
+
+/// How many of a Collection's models are wanted, owned and finished, by its Workflow's Owned and Finished Stage.
+class Progress {
+  const Progress({
+    required this.wanted,
+    required this.owned,
+    required this.finished,
+  });
+
+  /// Models before the Owned Stage.
+  final int wanted;
+
+  /// Models at the Owned Stage or later.
+  final int owned;
+
+  /// Models at the Finished Stage or later; always part of [owned].
+  final int finished;
+
+  /// [finished] as a share of [owned], 0 when nothing is owned.
+  double get finishedShare => owned == 0 ? 0 : finished / owned;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Progress &&
+      other.wanted == wanted &&
+      other.owned == owned &&
+      other.finished == finished;
+
+  @override
+  int get hashCode => Object.hash(wanted, owned, finished);
+
+  @override
+  String toString() => '$finished / $owned finished, $wanted wanted';
+}
+
+/// Counts [units]' models against [workflow]'s Owned and Finished Stage, in Workflow order.
+// Units at a Stage outside the Workflow are left out, as in [groupByStage].
+Progress progressOf(Workflow workflow, Iterable<Unit> units) {
+  final index = {for (final (i, s) in workflow.stages.indexed) s.id: i};
+  final owned = index[workflow.ownedStage.id]!;
+  final finished = index[workflow.finishedStage.id]!;
+  var (w, o, f) = (0, 0, 0);
+  for (final u in units) {
+    final i = index[u.stageId];
+    if (i == null) continue;
+    if (i < owned) w += u.modelCount;
+    if (i >= owned) o += u.modelCount;
+    if (i >= finished) f += u.modelCount;
+  }
+  return Progress(wanted: w, owned: o, finished: f);
+}
 
 /// The narrow storage interface the domain core talks to.
 /// The app implements it over local SQLite (`package:domain_core/sqlite_store.dart`).
@@ -316,6 +368,38 @@ class Vault {
       .asyncMap(
         (units) async => groupByStage(await workflowOf(collection), units),
       );
+
+  /// The Collection's [Progress], emitted again whenever its Units or its Workflow (Stages, Owned or Finished Stage) change.
+  Stream<Progress> watchProgress(Collection collection) {
+    List<Workflow>? workflows;
+    List<Unit>? units;
+    final subscriptions = <StreamSubscription<void>>[];
+    late final StreamController<Progress> controller;
+    void emit() {
+      if (workflows == null || units == null) return;
+      final workflow = workflows!
+          .where((w) => w.id == collection.workflowId)
+          .firstOrNull;
+      workflow == null
+          ? controller.addError(StateError('The Workflow has not synced yet'))
+          : controller.add(progressOf(workflow, units!));
+    }
+
+    controller = StreamController(
+      onListen: () => subscriptions.addAll([
+        _store.watchWorkflows().listen((ws) {
+          workflows = ws;
+          emit();
+        }, onError: controller.addError),
+        _store.watchUnits(collection.id).listen((us) {
+          units = us;
+          emit();
+        }, onError: controller.addError),
+      ]),
+      onCancel: () => Future.wait([for (final s in subscriptions) s.cancel()]),
+    );
+    return controller.stream.distinct();
+  }
 
   /// Adds a Unit at [stageId], which must be a Stage of the Collection's Workflow.
   Future<Unit> addUnit(
