@@ -1,0 +1,28 @@
+# PowerSync Open Edition config. `!env` reads PS_* environment variables set in docker-compose.yaml.
+# Reference: https://docs.powersync.com/self-hosting
+
+telemetry:
+  disable_telemetry_sharing: true
+
+replication:
+  connections:
+    - type: postgresql
+      uri: !env PS_DATA_SOURCE_URI
+      sslmode: disable # Postgres is only reachable on the compose network.
+
+# Bucket storage lives in its own database on the same Postgres server.
+storage:
+  type: postgresql
+  uri: !env PS_STORAGE_SOURCE_URI
+  sslmode: disable
+
+port: 8080
+
+sync_config:
+  path: sync-config.yaml
+
+# Clients authenticate with their GoTrue access token, an HS256 JWT with aud "authenticated" and the user id in sub.
+client_auth:
+  supabase: true
+  supabase_jwt_secret: !env PS_JWT_SECRET
+  audience: [authenticated]

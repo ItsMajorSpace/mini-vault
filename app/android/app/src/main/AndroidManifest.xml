@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Sign-in and sync. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="mini_vault"
         android:name="${applicationName}"

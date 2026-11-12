@@ -14,7 +14,9 @@ dependencies:
   domain_core:
     path: ../domain_core
   path_provider: ^2.1.6
-  sqlite_async: ^0.14.8
+  gotrue: ^2.27.3
+  powersync: ^2.6.1
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

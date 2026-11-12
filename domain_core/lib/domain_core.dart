@@ -50,8 +50,10 @@ class Collection {
 /// The app implements it over local SQLite (`package:domain_core/sqlite_store.dart`).
 abstract interface class VaultStore {
   Future<List<Workflow>> workflows();
-  Future<void> insertWorkflow(Workflow workflow);
   Future<List<Collection>> collections();
+
+  /// Emits the Collections now and again whenever they change, locally or through sync.
+  Stream<List<Collection>> watchCollections();
   Future<void> insertCollection(Collection collection);
   Future<void> renameCollection(String id, String name);
 }
@@ -72,34 +74,25 @@ class Vault {
     'Done',
   ];
 
-  /// Returns the starter Workflow, creating it on first launch.
+  /// The server creates the starter Workflow when the account is created; it is null until the first sync delivers it.
   // shortcut: returns whichever Workflow exists, since there is only ever one; pick by user choice once Workflows can be created.
-  Future<Workflow> ensureStarterWorkflow() async {
-    final existing = await _store.workflows();
-    if (existing.isNotEmpty) return existing.first;
-
-    final stages = [
-      for (final name in starterStageNames) Stage(id: _newId(), name: name),
-    ];
-    final workflow = Workflow(
-      id: _newId(),
-      name: 'Starter',
-      stages: stages,
-      ownedStageId: stages[1].id,
-      finishedStageId: stages.last.id,
-    );
-    await _store.insertWorkflow(workflow);
-    return workflow;
-  }
+  Future<Workflow?> starterWorkflow() async =>
+      (await _store.workflows()).firstOrNull;
 
   Future<List<Collection>> collections() => _store.collections();
 
+  Stream<List<Collection>> watchCollections() => _store.watchCollections();
+
   /// Creates a Collection that uses the starter Workflow.
+  /// Throws a [StateError] while the starter Workflow has not synced yet.
   Future<Collection> createCollection(String name) async {
-    final workflow = await ensureStarterWorkflow();
+    final workflow = await starterWorkflow();
+    if (workflow == null) {
+      throw StateError('The starter Workflow has not synced yet');
+    }
     final collection = Collection(
       id: _newId(),
-      name: _validName(name),
+      name: validName(name),
       workflowId: workflow.id,
     );
     await _store.insertCollection(collection);
@@ -107,10 +100,11 @@ class Vault {
   }
 
   Future<void> renameCollection(String id, String name) =>
-      _store.renameCollection(id, _validName(name));
+      _store.renameCollection(id, validName(name));
 }
 
-String _validName(String name) {
+/// Trims [name], throwing an [ArgumentError] if it is blank. Shared with the write API, which validates uploaded names.
+String validName(String name) {
   final trimmed = name.trim();
   if (trimmed.isEmpty) {
     throw ArgumentError.value(name, 'name', 'must not be blank');
