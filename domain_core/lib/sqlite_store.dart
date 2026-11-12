@@ -25,6 +25,13 @@ class SqliteVaultStore implements VaultStore {
       Column.integer('position'),
     ]),
     Table('collections', [Column.text('name'), Column.text('workflow_id')]),
+    Table('units', [
+      Column.text('collection_id'),
+      Column.text('stage_id'),
+      Column.text('name'),
+      Column.integer('model_count'),
+      Column.text('notes'),
+    ]),
   ]);
 
   @override
@@ -80,4 +87,61 @@ class SqliteVaultStore implements VaultStore {
   @override
   Future<void> renameCollection(String id, String name) =>
       _db.execute('UPDATE collections SET name = ? WHERE id = ?', [name, id]);
+
+  @override
+  Stream<List<Unit>> watchUnits(String collectionId) => _db
+      .watch(
+        'SELECT * FROM units WHERE collection_id = ? ORDER BY name COLLATE NOCASE',
+        parameters: [collectionId],
+      )
+      .map(
+        (rows) => [
+          for (final u in rows)
+            Unit(
+              id: u['id'] as String,
+              collectionId: u['collection_id'] as String,
+              stageId: u['stage_id'] as String,
+              name: u['name'] as String,
+              modelCount: u['model_count'] as int,
+              notes: u['notes'] as String? ?? '',
+            ),
+        ],
+      );
+
+  @override
+  Future<void> insertUnit(Unit unit) => _db.execute(
+    'INSERT INTO units (id, collection_id, stage_id, name, model_count, notes) VALUES (?, ?, ?, ?, ?, ?)',
+    [
+      unit.id,
+      unit.collectionId,
+      unit.stageId,
+      unit.name,
+      unit.modelCount,
+      unit.notes,
+    ],
+  );
+
+  // Only the given columns, so sync uploads a PATCH of just those fields.
+  @override
+  Future<void> updateUnit(
+    String id, {
+    String? name,
+    int? modelCount,
+    String? notes,
+  }) async {
+    final changes = {
+      'name': ?name,
+      'model_count': ?modelCount,
+      'notes': ?notes,
+    };
+    if (changes.isEmpty) return;
+    await _db.execute(
+      'UPDATE units SET ${changes.keys.map((c) => '$c = ?').join(', ')} WHERE id = ?',
+      [...changes.values, id],
+    );
+  }
+
+  @override
+  Future<void> deleteUnit(String id) =>
+      _db.execute('DELETE FROM units WHERE id = ?', [id]);
 }
