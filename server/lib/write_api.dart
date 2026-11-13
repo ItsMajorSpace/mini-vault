@@ -26,12 +26,13 @@ const _writable = {
     'colour': 'text',
   },
   'collections': {'name': 'text', 'workflow_id': 'uuid', 'game_system': 'text'},
-  // Table names predate ADR 0008: `units` holds Batches, `squad_paints` Unit Paints.
+  // Table names predate ADR 0008: `units` holds Batches, `squad_*` a Unit's Paints, notes, Tags and Photos.
   'units': {
     'collection_id': 'uuid',
     'stage_id': 'uuid',
     'name': 'text',
     'model_count': 'int',
+    // Only app versions before Unit notes (#105) write it; nothing reads it any more.
     'notes': 'text',
   },
   'stage_changes': {
@@ -41,6 +42,7 @@ const _writable = {
     'model_count': 'int',
     'happened_at': 'timestamptz',
   },
+  // Only app versions before Unit Tags and Photos (#105) write these; squad_tags and squad_photos replace them.
   'unit_tags': {'unit_id': 'uuid', 'name': 'text'},
   'photos': {'unit_id': 'uuid', 'file_id': 'uuid'},
   'splits': {'unit_id': 'uuid', 'new_unit_id': 'uuid', 'model_count': 'int'},
@@ -52,6 +54,23 @@ const _writable = {
     'paint_id': 'uuid',
     'note': 'text',
   },
+  'squad_notes': {
+    'collection_id': 'uuid',
+    'squad_name': 'text',
+    'notes': 'text',
+  },
+  'squad_tags': {'collection_id': 'uuid', 'squad_name': 'text', 'name': 'text'},
+  'squad_photos': {
+    'collection_id': 'uuid',
+    'squad_name': 'text',
+    'file_id': 'uuid',
+  },
+};
+
+/// The columns a PATCH may not change, per table: they make up the row's id ([unitId]) or point at its file.
+const _fixed = {
+  'squad_notes': {'collection_id', 'squad_name'},
+  'squad_photos': {'collection_id', 'file_id'},
 };
 
 /// Columns that point at another synced row, and that row's table. The row must exist and be the user's own.
@@ -70,8 +89,74 @@ const _references = {
 
 /// Creates the synced tables, the trigger that gives each new account its starter Workflow,
 /// and the publication PowerSync replicates from. Idempotent; run after GoTrue has created `auth.users`.
-Future<void> migrate(Session db) =>
-    db.execute(_migration, queryMode: QueryMode.simple);
+/// In one transaction, so a failed run changes nothing and the next one starts over.
+Future<void> migrate(SessionExecutor db) => db.runTx((tx) async {
+  final [[fresh as bool]] = await tx.execute(
+    "SELECT to_regclass('public.squad_notes') IS NULL",
+  );
+  await tx.execute(_migration, queryMode: QueryMode.simple);
+  // Only on the run that creates the Unit tables, so it happens once per database.
+  if (fresh) await _moveDetailsToUnits(tx);
+});
+
+/// Gives each Unit the notes, Tags and Photos its Batches had (#105): its Tags unioned, its distinct non-empty notes
+/// joined one per line (its oldest Batch's first), and its photo files once each, the newest [Vault.maxPhotos].
+/// Ids are computed here, as the app computes them ([unitId], [tagId]). The old rows stay, for app versions that
+/// still read them.
+Future<void> _moveDetailsToUnits(TxSession tx) async {
+  final notes = <(String, String, String), List<String>>{};
+  for (final [owner, collection, name, text] in await tx.execute(
+    r'''SELECT u.owner_id::text, u.collection_id::text, u.name, u.notes FROM units u WHERE trim(u.notes) <> ''
+      ORDER BY (SELECT min(happened_at) FROM stage_changes WHERE unit_id = u.id), u.id''',
+  )) {
+    (notes[(owner as String, collection as String, name as String)] ??= []).add(
+      text as String,
+    );
+  }
+  for (final MapEntry(key: (owner, collection, name), value: texts)
+      in notes.entries) {
+    await tx.execute(
+      r'''INSERT INTO squad_notes (id, owner_id, collection_id, squad_name, notes)
+        VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)''',
+      parameters: [
+        unitId(collection, name),
+        owner,
+        collection,
+        name,
+        joinNotes(texts),
+      ],
+    );
+  }
+  for (final [owner, collection, name, tag] in await tx.execute(
+    r'''SELECT u.owner_id::text, u.collection_id::text, u.name, t.name FROM unit_tags t
+      JOIN units u ON u.id = t.unit_id AND u.owner_id = t.owner_id ORDER BY t.name COLLATE "C"''',
+  )) {
+    // The same Tag on two Batches (ignoring case) has the same id: the first casing stays, by code point as the app
+    // orders Tag names.
+    await tx.execute(
+      r'''INSERT INTO squad_tags (id, owner_id, collection_id, squad_name, name)
+        VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5) ON CONFLICT (id) DO NOTHING''',
+      parameters: [
+        tagId(unitId(collection as String, name as String), tag as String),
+        owner,
+        collection,
+        name,
+        tag,
+      ],
+    );
+  }
+  // Photos have no creation time: the newest is the row stored last, by the transaction id that inserted it (xmin),
+  // which a dump and restore makes equal, and then file_id decides.
+  await tx.execute(
+    '''INSERT INTO squad_photos (id, owner_id, collection_id, squad_name, file_id)
+    SELECT gen_random_uuid(), owner_id, collection_id, name, file_id FROM (
+      SELECT u.owner_id, u.collection_id, u.name, p.file_id, row_number() OVER (
+        PARTITION BY u.owner_id, u.collection_id, u.name ORDER BY max(p.xmin::text::bigint) DESC, p.file_id) AS n
+      FROM photos p JOIN units u ON u.id = p.unit_id AND u.owner_id = p.owner_id
+      GROUP BY u.owner_id, u.collection_id, u.name, p.file_id) newest
+    WHERE n <= ${Vault.maxPhotos}''',
+  );
+}
 
 final _migration =
     '''
@@ -179,6 +264,33 @@ CREATE TABLE IF NOT EXISTS squad_paints (
   paint_id uuid NOT NULL REFERENCES paints ON DELETE CASCADE,
   note text NOT NULL DEFAULT ''
 );
+-- A Unit's notes, Tags and Photos, keyed by its Collection and exact name like squad_paints, so they outlive its
+-- Batches (#105). Deleted with the Collection. A notes row's id is the Unit's unitId and a Tag's its tagId
+-- (domain_core), checked by the write API, so the same Unit or Tag written on two devices is one row. file_id names
+-- the image file on disk (photos.dart), deleted once no row here or in photos points at it.
+CREATE TABLE IF NOT EXISTS squad_notes (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  collection_id uuid NOT NULL REFERENCES collections ON DELETE CASCADE,
+  squad_name text NOT NULL,
+  notes text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS squad_tags (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  collection_id uuid NOT NULL REFERENCES collections ON DELETE CASCADE,
+  squad_name text NOT NULL,
+  name text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS squad_photos (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  collection_id uuid NOT NULL REFERENCES collections ON DELETE CASCADE,
+  squad_name text NOT NULL,
+  file_id uuid NOT NULL
+);
+CREATE INDEX IF NOT EXISTS squad_photos_unit ON squad_photos (collection_id, squad_name);
+CREATE INDEX IF NOT EXISTS squad_photos_owner_file ON squad_photos (owner_id, file_id);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -207,7 +319,7 @@ DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
     CREATE PUBLICATION powersync;
   END IF;
-  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges', 'paints', 'squad_paints'])
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges', 'paints', 'squad_paints', 'squad_notes', 'squad_tags', 'squad_photos'])
     EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
   LOOP
     EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
@@ -418,10 +530,16 @@ Future<void> _apply(
     // A repeated upload of a Stage Change already stored (a retry) changes nothing.
     if (existing.isNotEmpty) return;
   }
-  if (table == 'photos') {
-    if (op['op'] == 'PATCH') throw _Rejected(422, 'Photos cannot be edited');
-    // A Photo never changes, so a repeated upload (a retry) changes nothing.
+  if (table == 'photos' || table == 'squad_photos') {
+    if (op['op'] == 'PATCH' && table == 'photos') {
+      throw _Rejected(422, 'Photos cannot be edited');
+    }
+    // A Photo's file never changes, so a repeated upload (a retry) changes nothing.
     if (op['op'] == 'PUT' && existing.isNotEmpty) return;
+  }
+  final fixed = data.keys.where((c) => _fixed[table]?.contains(c) ?? false);
+  if (op['op'] == 'PATCH' && fixed.isNotEmpty) {
+    throw _Rejected(422, '${fixed.join(', ')} cannot be edited on $table');
   }
   if (table == 'splits' || table == 'merges') {
     if (op['op'] != 'PUT') throw _Rejected(422, '$table are append-only');
@@ -476,18 +594,23 @@ Future<void> _apply(
     );
     if (used.isNotEmpty) throw _Rejected(409, 'A Collection uses Workflow $id');
   }
-  if (table == 'unit_tags') _checkTag(op['op'], id, data);
-  if (op['op'] == 'DELETE' && (table == 'photos' || table == 'units')) {
+  if (table == 'unit_tags' || table == 'squad_tags') {
+    _checkTag(op['op'], id, data);
+  }
+  if (table == 'squad_notes' && op['op'] == 'PUT') _checkUnitId(id, data);
+  if (op['op'] == 'DELETE' &&
+      (table == 'photos' || table == 'units' || table == 'squad_photos')) {
     unlinked.addAll([
       for (final row in await tx.execute(
-        'SELECT file_id::text FROM photos WHERE ${table == 'units' ? 'unit_id' : 'id'} = \$1::uuid AND owner_id = \$2::uuid',
+        'SELECT file_id::text FROM ${table == 'units' ? 'photos' : table} '
+        'WHERE ${table == 'units' ? 'unit_id' : 'id'} = \$1::uuid AND owner_id = \$2::uuid',
         parameters: [id, owner],
       ))
         row.first as String,
     ]);
   }
-  // Deleting a Collection deletes its Batches (their Photos first, to collect the files; Stage Changes and Tags go by
-  // foreign-key cascade), including any
+  // Deleting a Collection deletes its Batches and its Units' Photos (Photos first, to collect the files; Stage Changes,
+  // Tags and the Units' notes go by foreign-key cascade), including any
   // the client didn't know of: another device may have added one meanwhile, and deletes win. The FOR UPDATE above
   // waits for such a batch, which holds the Collection FOR SHARE, so its Batch is seen here; one arriving later is
   // rejected, as its Collection no longer exists.
@@ -496,6 +619,11 @@ Future<void> _apply(
       for (final row in await tx.execute(
         r'''DELETE FROM photos p USING units u WHERE p.unit_id = u.id AND u.collection_id = $1::uuid
           AND u.owner_id = $2::uuid RETURNING p.file_id::text''',
+        parameters: [id, owner],
+      ))
+        row.first as String,
+      for (final row in await tx.execute(
+        r'DELETE FROM squad_photos WHERE collection_id = $1::uuid AND owner_id = $2::uuid RETURNING file_id::text',
         parameters: [id, owner],
       ))
         row.first as String,
@@ -530,7 +658,9 @@ Future<void> _apply(
 
   switch (op['op']) {
     // The same Tag added again, e.g. from another device: the first-entered casing stays.
-    case 'PUT' when table == 'unit_tags' && existing.isNotEmpty:
+    case 'PUT'
+        when (table == 'unit_tags' || table == 'squad_tags') &&
+            existing.isNotEmpty:
       break;
     case 'PUT' when existing.isEmpty:
       await tx.execute(
@@ -557,6 +687,20 @@ Future<void> _apply(
   if (table == 'splits') await _split(tx, data);
   if (table == 'merges') await _merge(tx, owner, data, unlinked);
 
+  if (table == 'squad_photos' && op['op'] == 'PUT') {
+    // FOR UPDATE on the Collection makes concurrent batches adding Photos to its Units count one after the other.
+    await tx.execute(
+      'SELECT FROM collections WHERE id = \$1::uuid FOR UPDATE',
+      parameters: [data['collection_id']],
+    );
+    final [[count]] = await tx.execute(
+      r'SELECT count(*) FROM squad_photos WHERE collection_id = $1::uuid AND squad_name = $2',
+      parameters: [data['collection_id'], data['squad_name']],
+    );
+    if ((count as int) > Vault.maxPhotos) {
+      throw _Rejected(422, 'A Unit can have at most ${Vault.maxPhotos} photos');
+    }
+  }
   if (table == 'photos' && op['op'] == 'PUT') {
     // FOR UPDATE on the Batch makes concurrent batches adding Photos to it count one after the other.
     await tx.execute(
@@ -653,7 +797,8 @@ Future<void> _split(TxSession tx, Map<String, Object?> data) async {
 }
 
 /// Applies a newly stored Merge: adds the merged Batch's count as it is now to the Batch and deletes the merged Batch
-/// (its Stage Changes, Tags and Photos go with it; the app's batch copies them over). Rejected (409) unless both
+/// (its Stage Changes go with it, the app's batch copying them over, and so do Tags and Photos of app versions before
+/// #105). Rejected (409) unless both
 /// still share Collection, name and Stage, e.g. after a concurrent move; a second Merge of a Batch already merged
 /// away is rejected because the Batch no longer exists (422).
 Future<void> _merge(
@@ -691,18 +836,44 @@ Future<void> _merge(
   );
 }
 
-/// A Tag is never edited, only added and removed, and its id must be [tagId] of its Batch and name.
+/// A Tag is never edited, only added and removed, and its id must be [tagId] of its Unit's [unitId] (in unit_tags,
+/// of its Batch) and name.
 void _checkTag(Object? op, String id, Map<String, Object?> data) {
   if (op == 'PATCH') throw _Rejected(422, 'Tags cannot be edited');
   if (op != 'PUT') return;
-  if (data case {'unit_id': final String batchId, 'name': final String name}) {
+  try {
+    if (switch (data) {
+      {'unit_id': final String batchId, 'name': final String name} =>
+        tagId(batchId, name) == id,
+      {
+        'collection_id': final String collection,
+        'squad_name': final String unit,
+        'name': final String name,
+      } =>
+        tagId(unitId(collection, unit), name) == id,
+      _ => false,
+    }) {
+      return;
+    }
+  } on FormatException {
+    // Falls through to the rejection.
+  }
+  throw _Rejected(422, 'Tag $id must have the id of its Unit and name');
+}
+
+/// A Unit's notes row must have the [unitId] of its collection_id and squad_name.
+void _checkUnitId(String id, Map<String, Object?> data) {
+  if (data case {
+    'collection_id': final String collection,
+    'squad_name': final String unit,
+  }) {
     try {
-      if (tagId(batchId, name) == id) return;
+      if (unitId(collection, unit) == id) return;
     } on FormatException {
       // Falls through to the rejection.
     }
   }
-  throw _Rejected(422, 'Tag $id must have the id of its unit_id and name');
+  throw _Rejected(422, 'Notes $id must have the id of their Unit');
 }
 
 /// Rejects the batch if it leaves a (still existing) Workflow without its Owned and Finished Stage among its own

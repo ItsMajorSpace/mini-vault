@@ -85,7 +85,7 @@ void main() {
   const stages = ['Wishlist', 'Unassembled', 'Primed'];
 
   testWidgets(
-    'shows every Stage with the Unit\'s counts and Tags, and no Merge; renames',
+    "shows every Stage with the Unit's counts, Tags and notes, and no Merge; renames, carrying them along",
     (tester) async {
       final (vault, collection) = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('app_test');
@@ -110,14 +110,15 @@ void main() {
           ('Intercessors', 2, 's2', '40k'),
           ('Captain', 1, 's2', 'HQ'),
         ]) {
-          final batch = await vault.addBatch(
+          await vault.addBatch(
             collection,
             name: name,
             modelCount: count,
             stageId: stage,
           );
-          await vault.addTags(batch.id, [tag]);
+          await vault.addTags(collection.id, name, [tag]);
         }
+        await vault.setNotes(collection.id, 'Intercessors', 'Magnetised');
         return (vault, collection);
       }))!;
 
@@ -153,10 +154,11 @@ void main() {
         ],
         [for (final c in Vault.stageColours.take(3)) stageColour(c)],
       );
-      // The union of its Batches' Tags, read-only; not the Captain's.
+      // The Unit's Tags and notes, read-only; not the Captain's.
       expect(find.widgetWithText(Chip, '40k'), findsOneWidget);
       expect(find.widgetWithText(Chip, 'Ultramarines'), findsOneWidget);
       expect(find.text('HQ'), findsNothing);
+      expect(find.text('Magnetised'), findsOneWidget);
       expect(find.byType(InputChip), findsNothing);
 
       // Two Batches at Wishlist (until the automatic Merge): one row, no Merge to tap.
@@ -167,9 +169,20 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'Assault Intercessors');
       await tapAndWait(tester, find.text('Save'));
+      // A rename also carries the Unit's notes, Tags, Photos and Paints, one write each: wait for it to finish.
+      for (
+        var i = 0;
+        i < 10 && find.text('Assault Intercessors').evaluate().isEmpty;
+        i++
+      ) {
+        await settle(tester);
+      }
 
       expect(find.text('Assault Intercessors'), findsOneWidget);
       expect(find.text('10 models'), findsOneWidget);
+      // Its Tags and notes came along.
+      expect(find.widgetWithText(Chip, 'Ultramarines'), findsOneWidget);
+      expect(find.text('Magnetised'), findsOneWidget);
       final units = (await tester.runAsync(
         () => vault.watchUnits(collection).first,
       ))!;

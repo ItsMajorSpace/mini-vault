@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:domain_core/domain_core.dart';
 import 'package:http/http.dart' as http;
 import 'package:postgres/postgres.dart';
+import 'package:server/write_api.dart';
 import 'package:test/test.dart';
 
 // Seam 2: the write API over HTTP, against real Postgres, GoTrue and the API in Docker.
@@ -881,6 +882,8 @@ void main() {
     final photoId = await newId();
     final paintId = await newId();
     final unitPaintId = await newId();
+    final unitTagId = tagId(unitId(id, 'Intercessors'), '40k');
+    final unitPhotoId = await newId();
     final uploaded = await upload(alice.token, [
       putBatch(batchId, collectionId: id, stageId: wishlist),
       {
@@ -921,6 +924,36 @@ void main() {
           'squad_name': 'Intercessors',
           'paint_id': paintId,
           'note': '',
+        },
+      },
+      {
+        'op': 'PUT',
+        'type': 'squad_notes',
+        'id': unitId(id, 'Intercessors'),
+        'data': {
+          'collection_id': id,
+          'squad_name': 'Intercessors',
+          'notes': 'Blue',
+        },
+      },
+      {
+        'op': 'PUT',
+        'type': 'squad_tags',
+        'id': unitTagId,
+        'data': {
+          'collection_id': id,
+          'squad_name': 'Intercessors',
+          'name': '40k',
+        },
+      },
+      {
+        'op': 'PUT',
+        'type': 'squad_photos',
+        'id': unitPhotoId,
+        'data': {
+          'collection_id': id,
+          'squad_name': 'Intercessors',
+          'file_id': await newId(),
         },
       },
     ]);
@@ -976,6 +1009,9 @@ void main() {
         photoId,
         paintId,
         unitPaintId,
+        unitId(id, 'Intercessors'),
+        unitTagId,
+        unitPhotoId,
       ]),
     );
     expect(aliceIds, contains(await workflowOf(alice.id)));
@@ -2200,6 +2236,476 @@ void main() {
         expect(await batch(batchId), isNotEmpty);
         expect(await download(alice, fileId), 200);
       });
+    });
+  });
+
+  group("A Unit's notes, Tags and Photos", () {
+    Map<String, Object?> putNotes(
+      String collectionId,
+      String unit,
+      String notes,
+    ) => {
+      'op': 'PUT',
+      'type': 'squad_notes',
+      'id': unitId(collectionId, unit),
+      'data': {
+        'collection_id': collectionId,
+        'squad_name': unit,
+        'notes': notes,
+      },
+    };
+    Map<String, Object?> putUnitTag(
+      String collectionId,
+      String unit,
+      String name,
+    ) => {
+      'op': 'PUT',
+      'type': 'squad_tags',
+      'id': tagId(unitId(collectionId, unit), name),
+      'data': {'collection_id': collectionId, 'squad_name': unit, 'name': name},
+    };
+    Map<String, Object?> putUnitPhoto(
+      String id,
+      String collectionId,
+      String unit,
+      String fileId,
+    ) => {
+      'op': 'PUT',
+      'type': 'squad_photos',
+      'id': id,
+      'data': {
+        'collection_id': collectionId,
+        'squad_name': unit,
+        'file_id': fileId,
+      },
+    };
+    Map<String, Object?> patch(
+      String table,
+      Object? id,
+      Map<String, Object?> data,
+    ) => {'op': 'PATCH', 'type': table, 'id': id, 'data': data};
+
+    /// The user's notes, Tags and photo files per Unit, as "Unit: notes | Tags | file count".
+    Future<List<String>> unitsOf(String collectionId) async => [
+      for (final row in await db.execute(
+        r'''SELECT n.squad_name || ': ' || coalesce(max(n.notes), '') || ' | '
+              || coalesce((SELECT string_agg(name, ', ' ORDER BY name) FROM squad_tags t
+                WHERE t.collection_id = n.collection_id AND t.squad_name = n.squad_name), '') || ' | '
+              || (SELECT count(*) FROM squad_photos p WHERE p.collection_id = n.collection_id AND p.squad_name = n.squad_name)
+            FROM (SELECT collection_id, squad_name, notes FROM squad_notes
+              UNION SELECT collection_id, squad_name, NULL FROM squad_tags
+              UNION SELECT collection_id, squad_name, NULL FROM squad_photos) n
+            WHERE n.collection_id = $1::uuid GROUP BY n.collection_id, n.squad_name ORDER BY n.squad_name''',
+        parameters: [collectionId],
+      ))
+        row.first as String,
+    ];
+
+    /// Adds a Photo row on Unit [unit] for a new file and uploads [jpeg] as that file; returns the row and file ids.
+    Future<(String, String)> addUnitPhoto(
+      ({String token, String id}) user,
+      String collectionId,
+      String unit,
+    ) async {
+      final (id, fileId) = (await newId(), await newId());
+      final row = await upload(user.token, [
+        putUnitPhoto(id, collectionId, unit, fileId),
+      ]);
+      expect(row.statusCode, 204, reason: row.body);
+      final put = await http.put(
+        file(fileId),
+        headers: auth(user.token),
+        body: jpeg,
+      );
+      expect(put.statusCode, 204, reason: put.body);
+      return (id, fileId);
+    }
+
+    Future<int> download(({String token, String id}) user, String id) async =>
+        (await http.get(file(id), headers: auth(user.token))).statusCode;
+
+    test('are stored by Collection and name, need no Batch, and are renamed per field', () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final (photoId, fileId) = await addUnitPhoto(
+        user,
+        collectionId,
+        'Intercessors',
+      );
+
+      final stored = await upload(user.token, [
+        putNotes(collectionId, 'Intercessors', 'Blue'),
+        putUnitTag(collectionId, 'Intercessors', ' Ultramarines '),
+        putUnitTag(collectionId, 'Intercessors', '40k'),
+        // The same Tag from a second device keeps one row and its first casing.
+        putUnitTag(collectionId, 'Intercessors', 'ULTRAMARINES'),
+        patch('squad_notes', unitId(collectionId, 'Intercessors'), {
+          'notes': 'Blue and gold',
+        }),
+      ]);
+      expect(stored.statusCode, 204, reason: stored.body);
+      expect(await unitsOf(collectionId), [
+        'Intercessors: Blue and gold | 40k, Ultramarines | 1',
+      ]);
+
+      // A rename, as the app uploads it: notes and Tags under the new name's ids, the Photo moved by a field edit.
+      final renamed = await upload(user.token, [
+        putNotes(collectionId, 'Hellblasters', 'Blue and gold'),
+        {
+          'op': 'DELETE',
+          'type': 'squad_notes',
+          'id': unitId(collectionId, 'Intercessors'),
+        },
+        putUnitTag(collectionId, 'Hellblasters', 'Ultramarines'),
+        {
+          'op': 'DELETE',
+          'type': 'squad_tags',
+          'id': tagId(unitId(collectionId, 'Intercessors'), 'ultramarines'),
+        },
+        patch('squad_photos', photoId, {'squad_name': 'Hellblasters'}),
+      ]);
+      expect(renamed.statusCode, 204, reason: renamed.body);
+      expect(await unitsOf(collectionId), [
+        'Hellblasters: Blue and gold | Ultramarines | 1',
+        'Intercessors:  | 40k | 0',
+      ]);
+      expect(await download(user, fileId), 200);
+    });
+
+    test('notes and Tags must have the ids of their Unit; the fields making up an id, and Tags, are never edited', () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final (photoId, _) = await addUnitPhoto(
+        user,
+        collectionId,
+        'Intercessors',
+      );
+      expect(
+        (await upload(user.token, [
+          putNotes(collectionId, 'Intercessors', 'Blue'),
+        ])).statusCode,
+        204,
+      );
+      expect(
+        (await upload(user.token, [
+          putUnitTag(collectionId, 'Intercessors', '40k'),
+        ])).statusCode,
+        204,
+      );
+
+      for (final op in [
+        {
+          ...putNotes(collectionId, 'Intercessors', 'Blue'),
+          'id': await newId(),
+        },
+        {
+          ...putNotes(collectionId, 'Hellblasters', 'Blue'),
+          'id': unitId(collectionId, 'Intercessors'),
+        },
+        {
+          ...putUnitTag(collectionId, 'Intercessors', 'Orks'),
+          'id': tagId(unitId(collectionId, 'Intercessors'), '40k'),
+        },
+        {
+          ...putUnitTag(collectionId, 'Intercessors', 'Orks'),
+          'id': tagId(collectionId, 'Orks'),
+        },
+        patch('squad_notes', unitId(collectionId, 'Intercessors'), {
+          'squad_name': 'Hellblasters',
+        }),
+        patch(
+          'squad_tags',
+          tagId(unitId(collectionId, 'Intercessors'), '40k'),
+          {'name': 'Orks'},
+        ),
+        patch('squad_photos', photoId, {'file_id': await newId()}),
+        patch('squad_photos', photoId, {'squad_name': ' '}),
+      ]) {
+        final response = await upload(user.token, [op]);
+        expect(response.statusCode, 422, reason: '$op: ${response.body}');
+      }
+      expect(await unitsOf(collectionId), ['Intercessors: Blue | 40k | 1']);
+    });
+
+    test("cannot be written on another user's Collection, nor another user's rows touched", () async {
+      final alice = await signUp();
+      final bob = await signUp();
+      final collectionId = await createCollection(alice);
+      final bobCollection = await createCollection(bob);
+      final (photoId, fileId) = await addUnitPhoto(
+        alice,
+        collectionId,
+        'Intercessors',
+      );
+      expect(
+        (await upload(alice.token, [
+          putNotes(collectionId, 'Intercessors', 'Blue'),
+          putUnitTag(collectionId, 'Intercessors', '40k'),
+        ])).statusCode,
+        204,
+      );
+
+      for (final op in [
+        // New rows on Alice's Collection.
+        putNotes(collectionId, 'Hellblasters', 'Mine'),
+        putUnitTag(collectionId, 'Hellblasters', 'Mine'),
+        putUnitPhoto(
+          await newId(),
+          collectionId,
+          'Hellblasters',
+          await newId(),
+        ),
+        // Alice's own rows, edited, moved to Bob's Collection, or deleted.
+        putNotes(collectionId, 'Intercessors', 'Mine'),
+        patch('squad_notes', unitId(collectionId, 'Intercessors'), {
+          'notes': 'Mine',
+        }),
+        patch('squad_photos', photoId, {'squad_name': 'Mine'}),
+        putUnitPhoto(photoId, bobCollection, 'Intercessors', fileId),
+        {
+          'op': 'DELETE',
+          'type': 'squad_notes',
+          'id': unitId(collectionId, 'Intercessors'),
+        },
+        {
+          'op': 'DELETE',
+          'type': 'squad_tags',
+          'id': tagId(unitId(collectionId, 'Intercessors'), '40k'),
+        },
+        {'op': 'DELETE', 'type': 'squad_photos', 'id': photoId},
+      ]) {
+        final response = await upload(bob.token, [op]);
+        expect(response.statusCode, 403, reason: '$op: ${response.body}');
+      }
+      expect(await unitsOf(collectionId), ['Intercessors: Blue | 40k | 1']);
+      expect(await unitsOf(bobCollection), isEmpty);
+      // Bob's row can't point at Alice's file, so he can't overwrite it either.
+      expect(
+        (await http.put(
+          file(fileId),
+          headers: auth(bob.token),
+          body: jpeg,
+        )).statusCode,
+        409,
+      );
+      expect(await download(alice, fileId), 200);
+      expect(await download(bob, fileId), 404);
+    });
+
+    test('Photos are at most ten per Unit when added; a file is kept while any Photo, old or new, points at it', () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final (first, fileId) = await addUnitPhoto(
+        user,
+        collectionId,
+        'Intercessors',
+      );
+      final ops = [
+        for (var i = 0; i < 9; i++)
+          putUnitPhoto(
+            await newId(),
+            collectionId,
+            'Intercessors',
+            await newId(),
+          ),
+      ];
+      expect((await upload(user.token, ops)).statusCode, 204);
+      final eleventh = await upload(user.token, [
+        putUnitPhoto(
+          await newId(),
+          collectionId,
+          'Intercessors',
+          await newId(),
+        ),
+      ]);
+      expect(eleventh.statusCode, 422, reason: eleventh.body);
+      expect(await unitsOf(collectionId), ['Intercessors:  |  | 10']);
+
+      // An older app's Photo row on a Batch shares the file: deleting the Unit's row keeps it, deleting both drops it.
+      final batchId = await addBatch(user);
+      final old = await newId();
+      expect(
+        (await upload(user.token, [putPhoto(old, batchId, fileId)])).statusCode,
+        204,
+      );
+      expect(
+        (await upload(user.token, [
+          {'op': 'DELETE', 'type': 'squad_photos', 'id': first},
+        ])).statusCode,
+        204,
+      );
+      expect(await download(user, fileId), 200);
+      expect(
+        (await upload(user.token, [
+          {'op': 'DELETE', 'type': 'photos', 'id': old},
+        ])).statusCode,
+        204,
+      );
+      expect(await download(user, fileId), 404);
+    });
+
+    test('go with their Collection, with their unreferenced files, even ones the deleting device never saw', () async {
+      final user = await signUp();
+      final doomed = await createCollection(user);
+      final kept = await createCollection(user);
+      final (_, fileA) = await addUnitPhoto(user, doomed, 'Intercessors');
+      final (_, fileB) = await addUnitPhoto(user, kept, 'Veterans');
+      expect(
+        (await upload(user.token, [
+          putNotes(doomed, 'Intercessors', 'Blue'),
+          putUnitTag(doomed, 'Intercessors', '40k'),
+          putNotes(kept, 'Veterans', 'Gold'),
+          putUnitTag(kept, 'Veterans', '40k'),
+        ])).statusCode,
+        204,
+      );
+
+      // The deleting device knew of none of the Unit's rows.
+      final deleted = await upload(user.token, [
+        {'op': 'DELETE', 'type': 'collections', 'id': doomed},
+      ]);
+      expect(deleted.statusCode, 204, reason: deleted.body);
+      expect(await unitsOf(doomed), isEmpty);
+      expect(await download(user, fileA), 404);
+      expect(await unitsOf(kept), ['Veterans: Gold | 40k | 1']);
+      expect(await download(user, fileB), 200);
+    });
+
+    test('are moved from Batches to their Units by the migration: Tags unioned, the newest photos kept, distinct notes joined', () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final other = await createCollection(user);
+      final wishlist = await stageOf(user.id, 'Wishlist');
+      final primed = await stageOf(user.id, 'Primed');
+
+      /// Puts a Batch of [name] the way an app before #105 did: notes on the Batch, a Stage Change [at], its Tags and
+      /// a Photo per file.
+      Future<String> oldBatch(
+        String collection,
+        String name,
+        String stageId,
+        String notes,
+        DateTime at, {
+        List<String> tags = const [],
+        List<String> files = const [],
+      }) async {
+        final id = await newId();
+        final response = await upload(user.token, [
+          {
+            ...putBatch(id, collectionId: collection, stageId: stageId),
+            'data': {
+              ...(putBatch(
+                    id,
+                    collectionId: collection,
+                    stageId: stageId,
+                  )['data']
+                  as Map),
+              'name': name,
+              'notes': notes,
+            },
+          },
+          {
+            'op': 'PUT',
+            'type': 'stage_changes',
+            'id': await newId(),
+            'data': {
+              'unit_id': id,
+              'to_stage_id': stageId,
+              'model_count': 10,
+              'happened_at': at.toIso8601String(),
+            },
+          },
+          for (final t in tags) putTag(id, t),
+        ]);
+        expect(response.statusCode, 204, reason: response.body);
+        // One upload per file, so each Photo row is stored after the last: newest last.
+        for (final f in files) {
+          expect(
+            (await upload(user.token, [
+              putPhoto(await newId(), id, f),
+            ])).statusCode,
+            204,
+          );
+        }
+        return id;
+      }
+
+      final files = [for (var i = 0; i < 12; i++) await newId()];
+      final oldest = DateTime.utc(2026, 1, 1);
+      await oldBatch(
+        collectionId,
+        'Intercessors',
+        wishlist,
+        'Blue',
+        oldest.add(const Duration(days: 1)),
+        tags: ['Ultramarines', '40k'],
+        files: files.sublist(0, 6),
+      );
+      // A Split's copy: the same notes, Tags and files (one shared with the first), plus newer ones.
+      await oldBatch(
+        collectionId,
+        'Intercessors',
+        primed,
+        ' Blue ',
+        oldest.add(const Duration(days: 2)),
+        tags: ['ultramarines', 'Primaris'],
+        files: [files[0], ...files.sublist(6)],
+      );
+      await oldBatch(
+        collectionId,
+        'Intercessors',
+        await stageOf(user.id, 'Done'),
+        'Gold trim',
+        oldest,
+      );
+      await oldBatch(
+        collectionId,
+        'Captain',
+        wishlist,
+        '',
+        oldest,
+        tags: ['HQ'],
+      );
+      await oldBatch(other, 'Intercessors', wishlist, 'Dark', oldest);
+
+      // As on a database from before #105: no Unit tables yet.
+      await db.execute('DROP TABLE squad_notes, squad_tags, squad_photos');
+      await migrate(db);
+      Future<List<List<String>>> state() async => [
+        await unitsOf(collectionId),
+        await unitsOf(other),
+        [
+          for (final row in await db.execute(
+            r'SELECT file_id::text FROM squad_photos WHERE collection_id = $1::uuid ORDER BY file_id',
+            parameters: [collectionId],
+          ))
+            row.first as String,
+        ],
+      ];
+      final migrated = await state();
+
+      expect(migrated[0], [
+        'Captain:  | HQ | 0',
+        'Intercessors: Gold trim\nBlue | 40k, Primaris, Ultramarines | ${Vault.maxPhotos}',
+      ]);
+      expect(migrated[1], ['Intercessors: Dark |  | 0']);
+      // 12 distinct files over the cap of 10: the two oldest are left out (files[0] was stored again later).
+      expect(
+        migrated[2],
+        ([...files]
+          ..removeRange(1, 3)
+          ..sort()),
+      );
+      // Each id is what the app computes, so the app edits these rows rather than adding new ones.
+      final notesId = await db.execute(
+        r'SELECT id::text FROM squad_notes WHERE collection_id = $1::uuid AND squad_name = $2',
+        parameters: [collectionId, 'Intercessors'],
+      );
+      expect(notesId.single.single, unitId(collectionId, 'Intercessors'));
+
+      // Running it again, as every deploy does, changes nothing.
+      await migrate(db);
+      expect(await state(), migrated);
     });
   });
 

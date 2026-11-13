@@ -325,14 +325,12 @@ void main() {
         final vault = Vault(SqliteVaultStore(db));
         final collection = await vault.createCollection('Space Marines');
         final other = await vault.createCollection('Dark Angels');
-        Future<String> batch(Collection c, String name) async =>
-            (await vault.addBatch(
-              c,
-              name: name,
-              modelCount: 1,
-              stageId: 's',
-            )).id;
-        // (Batch, file, queue timestamp, downloaded): the newest file is the one with the latest timestamp.
+        Future<(String, String)> batch(Collection c, String name) async {
+          await vault.addBatch(c, name: name, modelCount: 1, stageId: 's');
+          return (c.id, name);
+        }
+
+        // (Unit, file, queue timestamp, downloaded): the newest file is the one with the latest timestamp.
         final photos = [
           (await batch(collection, 'Intercessors'), 'old', 1, true),
           (await batch(collection, 'Intercessors'), 'new', 2, true),
@@ -341,10 +339,16 @@ void main() {
           (await batch(collection, 'Captain'), 'incoming', 2, false),
         ];
         await batch(collection, 'Terminators');
-        for (final (i, (batchId, file, ts, downloaded)) in photos.indexed) {
+        for (final (i, ((collectionId, unit), file, ts, downloaded))
+            in photos.indexed) {
           await SqliteVaultStore.insertPhoto(
             db,
-            Photo(id: 'p$i', batchId: batchId, fileId: file),
+            Photo(
+              id: 'p$i',
+              collectionId: collectionId,
+              unit: unit,
+              fileId: file,
+            ),
           );
           await db.execute(
             'INSERT INTO ${photoQueueTable.name} (id, filename, local_uri, timestamp, state, has_synced) '

@@ -904,10 +904,10 @@ Future<void> addBatch(
     notes: result.notes,
     stageId: result.stageId!,
   );
-  await vault.addTags(batch.id, result.tags);
+  await vault.addTags(collection.id, batch.name, result.tags);
 }
 
-/// A Batch's fields, its photos, its Stage (with a Move action) and its history of Stage Changes.
+/// A Batch's fields, its Unit's photos and notes, its Stage (with a Move action) and its history of Stage Changes.
 class BatchScreen extends StatefulWidget {
   const BatchScreen({
     super.key,
@@ -930,15 +930,30 @@ class _BatchScreenState extends State<BatchScreen> {
   // The Stage groups carry both the Workflow's Stages and the Batch's current fields.
   late var _groups = widget.vault.watchStageGroups(widget.collection);
   late final _history = widget.vault.watchHistory(widget.batchId);
+  // The notes of the Unit the Batch belongs to, followed through a rename.
+  String? _notesFor;
+  Stream<String>? _notes;
 
+  Stream<String> _notesOf(Batch batch) {
+    if (batch.name != _notesFor) {
+      _notesFor = batch.name;
+      _notes = widget.vault.watchNotes(batch.collectionId, batch.name);
+    }
+    return _notes!;
+  }
+
+  // The Tags and notes edited here are its Unit's.
   Future<void> _edit(Batch batch) async {
-    final tags = await widget.vault.tagsOf(batch.id);
+    final (collectionId, unit) = (batch.collectionId, batch.name);
+    final tags = await widget.vault.tagsOf(collectionId, unit);
+    final notes = await widget.vault.notesOf(collectionId, unit);
     if (!mounted) return;
     final result = await showDialog<_BatchFields>(
       context: context,
       builder: (_) => _BatchDialog(
         title: 'Edit Unit',
         batch: batch,
+        notes: notes,
         tags: tags,
         suggestTags: widget.vault.suggestTags,
       ),
@@ -951,17 +966,19 @@ class _BatchScreenState extends State<BatchScreen> {
     }
     final kept = {for (final t in result.tags) tagKey(t)};
     for (final t in tags.where((t) => !kept.contains(tagKey(t)))) {
-      await widget.vault.removeTag(batch.id, t);
+      await widget.vault.removeTag(collectionId, unit, t);
     }
-    await widget.vault.addTags(batch.id, result.tags);
+    await widget.vault.addTags(collectionId, unit, result.tags);
     // Only changed fields, so edits to other fields on other devices are kept.
+    if (result.notes != notes) {
+      await widget.vault.setNotes(collectionId, unit, result.notes);
+    }
     await widget.vault.editBatch(
       batch.id,
       name: result.name == batch.name ? null : result.name,
       modelCount: result.modelCount == batch.modelCount
           ? null
           : result.modelCount,
-      notes: result.notes == batch.notes ? null : result.notes,
     );
   }
 
@@ -1025,54 +1042,59 @@ class _BatchScreenState extends State<BatchScreen> {
             _ when batch == null => const Center(
               child: Text('This Unit was merged into another or deleted.'),
             ),
-            _ => ListView(
-              children: [
-                if (widget.photos case final photos?)
-                  BatchPhotos(
-                    vault: widget.vault,
-                    files: photos,
-                    batchId: batch.id,
+            _ => StreamBuilder(
+              stream: _notesOf(batch),
+              builder: (context, notes) => ListView(
+                children: [
+                  if (widget.photos case final photos?)
+                    UnitPhotos(
+                      vault: widget.vault,
+                      files: photos,
+                      collectionId: batch.collectionId,
+                      unit: batch.name,
+                    ),
+                  ListTile(
+                    title: Text(stageName(batch.stageId)),
+                    subtitle: Text(
+                      batch.modelCount == 1
+                          ? '1 model'
+                          : '${batch.modelCount} models',
+                    ),
+                    trailing: FilledButton(
+                      onPressed: () => _move(batch, groups),
+                      child: const Text('Move'),
+                    ),
                   ),
-                ListTile(
-                  title: Text(stageName(batch.stageId)),
-                  subtitle: Text(
-                    batch.modelCount == 1
-                        ? '1 model'
-                        : '${batch.modelCount} models',
+                  if (notes.data case final n? when n.isNotEmpty)
+                    ListTile(title: Text(n)),
+                  ListTile(
+                    title: Text(
+                      'History',
+                      style: stencil(Theme.of(context).textTheme.titleMedium),
+                    ),
                   ),
-                  trailing: FilledButton(
-                    onPressed: () => _move(batch, groups),
-                    child: const Text('Move'),
-                  ),
-                ),
-                if (batch.notes.isNotEmpty) ListTile(title: Text(batch.notes)),
-                ListTile(
-                  title: Text(
-                    'History',
-                    style: stencil(Theme.of(context).textTheme.titleMedium),
-                  ),
-                ),
-                StreamBuilder(
-                  stream: _history,
-                  builder: (context, history) => Column(
-                    children: [
-                      for (final c in (history.data ?? const []).reversed)
-                        ListTile(
-                          title: Text(
-                            c.fromStageId == null
-                                ? 'Added at ${stageName(c.toStageId)}'
-                                : '${stageName(c.fromStageId)} → ${stageName(c.toStageId)}',
+                  StreamBuilder(
+                    stream: _history,
+                    builder: (context, history) => Column(
+                      children: [
+                        for (final c in (history.data ?? const []).reversed)
+                          ListTile(
+                            title: Text(
+                              c.fromStageId == null
+                                  ? 'Added at ${stageName(c.toStageId)}'
+                                  : '${stageName(c.fromStageId)} → ${stageName(c.toStageId)}',
+                            ),
+                            subtitle: Text(
+                              '${localizations.formatMediumDate(c.happenedAt.toLocal())} '
+                              '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(c.happenedAt.toLocal()))}',
+                            ),
+                            trailing: Text('${c.modelCount}'),
                           ),
-                          subtitle: Text(
-                            '${localizations.formatMediumDate(c.happenedAt.toLocal())} '
-                            '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(c.happenedAt.toLocal()))}',
-                          ),
-                          trailing: Text('${c.modelCount}'),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           },
         );
@@ -1099,6 +1121,7 @@ class _BatchDialog extends StatefulWidget {
     this.stages = const [],
     this.stageId,
     this.batch,
+    this.notes = '',
     this.tags = const [],
     required this.suggestTags,
   });
@@ -1111,6 +1134,9 @@ class _BatchDialog extends StatefulWidget {
   final List<Stage> stages;
   final String? stageId;
   final Batch? batch;
+
+  /// The Unit's notes, when editing.
+  final String notes;
   final List<String> tags;
   final Future<List<String>> Function(String prefix) suggestTags;
 
@@ -1127,7 +1153,7 @@ class _BatchDialogState extends State<_BatchDialog> {
   late final _count = TextEditingController(
     text: '${widget.batch?.modelCount ?? 1}',
   );
-  late final _notes = TextEditingController(text: widget.batch?.notes);
+  late final _notes = TextEditingController(text: widget.notes);
   late String? _stageId = widget.stageId ?? widget.stages.firstOrNull?.id;
   late final _tags = [...widget.tags];
   final _tag = TextEditingController();

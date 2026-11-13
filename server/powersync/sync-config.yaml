@@ -19,3 +19,6 @@ streams:
       - SELECT * FROM merges WHERE owner_id = auth.user_id()
       - SELECT * FROM paints WHERE owner_id = auth.user_id()
       - SELECT * FROM squad_paints WHERE owner_id = auth.user_id()
+      - SELECT * FROM squad_notes WHERE owner_id = auth.user_id()
+      - SELECT * FROM squad_tags WHERE owner_id = auth.user_id()
+      - SELECT * FROM squad_photos WHERE owner_id = auth.user_id()
