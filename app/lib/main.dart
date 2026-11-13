@@ -301,7 +301,8 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
-                builder: (_) => PaintsScreen(vault: widget.vault),
+                builder: (_) =>
+                    PaintsScreen(vault: widget.vault, photos: widget.photos),
               ),
             ),
           ),

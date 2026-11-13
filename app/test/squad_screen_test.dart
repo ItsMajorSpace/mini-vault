@@ -185,6 +185,93 @@ void main() {
   );
 
   testWidgets(
+    'lists the Squad\'s Paints with notes, marking wanted ones; adds from the library, a new one wanted, and removes',
+    (tester) async {
+      final (vault, collection) = await openSquad(tester, stages, [(5, 0)]);
+      await tester.runAsync(() async {
+        final blue = await vault.addPaint(
+          brand: 'Citadel',
+          range: 'Base',
+          name: 'Macragge Blue',
+        );
+        await vault.addPaint(
+          brand: 'Citadel',
+          range: 'Shade',
+          name: 'Nuln Oil',
+          owned: false,
+        );
+        await vault.addSquadPaint(
+          collection.id,
+          'Intercessors',
+          blue.id,
+          note: 'armour',
+        );
+      });
+      await settle(tester);
+      expect(find.text('Macragge Blue'), findsOneWidget);
+      expect(find.text('Citadel / Base · armour'), findsOneWidget);
+
+      // The picker offers only Paints the Squad does not use yet.
+      await tester.tap(find.byTooltip('Add Paint'));
+      await tester.pumpAndSettle();
+      expect(find.text('Citadel / Base / Macragge Blue'), findsNothing);
+      await tapAndWait(tester, find.text('Citadel / Shade / Nuln Oil'));
+      expect(find.text('Citadel / Shade · Wanted'), findsOneWidget);
+
+      // A Paint created here starts as wanted.
+      await tester.tap(find.byTooltip('Add Paint'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New Paint…'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      await tapAndWait(tester, find.byTooltip('Remove Paint').first);
+      expect(find.text('Macragge Blue'), findsNothing);
+      expect(find.text('Nuln Oil'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'the Paints section shows again after it is scrolled out of view and back',
+    (tester) async {
+      // Tall enough at first that the section is built (and listening) when the screen opens.
+      tester.view.physicalSize = const Size(800, 4000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final (vault, collection) = await openSquad(
+        tester,
+        [for (var i = 0; i < 40; i++) 'Stage $i'],
+        [(5, 0)],
+      );
+      await tester.runAsync(() async {
+        final blue = await vault.addPaint(
+          brand: 'Citadel',
+          range: 'Base',
+          name: 'Macragge Blue',
+        );
+        await vault.addSquadPaint(collection.id, 'Intercessors', blue.id);
+      });
+      await settle(tester);
+      expect(find.text('Macragge Blue'), findsOneWidget);
+
+      // A short screen drops the section from the list; scrolling to it builds it again.
+      tester.view.physicalSize = const Size(800, 400);
+      await settle(tester);
+      expect(find.text('Macragge Blue'), findsNothing);
+      await tester.scrollUntilVisible(find.text('Macragge Blue'), 500);
+      await settle(tester);
+      expect(tester.takeException(), isNull);
+      expect(find.text('Macragge Blue'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'tapping a Stage opens the Move sheet, next Stage preselected; Move moves the chosen count',
     (tester) async {
       await openSquad(tester, stages, [(5, 0)]);
