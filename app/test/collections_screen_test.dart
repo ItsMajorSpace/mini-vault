@@ -68,7 +68,7 @@ void main() {
         find.text('1 Collection · 0 owned · 0 finished · 0 wanted'),
         findsOneWidget,
       );
-      expect(find.text('2 changes waiting to sync'), findsOneWidget);
+      expect(find.byTooltip('2 changes waiting to sync'), findsOneWidget);
       expect(find.byTooltip('New Collection'), findsOneWidget);
       expect(
         find.text('Other'),
