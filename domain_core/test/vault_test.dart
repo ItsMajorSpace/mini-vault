@@ -1873,6 +1873,24 @@ void main() {
       expect(await squad(), [(unit.id, 's6', 10)]);
     });
 
+    test('undoing a Squad move, the same move back, puts the models back at their old Stage', () async {
+      // A partial move that starts a new Batch, undone: the new Batch moves back whole and Merges.
+      final unit = await add(10, 's1');
+      await vault.moveModels(collection, 'Intercessors', 's1', 's2', 4);
+      await vault.moveModels(collection, 'Intercessors', 's2', 's1', 4);
+      expect(await squad(), [(unit.id, 's1', 10)]);
+      expect(await history(unit.id), contains('s2 -> s1 (4)'));
+
+      // A partial move onto a Batch already there, undone: that Batch keeps its own models.
+      final there = await add(3, 's3');
+      await vault.moveModels(collection, 'Intercessors', 's1', 's3', 4);
+      await vault.moveModels(collection, 'Intercessors', 's3', 's1', 4);
+      expect([
+        for (final (_, stage, n) in await squad()) (stage, n),
+      ], unorderedEquals([('s1', 10), ('s3', 3)]));
+      expect((await squad()).firstWhere((u) => u.$2 == 's3').$1, there.id);
+    });
+
     test('a Squad move rejects N under 1 or above what the source Stage holds, and the same Stage', () async {
       final unit = await add(4, 's1');
       await add(3, 's1', name: 'Hellblasters');
@@ -2231,6 +2249,28 @@ void main() {
         ),
         isEmpty,
       );
+    });
+
+    test('undoing a removal, adding the Paint back with its note, restores the link', () async {
+      await vault.addSquadPaint(
+        collection.id,
+        'Intercessors',
+        blue.id,
+        note: 'armour base',
+      );
+      final [link] = await vault
+          .watchSquadPaints(collection.id, 'Intercessors')
+          .first;
+
+      await vault.removeSquadPaint(link.id);
+      await vault.addSquadPaint(
+        link.collectionId,
+        link.squad,
+        link.paint.id,
+        note: link.note,
+      );
+
+      expect(await paintsOf('Intercessors'), ['Macragge Blue: armour base']);
     });
 
     test('a Paint created inline is added to the library wanted', () async {

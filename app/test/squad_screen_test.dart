@@ -254,6 +254,10 @@ void main() {
       expect(find.text('Macragge Blue'), findsNothing);
       expect(find.text('Nuln Oil'), findsOneWidget);
 
+      // Undo restores it with its note.
+      await tapAndWait(tester, find.text('Undo'));
+      expect(find.text('Citadel / Base · armour'), findsOneWidget);
+
       await tester.pumpWidget(const SizedBox());
     },
   );
@@ -341,6 +345,26 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('after a move, Undo moves the models back', (tester) async {
+    await openSquad(tester, stages, [(5, 0)]);
+
+    await tester.tap(find.text('Wishlist'));
+    await tester.pumpAndSettle();
+    // All, then one fewer: a partial move whatever count the sheet starts at.
+    await tester.tap(find.text('All'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('One fewer'));
+    await tester.pump();
+    await tapAndWait(tester, find.byType(FilledButton));
+    expect(counts(tester), ['1 model', '4 models', '0 models']);
+    expect(find.text('Moved 4 models to Unassembled'), findsOneWidget);
+
+    await tapAndWait(tester, find.text('Undo'));
+    expect(counts(tester), ['5 models', '0 models', '0 models']);
+
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'Edit count recounts a Stage\'s Unit, deleting it at 0 once confirmed; not with several Units there',
