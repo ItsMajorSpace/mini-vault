@@ -85,7 +85,7 @@ void main() {
   const stages = ['Wishlist', 'Unassembled', 'Primed'];
 
   testWidgets(
-    'shows every Stage with the Unit\'s counts and Tags; renames and Merges',
+    'shows every Stage with the Unit\'s counts and Tags, and no Merge; renames',
     (tester) async {
       final (vault, collection) = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('app_test');
@@ -159,9 +159,7 @@ void main() {
       expect(find.text('HQ'), findsNothing);
       expect(find.byType(InputChip), findsNothing);
 
-      // Two Batches at Wishlist: one Merge chip, which Merges them.
-      expect(find.text('Merge'), findsOneWidget);
-      await tapAndWait(tester, find.text('Merge'));
+      // Two Batches at Wishlist (until the automatic Merge): one row, no Merge to tap.
       expect(find.text('Merge'), findsNothing);
       expect(find.text('10 models'), findsOneWidget);
 
@@ -177,7 +175,7 @@ void main() {
       ))!;
       expect(
         [for (final s in units) (s.name, s.batches.length)],
-        [('Assault Intercessors', 2), ('Captain', 1)],
+        [('Assault Intercessors', 3), ('Captain', 1)],
       );
 
       await tester.pumpWidget(const SizedBox());
@@ -367,7 +365,7 @@ void main() {
   });
 
   testWidgets(
-    'Edit count recounts a Stage\'s Batch, deleting it at 0 once confirmed; not with several Batches there',
+    'Edit count works at every Stage with models; recounts its Batch, deleting it at 0 once confirmed',
     (tester) async {
       final (vault, collection) = await openUnit(tester, stages, [
         (6, 0),
@@ -389,17 +387,19 @@ void main() {
         await tester.pump();
       }
 
-      // Two Batches at Wishlist: their count cannot be edited until Merged.
-      await tester.tap(find.text('Wishlist'));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<TextButton>(find.widgetWithText(TextButton, 'Edit count'))
-            .onPressed,
-        isNull,
-      );
-      await tester.tapAt(const Offset(10, 10));
-      await tester.pumpAndSettle();
+      // Enabled at every Stage with models, Wishlist's two Batches (until the automatic Merge) included.
+      for (final stage in ['Wishlist', 'Primed']) {
+        await tester.tap(find.text(stage));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, 'Edit count'))
+              .onPressed,
+          isNotNull,
+        );
+        await tester.tapAt(const Offset(10, 10));
+        await tester.pumpAndSettle();
+      }
 
       // A recount: the Batch at Primed now has 5, no Batch moved.
       await recount('Primed', '5');
@@ -433,11 +433,10 @@ void main() {
   );
 
   testWidgets(
-    'empty Stages are dimmed and open nothing; Details asks which of several Batches to open',
+    'empty Stages are dimmed and open nothing; Details opens the Stage\'s Batch',
     (tester) async {
       final (vault, collection) = await openUnit(tester, stages, [
         (6, 0),
-        (4, 0),
         (2, 1),
       ]);
       double opacity(String stage) => tester
@@ -453,18 +452,14 @@ void main() {
 
       await tester.tap(find.text('Wishlist'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Details'));
-      await tester.pumpAndSettle();
-      expect(find.text('Which Unit?'), findsOneWidget);
-      expect(find.widgetWithText(ListTile, '6 models'), findsOneWidget);
-      await tapAndWait(tester, find.widgetWithText(ListTile, '4 models'));
+      await tapAndWait(tester, find.text('Details'));
       final opened = tester
           .widget<BatchScreen>(find.byType(BatchScreen))
           .batchId;
       final batches = (await tester.runAsync(
         () => vault.batchesOf(collection),
       ))!;
-      expect(batches.firstWhere((u) => u.id == opened).modelCount, 4);
+      expect(batches.firstWhere((u) => u.id == opened).modelCount, 6);
 
       await tester.pumpWidget(const SizedBox());
     },

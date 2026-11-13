@@ -1663,7 +1663,7 @@ void main() {
         vault.mergeBatches(twin, elsewhere),
         throwsArgumentError,
       );
-      // Batches that already share a Stage are Merged only by explicit choice.
+      // Adding a Batch does not Merge it; keepBatchesMerged does (see Merge on arrival).
       expect(await batches(), hasLength(4));
     });
 
@@ -1820,6 +1820,48 @@ void main() {
       expect(move.crud.map((e) => e.table), ['units', 'stage_changes']);
       await move.complete();
       expect((await db.getNextCrudTransaction())!.crud.first.table, 'merges');
+    });
+
+    test('Batches meeting at a Stage through sync are Merged into the lowest id; again, or twice at once, changes nothing', () async {
+      final local = await add(3, 's3');
+      await add(1, 's1');
+      // Two Batches another device moved to s3, as sync delivers them.
+      final (first, second) = (
+        '00000000-0000-4000-8000-000000000001',
+        '00000000-0000-4000-8000-000000000002',
+      );
+      for (final (id, count) in [(first, 4), (second, 2)]) {
+        await db.execute(
+          "INSERT INTO units (id, collection_id, stage_id, name, model_count, notes) VALUES (?, ?, 's3', 'Intercessors', ?, '')",
+          [id, collection.id, count],
+        );
+        await db.execute(
+          "INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES (?, ?, 's1', 's3', ?, '2026-11-13T10:00:00Z')",
+          ['$id-sc', id, count],
+        );
+      }
+      final stale = await vault.batchesOf(collection);
+      await db.execute('DELETE FROM ps_crud');
+
+      // Two passes at once, as when sync and a local change both fire the watch.
+      await Future.wait([
+        vault.keepBatchesMerged().first,
+        vault.keepBatchesMerged().first,
+      ]);
+      await vault.keepBatchesMerged().first;
+      // A Merge with stale Batches, of a pair already merged.
+      final at = stale.where((b) => b.stageId == 's3').toList();
+      await vault.mergeBatches(at.first, at.last);
+
+      final after = await unit();
+      expect(after.where((b) => b.$2 == 's3'), [(first, 's3', 9)]);
+      expect(after, hasLength(2));
+      expect(await history(first), hasLength(3));
+      expect(
+        await db.getAll("SELECT * FROM ps_crud WHERE data LIKE '%\"merges\"%'"),
+        hasLength(2),
+      );
+      expect(local.id.compareTo(first), greaterThan(0));
     });
 
     test(

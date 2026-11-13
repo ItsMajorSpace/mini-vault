@@ -27,6 +27,11 @@ Future<void> main() async {
   final auth = await openAuth(File('${dir.path}/session.json'));
   final photos = PhotoFiles(db, auth, Directory('${dir.path}/photos'));
   syncWhileSignedIn(auth, db, photos.queue);
+  // Batches meeting at a Stage through sync are Merged here, once for the whole app (ADR 0009).
+  Vault(SqliteVaultStore(db)).keepBatchesMerged().listen(
+    null,
+    onError: (Object e) => debugPrint('Automatic Merge failed: $e'),
+  );
   runApp(MiniVaultApp(auth: auth, db: db, photos: photos));
 }
 
@@ -977,28 +982,6 @@ class _BatchScreenState extends State<BatchScreen> {
     );
   }
 
-  /// Merges a chosen matching Batch into [batch], only on explicit confirmation.
-  Future<void> _merge(Batch batch, List<Batch> candidates) async {
-    final other = await showDialog<Batch>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Merge into this Unit'),
-        children: [
-          for (final u in candidates)
-            ListTile(
-              title: Text(u.name),
-              subtitle: Text(u.notes),
-              trailing: Text('${u.modelCount}'),
-              onTap: () => Navigator.pop(context, u),
-            ),
-        ],
-      ),
-    );
-    if (other != null && mounted) {
-      await attempt(context, () => widget.vault.mergeBatches(batch, other));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
@@ -1062,24 +1045,6 @@ class _BatchScreenState extends State<BatchScreen> {
                     child: const Text('Move'),
                   ),
                 ),
-                // Always one slot, so the History StreamBuilder below keeps its place and its single subscription.
-                switch (Vault.mergeCandidates(
-                  batch,
-                  groups.expand((g) => g.batches),
-                )) {
-                  [] => const SizedBox.shrink(),
-                  final candidates => ListTile(
-                    title: Text(
-                      candidates.length == 1
-                          ? '1 matching Unit at this Stage'
-                          : '${candidates.length} matching Units at this Stage',
-                    ),
-                    trailing: OutlinedButton(
-                      onPressed: () => _merge(batch, candidates),
-                      child: const Text('Merge'),
-                    ),
-                  ),
-                },
                 if (batch.notes.isNotEmpty) ListTile(title: Text(batch.notes)),
                 ListTile(
                   title: Text(
