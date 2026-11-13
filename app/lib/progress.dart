@@ -58,6 +58,7 @@ class StageBar extends StatelessWidget {
     child: ColoredBox(
       color: Theme.of(context).colorScheme.secondaryContainer,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (final s in progress.stages.reversed)
             Expanded(
