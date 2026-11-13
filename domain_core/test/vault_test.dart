@@ -806,6 +806,88 @@ void main() {
         p(0, 18, 13),
       );
     });
+
+    group('per Workflow', () {
+      /// Each section as "Workflow: Stage models, ...", every Stage of it listed.
+      Future<List<String>> sections([Collection? only]) async => [
+        for (final w in await vault.watchProgressByWorkflow(only).first)
+          '${w.workflow.name}: ${[for (final g in w.stages) '${g.stage.name} ${g.modelCount}'].join(', ')}',
+      ];
+
+      test('sums the Collections using a Workflow, listing every Stage, pre-owned and empty ones included', () async {
+        await add(5, 's0');
+        await add(10, 's1');
+        final orks = await vault.createCollection('Orks');
+        await vault.addUnit(orks, name: 'Boyz', modelCount: 20, stageId: 's6');
+        await vault.addUnit(orks, name: 'Grots', modelCount: 3, stageId: 's1');
+
+        expect(await sections(), [
+          'Starter: Wishlist 5, Unassembled 13, Assembled 0, Primed 0, Painted 0, Based 0, Done 20',
+        ]);
+        final all = await vault.watchProgressByWorkflow().first;
+        expect(all.single.progress, p(5, 33, 20));
+        expect(Progress.combined(all.map((w) => w.progress)), p(5, 33, 20));
+        // Only the given Collection.
+        expect(await sections(collection), [
+          'Starter: Wishlist 5, Unassembled 10, Assembled 0, Primed 0, Painted 0, Based 0, Done 0',
+        ]);
+      });
+
+      test('keeps Workflows apart, even where Stage names match, and totals them together', () async {
+        await add(10, 's1');
+        final other = await vault.createWorkflow('Kill Team');
+        final kt = await vault.createCollection(
+          'Kommandos',
+          workflowId: other.id,
+        );
+        await vault.addUnit(
+          kt,
+          name: 'Kommandos',
+          modelCount: 4,
+          stageId: other.stages[1].id,
+        );
+        await vault.addUnit(
+          kt,
+          name: 'Nob',
+          modelCount: 1,
+          stageId: other.stages.last.id,
+        );
+        // A Workflow no Collection uses gets no section.
+        await vault.createWorkflow('Unused');
+
+        expect(await sections(), [
+          'Starter: Wishlist 0, Unassembled 10, Assembled 0, Primed 0, Painted 0, Based 0, Done 0',
+          'Kill Team: Wishlist 0, Unassembled 4, Assembled 0, Primed 0, Painted 0, Based 0, Done 1',
+        ]);
+        final total = Progress.combined(
+          (await vault.watchProgressByWorkflow().first).map((w) => w.progress),
+        );
+        expect(total, p(0, 15, 1));
+        expect(
+          [for (final s in total.stages) '${s.stage.name}: ${s.models}'],
+          ['Unassembled: 10', 'Unassembled: 4', 'Done: 1'],
+        );
+      });
+
+      test('is empty without Collections, and watched', () async {
+        await vault.deleteCollection(collection.id);
+        final all = vault.watchProgressByWorkflow().asBroadcastStream();
+        expect(await all.first, isEmpty);
+        final added = expectLater(
+          all,
+          emitsThrough(
+            isA<List<WorkflowProgress>>().having(
+              (ws) => ws.single.progress,
+              'progress',
+              p(0, 2, 0),
+            ),
+          ),
+        );
+        final orks = await vault.createCollection('Orks');
+        await vault.addUnit(orks, name: 'Boyz', modelCount: 2, stageId: 's1');
+        await added;
+      });
+    });
   });
 
   group('Stage Change', () {

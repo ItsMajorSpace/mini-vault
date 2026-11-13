@@ -30,6 +30,10 @@ The Stage in a Workflow from which a Unit's models count as part of the collecti
 The Stage in a Workflow from which a Unit's models count as finished; models at it or any later Stage are finished. By default the Workflow's last Stage.
 _Avoid_: Done, complete
 
+**Progress**:
+How far a Collection, or several Collections together, has come: how many models are wanted, owned and finished, and how many owned models sit at each Stage. Finished models are always also owned; wanted models are never owned.
+_Avoid_: Stats, statistics, completion
+
 **Stage Change**:
 A record that a Unit moved from one Stage to another, and when. A Unit's Stage Changes form its history.
 _Avoid_: Event, log entry, transition

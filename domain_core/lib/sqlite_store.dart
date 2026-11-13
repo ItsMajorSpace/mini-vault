@@ -271,6 +271,10 @@ class SqliteVaultStore implements VaultStore {
       )
       .map(_toUnits);
 
+  @override
+  Stream<List<Unit>> watchAllUnits() =>
+      _db.watch('SELECT * FROM units').map(_toUnits);
+
   static List<Unit> _toUnits(Iterable<Map<String, Object?>> rows) => [
     for (final u in rows)
       Unit(

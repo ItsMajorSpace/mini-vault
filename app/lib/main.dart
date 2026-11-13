@@ -195,6 +195,7 @@ class CollectionsScreen extends StatefulWidget {
 
 class _CollectionsScreenState extends State<CollectionsScreen> {
   late final _collections = widget.vault.watchCollections();
+  late final _progress = widget.vault.watchProgressByWorkflow();
 
   Future<void> _create() async {
     final workflows = await widget.vault.workflows();
@@ -258,8 +259,9 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
+  Widget build(BuildContext context) => StreamBuilder(
+    stream: _collections,
+    builder: (context, snapshot) => Scaffold(
       appBar: AppBar(
         title: const Text('Collections'),
         actions: [
@@ -293,9 +295,8 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
           child: SyncStatusBar(db: widget.db),
         ),
       ),
-      body: StreamBuilder(
-        stream: _collections,
-        builder: (context, snapshot) {
+      body: Builder(
+        builder: (context) {
           if (snapshot.hasError) {
             return Center(
               child: Text('Could not load Collections: ${snapshot.error}'),
@@ -358,13 +359,21 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
           );
         },
       ),
+      bottomNavigationBar: StreamBuilder(
+        stream: _progress,
+        builder: (context, progress) => ProgressDrawer(
+          count: progress.hasData ? snapshot.data?.length ?? 0 : 0,
+          noun: 'Collection',
+          workflows: progress.data ?? const [],
+        ),
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _create,
         tooltip: 'New Collection',
         child: const Icon(Icons.add),
       ),
-    );
-  }
+    ),
+  );
 }
 
 /// A Collection's Squads, by name, each with its model count and progress.
@@ -390,6 +399,9 @@ class CollectionScreen extends StatefulWidget {
 
 class _CollectionScreenState extends State<CollectionScreen> {
   late final _squads = widget.vault.watchSquads(widget.collection);
+  late final _progress = widget.vault.watchProgressByWorkflow(
+    widget.collection,
+  );
 
   Future<void> _add(List<Stage> stages) async {
     final result = await showDialog<_UnitFields>(
@@ -434,13 +446,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
             ),
             _ => ListView(
               children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: ProgressSummary(
-                    vault: widget.vault,
-                    collection: widget.collection,
-                  ),
-                ),
                 for (final squad in squads)
                   ListTile(
                     title: Text(squad.name),
@@ -461,6 +466,14 @@ class _CollectionScreenState extends State<CollectionScreen> {
               ],
             ),
           },
+          bottomNavigationBar: StreamBuilder(
+            stream: _progress,
+            builder: (context, progress) => ProgressDrawer(
+              count: progress.hasData ? squads?.length ?? 0 : 0,
+              noun: 'Squad',
+              workflows: progress.data ?? const [],
+            ),
+          ),
           floatingActionButton: squads == null
               ? null
               : FloatingActionButton(
