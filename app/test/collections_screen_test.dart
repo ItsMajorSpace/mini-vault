@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
 import 'package:mini_vault/progress.dart';
+import 'package:mini_vault/theme.dart';
 import 'package:mini_vault/workflows.dart';
 import 'package:powersync/powersync.dart';
 
@@ -243,6 +244,62 @@ void main() {
     expect(
       find.text('3 Squads · 11 owned · 11 finished · 10 wanted'),
       findsOneWidget,
+    );
+    // Each Squad's bar: solid owned segments, then wanted ones outlined; together they fill the bar.
+    List<(String, double)> segments(String squad) {
+      final bar = find.descendant(
+        of: find.ancestor(
+          of: find.text(squad),
+          matching: find.byType(ListTile),
+        ),
+        matching: find.byType(StageBar),
+      );
+      final width = tester.getSize(bar).width;
+      return [
+        for (final e in tester.elementList(
+          find.descendant(
+            of: find.descendant(of: bar, matching: find.byType(Expanded)),
+            matching: find.byWidgetPredicate(
+              (w) => w is ColoredBox || w is DecoratedBox,
+            ),
+          ),
+        ))
+          (
+            e.widget is ColoredBox ? 'owned' : 'wanted outlined',
+            (tester.getSize(find.byElementPredicate((x) => x == e)).width /
+                    width *
+                    100)
+                .roundToDouble(),
+          ),
+      ];
+    }
+
+    // Percent of the bar.
+    expect(segments('Terminators'), [('wanted outlined', 100.0)]);
+    expect(segments('Intercessors'), [
+      ('owned', 67.0),
+      ('wanted outlined', 33.0),
+    ]);
+    final outline =
+        tester
+                .widget<DecoratedBox>(
+                  find.descendant(
+                    of: find.descendant(
+                      of: find.ancestor(
+                        of: find.text('Terminators'),
+                        matching: find.byType(ListTile),
+                      ),
+                      matching: find.byType(StageBar),
+                    ),
+                    matching: find.byType(DecoratedBox),
+                  ),
+                )
+                .decoration
+            as BoxDecoration;
+    expect(outline.color, isNull);
+    expect(
+      outline.border,
+      Border.all(color: stageColour(Vault.stageColours.first)),
     );
     expect(find.byTooltip('New Unit'), findsOneWidget);
 
