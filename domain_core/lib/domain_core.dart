@@ -196,8 +196,19 @@ abstract interface class VaultStore {
 
   /// Stores [order] (all of a Workflow's Stage ids) as its Stage order.
   Future<void> reorderStages(List<String> order);
-  Future<void> deleteStage(String id);
-  Future<bool> stageHoldsUnits(String id);
+
+  /// In one transaction, so it uploads as one batch in an order the write API accepts: appends [moves] and sets
+  /// each Unit's Stage, then sets the Workflow's Owned and Finished Stage if given, then deletes the Stage.
+  Future<void> deleteStage(
+    String workflowId,
+    String id, {
+    List<StageChange> moves = const [],
+    String? ownedStageId,
+    String? finishedStageId,
+  });
+
+  /// The Units at the Stage, in every Collection.
+  Future<List<Unit>> unitsAt(String stageId);
 
   Future<List<Collection>> collections();
 
@@ -334,8 +345,21 @@ class Vault {
     await _store.reorderStages([for (final s in order) s.id]);
   }
 
-  /// Throws a [StateError] if it is the Workflow's only Stage, its Owned or Finished Stage, or holds Units.
-  Future<void> deleteStage(String workflowId, String stageId) async {
+  /// The Units at the Stage, in every Collection using its Workflow.
+  Future<List<Unit>> unitsAt(String stageId) => _store.unitsAt(stageId);
+
+  /// Deletes a Stage in one transaction. If it holds Units, in any Collection, they all move to [moveUnitsTo] first,
+  /// each recording a Stage Change. If it is the Owned or Finished Stage, [ownedStageId] or [finishedStageId] replaces it.
+  /// Throws a [StateError] if it is the Workflow's only Stage, or holds Units or is the Owned or Finished Stage without
+  /// the replacement; an [ArgumentError] if a replacement is not another Stage of the Workflow, or Owned would come
+  /// after Finished.
+  Future<void> deleteStage(
+    String workflowId,
+    String stageId, {
+    String? moveUnitsTo,
+    String? ownedStageId,
+    String? finishedStageId,
+  }) async {
     final w = await _workflow(workflowId);
     if (!w.stages.any((s) => s.id == stageId)) {
       throw ArgumentError.value(stageId, 'stageId', 'not in this Workflow');
@@ -343,13 +367,31 @@ class Vault {
     if (w.stages.length == 1) {
       throw StateError('A Workflow needs at least one Stage');
     }
-    if (stageId == w.ownedStage.id || stageId == w.finishedStage.id) {
+    final owned = ownedStageId ?? w.ownedStage.id;
+    final finished = finishedStageId ?? w.finishedStage.id;
+    if (owned == stageId || finished == stageId) {
       throw StateError('Pick another Owned or Finished Stage first');
     }
-    if (await _store.stageHoldsUnits(stageId)) {
+    final rest = [...w.stages]..removeWhere((s) => s.id == stageId);
+    _checkOrder(rest, owned: owned, finished: finished);
+    final units = await _store.unitsAt(stageId);
+    if (units.isNotEmpty && moveUnitsTo == null) {
       throw StateError('This Stage holds Units');
     }
-    await _store.deleteStage(stageId);
+    if (units.isNotEmpty && !rest.any((s) => s.id == moveUnitsTo)) {
+      throw ArgumentError.value(
+        moveUnitsTo,
+        'moveUnitsTo',
+        'must be another Stage of this Workflow',
+      );
+    }
+    await _store.deleteStage(
+      workflowId,
+      stageId,
+      moves: [for (final u in units) _stageChange(u, stageId, moveUnitsTo!)],
+      ownedStageId: ownedStageId,
+      finishedStageId: finishedStageId,
+    );
   }
 
   Future<Workflow> _workflow(String id) async =>

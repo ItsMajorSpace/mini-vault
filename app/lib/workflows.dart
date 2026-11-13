@@ -132,8 +132,42 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
       case _StageAction.finished:
         await attempt(context, () => vault.setFinishedStage(id, stage.id));
       case _StageAction.delete:
-        await attempt(context, () => vault.deleteStage(id, stage.id));
+        await _deleteStage(stage);
     }
+  }
+
+  /// Deletes the Stage, first asking where its Units go and which Stage replaces it as Owned or Finished, if needed.
+  Future<void> _deleteStage(Stage stage) async {
+    final workflow = (await vault.workflows()).firstWhere((w) => w.id == id);
+    final held = (await vault.unitsAt(stage.id)).length;
+    final owned = stage.id == workflow.ownedStage.id;
+    final finished = stage.id == workflow.finishedStage.id;
+    final others = [...workflow.stages]..removeWhere((s) => s.id == stage.id);
+    if (!mounted) return;
+    if ((held == 0 && !owned && !finished) || others.isEmpty) {
+      return attempt(context, () => vault.deleteStage(id, stage.id));
+    }
+    final choice = await showDialog<_DeleteChoice>(
+      context: context,
+      builder: (_) => _DeleteStageDialog(
+        stage: stage,
+        others: others,
+        held: held,
+        owned: owned,
+        finished: finished,
+      ),
+    );
+    if (choice == null || !mounted) return;
+    await attempt(
+      context,
+      () => vault.deleteStage(
+        id,
+        stage.id,
+        moveUnitsTo: choice.destination,
+        ownedStageId: choice.owned,
+        finishedStageId: choice.finished,
+      ),
+    );
   }
 
   @override
@@ -226,6 +260,89 @@ enum _StageAction {
 
   const _StageAction(this.label);
   final String label;
+}
+
+typedef _DeleteChoice = ({
+  String? destination,
+  String? owned,
+  String? finished,
+});
+
+/// Asks where a deleted Stage's Units go, and which Stage replaces it as Owned or Finished, as needed.
+class _DeleteStageDialog extends StatefulWidget {
+  const _DeleteStageDialog({
+    required this.stage,
+    required this.others,
+    required this.held,
+    required this.owned,
+    required this.finished,
+  });
+
+  final Stage stage;
+
+  /// The Workflow's other Stages, in order.
+  final List<Stage> others;
+  final int held;
+  final bool owned;
+  final bool finished;
+
+  @override
+  State<_DeleteStageDialog> createState() => _DeleteStageDialogState();
+}
+
+class _DeleteStageDialogState extends State<_DeleteStageDialog> {
+  late String _destination = widget.others.first.id;
+  late String _owned = widget.others.first.id;
+  late String _finished = widget.others.last.id;
+
+  Widget _picker(String label, String value, ValueChanged<String> onChanged) =>
+      DropdownButtonFormField<String>(
+        initialValue: value,
+        decoration: InputDecoration(labelText: label),
+        items: [
+          for (final s in widget.others)
+            DropdownMenuItem(value: s.id, child: Text(s.name)),
+        ],
+        onChanged: (id) => setState(() => onChanged(id!)),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final held = widget.held;
+    return AlertDialog(
+      title: Text('Delete ${widget.stage.name}?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (held > 0) ...[
+            Text(
+              '$held ${held == 1 ? 'Unit is' : 'Units are'} at this Stage, '
+              'across all Collections using this Workflow.',
+            ),
+            _picker('Move them to', _destination, (v) => _destination = v),
+          ],
+          if (widget.owned)
+            _picker('New Owned Stage', _owned, (v) => _owned = v),
+          if (widget.finished)
+            _picker('New Finished Stage', _finished, (v) => _finished = v),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop<_DeleteChoice>(context, (
+            destination: held > 0 ? _destination : null,
+            owned: widget.owned ? _owned : null,
+            finished: widget.finished ? _finished : null,
+          )),
+          child: const Text('Delete'),
+        ),
+      ],
+    );
+  }
 }
 
 class NameDialog extends StatefulWidget {
