@@ -2126,6 +2126,29 @@ void main() {
       );
       expect(groupByBrand([]), isEmpty);
     });
+
+    test('match a search on brand, range or name, ignoring case', () {
+      const blue = Paint(
+        id: '1',
+        brand: 'Citadel',
+        range: 'Base',
+        name: 'Macragge Blue',
+        owned: true,
+      );
+      for (final q in [
+        '',
+        'citadel',
+        'BASE',
+        'macr',
+        'citadel  blue ',
+        'blue base',
+      ]) {
+        expect(paintMatches(blue, q), isTrue, reason: q);
+      }
+      for (final q in ['vallejo', 'shade', 'citadel red']) {
+        expect(paintMatches(blue, q), isFalse, reason: q);
+      }
+    });
   });
 
   group('Squad Paints', () {

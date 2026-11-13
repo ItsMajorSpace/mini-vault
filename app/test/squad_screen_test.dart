@@ -200,6 +200,11 @@ void main() {
           name: 'Nuln Oil',
           owned: false,
         );
+        await vault.addPaint(
+          brand: 'Vallejo',
+          range: 'Model Color',
+          name: 'Flat Blue',
+        );
         await vault.addSquadPaint(
           collection.id,
           'Intercessors',
@@ -211,19 +216,37 @@ void main() {
       expect(find.text('Macragge Blue'), findsOneWidget);
       expect(find.text('Citadel / Base · armour'), findsOneWidget);
 
-      // The picker offers only Paints the Squad does not use yet.
+      // The picker offers only Paints the Squad does not use yet, searched on brand, range or name.
       await tester.tap(find.byTooltip('Add Paint'));
       await tester.pumpAndSettle();
       expect(find.text('Citadel / Base / Macragge Blue'), findsNothing);
+      expect(find.text('Vallejo / Model Color / Flat Blue'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'BLUE');
+      await tester.pump();
+      expect(find.text('Citadel / Base / Macragge Blue'), findsNothing);
+      expect(find.text('Citadel / Shade / Nuln Oil'), findsNothing);
+      expect(find.text('Vallejo / Model Color / Flat Blue'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'model');
+      await tester.pump();
+      expect(find.text('Vallejo / Model Color / Flat Blue'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'citadel');
+      await tester.pump();
+      expect(find.text('Vallejo / Model Color / Flat Blue'), findsNothing);
       await tapAndWait(tester, find.text('Citadel / Shade / Nuln Oil'));
       expect(find.text('Citadel / Shade · Wanted'), findsOneWidget);
 
-      // A Paint created here starts as wanted.
+      // A Paint created here starts as wanted, named as searched.
       await tester.tap(find.byTooltip('Add Paint'));
       await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Agrax Earthshade');
+      await tester.pump();
       await tester.tap(find.text('New Paint…'));
       await tester.pumpAndSettle();
       expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+      expect(
+        find.widgetWithText(TextField, 'Agrax Earthshade'),
+        findsOneWidget,
+      );
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
