@@ -6,7 +6,7 @@ import 'package:mini_vault/theme.dart';
 
 void main() {
   testWidgets(
-    'the Stage bar puts the latest Stage leftmost, each segment sized by its models',
+    'the Stage bar puts the latest Stage leftmost, each segment sized by its models, wanted models last',
     (tester) async {
       const primed = Stage(id: 'p', name: 'Primed', colour: '#FF7B7B');
       const done = Stage(id: 'd', name: 'Done', colour: '#6FD98A');
@@ -17,7 +17,7 @@ void main() {
               width: 400,
               child: StageBar(
                 Progress(
-                  wanted: 5,
+                  wanted: 4,
                   owned: 4,
                   finished: 1,
                   stages: [
@@ -47,9 +47,23 @@ void main() {
             ),
         ],
         [
-          (stageColour('#6FD98A'), 0.0, const Size(100, 4)),
-          (stageColour('#FF7B7B'), 100.0, const Size(300, 4)),
+          (stageColour('#6FD98A'), 0.0, const Size(50, 4)),
+          (stageColour('#FF7B7B'), 50.0, const Size(150, 4)),
         ],
+      );
+      expect(
+        tester.getRect(
+          find.descendant(
+            of: find.byType(Expanded),
+            matching: find.byType(DecoratedBox),
+          ),
+        ),
+        Rect.fromLTWH(
+          left + 200,
+          tester.getTopLeft(find.byType(StageBar)).dy,
+          200,
+          4,
+        ),
       );
     },
   );

@@ -46,7 +46,8 @@ class _ProgressSummaryState extends State<ProgressSummary> {
 }
 
 /// [progress]'s owned models as one segment per Stage, in its colour and sized by model count, the latest Stage
-/// leftmost, so the finished part fills from the left.
+/// leftmost, so the finished part fills from the left. Its wanted models follow as one outlined segment in the
+/// Wishlist colour, so they read as not yet owned; wanted and owned together fill the bar.
 class StageBar extends StatelessWidget {
   const StageBar(this.progress, {super.key});
 
@@ -64,6 +65,19 @@ class StageBar extends StatelessWidget {
             Expanded(
               flex: s.models,
               child: ColoredBox(color: stageColour(s.stage.colour)),
+            ),
+          if (progress.wanted > 0)
+            Expanded(
+              flex: progress.wanted,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  // shortcut: the starter Wishlist colour, not the Workflow's own first Stage; carry that Stage's
+                  // colour in Progress once Stages are recoloured or Workflows mixed on one bar.
+                  border: Border.all(
+                    color: stageColour(Vault.stageColours.first),
+                  ),
+                ),
+              ),
             ),
         ],
       ),
