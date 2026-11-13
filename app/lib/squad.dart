@@ -1,8 +1,10 @@
 import 'package:domain_core/domain_core.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'main.dart';
 import 'photos.dart';
+import 'theme.dart';
 import 'workflows.dart';
 
 String modelCountText(int n) => n == 1 ? '1 model' : '$n models';
@@ -69,6 +71,81 @@ class _SquadScreenState extends State<SquadScreen> {
       await widget.vault.mergeUnits(units.first, other);
     }
   });
+
+  /// Sets how many of the Squad's models are at one Stage, without moving any: a recount of the Unit there, a new Unit
+  /// at an empty Stage, or, once confirmed, deleting the Unit when set to 0. Only for a Stage with at most one Unit.
+  Future<void> _recount(StageGroup g) async {
+    final count = TextEditingController(text: '${g.modelCount}');
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Models at ${g.stage.name}'),
+        content: TextField(
+          controller: count,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          // Digits only: no signs, so no negative counts.
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          onSubmitted: (_) => Navigator.pop(context, true),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    // Not disposed: the closing dialog's TextField still uses it (as in the Unit screen's move dialog).
+    final n = int.tryParse(count.text);
+    if (save != true || n == null || n == g.modelCount || !mounted) return;
+    final unit = g.units.firstOrNull;
+    if (unit == null) {
+      // A fresh Unit: no notes or Tags, which belong to the Units they were written on.
+      return attempt(
+        context,
+        () => widget.vault.addUnit(
+          widget.collection,
+          name: _name,
+          modelCount: n,
+          stageId: g.stage.id,
+        ),
+      );
+    }
+    if (n > 0) {
+      return attempt(
+        context,
+        () => widget.vault.editUnit(unit.id, modelCount: n),
+      );
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete the Unit at ${g.stage.name}?'),
+        content: Text(
+          'Its ${modelCountText(unit.modelCount)}, photos and history will be deleted on all your devices.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: destructive(context),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if ((confirmed ?? false) && mounted) {
+      await attempt(context, () => widget.vault.deleteUnit(unit.id));
+    }
+  }
 
   Future<void> _open(Unit unit) async {
     await Navigator.push(
@@ -147,7 +224,13 @@ class _SquadScreenState extends State<SquadScreen> {
                             onPressed: () => _merge(g.units),
                           ),
                         const SizedBox(width: 8),
-                        Text(modelCountText(g.modelCount)),
+                        // Disabled with several Units here: Merge them first.
+                        TextButton(
+                          onPressed: g.units.length > 1
+                              ? null
+                              : () => _recount(g),
+                          child: Text(modelCountText(g.modelCount)),
+                        ),
                       ],
                     ),
                     // shortcut: with several Units at a Stage this opens the first; Merge them to see one.
