@@ -117,7 +117,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tapAndWait(find.text('Intercessors'));
-    expect(find.text('History'), findsOneWidget);
+    expect(find.text('HISTORY'), findsOneWidget);
     expectPlainWords('Unit');
     await tapAndWait(find.text('Unassembled'));
     expectPlainWords('Move sheet');

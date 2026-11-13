@@ -20,6 +20,7 @@ import 'package:powersync/attachments/attachments.dart';
 import 'package:powersync/attachments/io.dart';
 import 'package:powersync/powersync.dart' hide Column;
 
+import 'section.dart';
 import 'sync.dart';
 import 'theme.dart';
 import 'workflows.dart';
@@ -233,7 +234,8 @@ class _WriteApiStorage implements RemoteStorage {
       _check(await http.delete(_url(a), headers: await _headers()), {204, 404});
 }
 
-/// A Unit's photos in a row, with buttons to add one from the camera or gallery. Tapping a photo opens the viewer.
+/// A Unit's Photos section: its photos in a row, with header buttons to add one from the camera or gallery. Tapping a
+/// photo opens the viewer.
 class UnitPhotos extends StatefulWidget {
   const UnitPhotos({
     super.key,
@@ -301,46 +303,54 @@ class _UnitPhotosState extends State<UnitPhotos> {
       builder: (context, snapshot) {
         final photos = snapshot.data ?? const [];
         final full = photos.length >= Vault.maxPhotos;
-        return SizedBox(
-          height: 112,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            children: [
-              for (final (i, (photo, file)) in photos.indexed)
-                Padding(
-                  key: ValueKey(photo.id),
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: InkWell(
-                    onTap: () => _view(photos, i),
-                    child: SizedBox.square(
-                      dimension: 96,
-                      child: file == null
-                          ? const Icon(
-                              Icons.cloud_download,
-                              semanticLabel: 'Photo not downloaded yet',
-                            )
-                          : Image.file(
-                              file,
-                              fit: BoxFit.cover,
-                              cacheWidth: 192,
-                              semanticLabel: 'Photo',
+        return Section(
+          title: 'Photos',
+          count: photos.length,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.photo_camera),
+              tooltip: 'Take a photo',
+              onPressed: full ? null : () => _add(ImageSource.camera),
+            ),
+            IconButton(
+              icon: const Icon(Icons.add_photo_alternate),
+              tooltip: 'Add a photo from the gallery',
+              onPressed: full ? null : () => _add(ImageSource.gallery),
+            ),
+          ],
+          child: photos.isEmpty
+              ? const SectionHint('No photos yet')
+              : SizedBox(
+                  height: 112,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.all(8),
+                    children: [
+                      for (final (i, (photo, file)) in photos.indexed)
+                        Padding(
+                          key: ValueKey(photo.id),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: InkWell(
+                            onTap: () => _view(photos, i),
+                            child: SizedBox.square(
+                              dimension: 96,
+                              child: file == null
+                                  ? const Icon(
+                                      Icons.cloud_download,
+                                      semanticLabel: 'Photo not downloaded yet',
+                                    )
+                                  : Image.file(
+                                      file,
+                                      fit: BoxFit.cover,
+                                      cacheWidth: 192,
+                                      semanticLabel: 'Photo',
+                                    ),
                             ),
-                    ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-              IconButton(
-                icon: const Icon(Icons.photo_camera),
-                tooltip: 'Take a photo',
-                onPressed: full ? null : () => _add(ImageSource.camera),
-              ),
-              IconButton(
-                icon: const Icon(Icons.photo_library),
-                tooltip: 'Add a photo from the gallery',
-                onPressed: full ? null : () => _add(ImageSource.gallery),
-              ),
-            ],
-          ),
         );
       },
     );

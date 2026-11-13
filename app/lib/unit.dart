@@ -5,13 +5,14 @@ import 'package:material_ui/material_ui.dart';
 import 'main.dart';
 import 'paints.dart';
 import 'photos.dart';
+import 'section.dart';
 import 'theme.dart';
 import 'workflows.dart';
 
 String modelCountText(int n) => n == 1 ? '1 model' : '$n models';
 
-/// The one place for a Unit: every Stage of the Workflow in order with the Unit's model count at each, then its
-/// photos, Tags, notes, Paints and history.
+/// The one place for a Unit: its Tags, then sections for every Stage of the Workflow in order with the Unit's model
+/// count at each, its photos, notes, Paints and history.
 class UnitScreen extends StatefulWidget {
   const UnitScreen({
     super.key,
@@ -192,7 +193,7 @@ class _UnitScreenState extends State<UnitScreen> {
     String notes,
     List<StageChange> history,
   ) {
-    final heading = stencil(Theme.of(context).textTheme.titleSmall);
+    final theme = Theme.of(context);
     return StreamBuilder(
       stream: _units,
       builder: (context, snapshot) {
@@ -206,7 +207,19 @@ class _UnitScreenState extends State<UnitScreen> {
             'a deleted Stage';
         return Scaffold(
           appBar: AppBar(
-            title: Text(_name),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_name),
+                if (unit != null)
+                  Text(
+                    '${widget.collection.name} · ${modelCountText(unit.modelCount)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
             actions: [
               if (unit != null) ...[
                 IconButton(
@@ -237,23 +250,61 @@ class _UnitScreenState extends State<UnitScreen> {
               child: Text('This Unit has no models left'),
             ),
             _ => ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              // Room below the last section for the FAB.
+              padding: const EdgeInsets.only(bottom: 88),
               children: [
-                for (final g in unit.stages)
-                  // Empty Stages stay in Workflow order, dimmed, with nothing to move.
-                  Opacity(
-                    opacity: g.modelCount == 0 ? 0.38 : 1,
-                    child: ListTile(
-                      leading: Icon(
-                        Icons.circle,
-                        size: 12,
-                        color: stageColour(g.stage.colour),
-                      ),
-                      title: Text(g.stage.name),
-                      trailing: Text(modelCountText(g.modelCount)),
-                      onTap: g.modelCount == 0 ? null : () => _sheet(unit, g),
+                // The Tags describe the whole Unit: above every section.
+                if (tags.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final t in tags)
+                          Chip(
+                            label: Text(t),
+                            backgroundColor:
+                                theme.colorScheme.surfaceContainerHigh,
+                            side: BorderSide.none,
+                          ),
+                      ],
                     ),
                   ),
+                Section(
+                  title: 'Models',
+                  count: unit.modelCount,
+                  child: sectionRows(context, [
+                    for (final g in unit.stages)
+                      // Empty Stages stay in Workflow order, dimmed, with nothing to move.
+                      Opacity(
+                        opacity: g.modelCount == 0 ? 0.38 : 1,
+                        child: ListTile(
+                          leading: Icon(
+                            Icons.circle,
+                            size: 12,
+                            color: stageColour(g.stage.colour),
+                          ),
+                          title: Text(g.stage.name),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(modelCountText(g.modelCount)),
+                              if (g.modelCount > 0)
+                                Icon(
+                                  Icons.chevron_right,
+                                  size: 20,
+                                  color: theme.colorScheme.outline,
+                                ),
+                            ],
+                          ),
+                          onTap: g.modelCount == 0
+                              ? null
+                              : () => _sheet(unit, g),
+                        ),
+                      ),
+                  ]),
+                ),
                 if (widget.photos case final photos?)
                   UnitPhotos(
                     vault: widget.vault,
@@ -261,17 +312,27 @@ class _UnitScreenState extends State<UnitScreen> {
                     collectionId: widget.collection.id,
                     unit: _name,
                   ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Wrap(
-                    spacing: 8,
-                    children: [for (final t in tags) Chip(label: Text(t))],
+                Section(
+                  title: 'Notes',
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_note),
+                      tooltip: 'Edit notes',
+                      onPressed: () => _edit(unit, tags, notes),
+                    ),
+                  ],
+                  child: InkWell(
+                    onTap: () => _edit(unit, tags, notes),
+                    child: notes.isEmpty
+                        ? const SectionHint('No notes yet')
+                        : Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            child: Text(notes),
+                          ),
                   ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.notes),
-                  title: Text(notes.isEmpty ? 'Add notes' : notes),
-                  onTap: () => _edit(unit, tags, notes),
                 ),
                 if (library != null && links != null)
                   _UnitPaints(
@@ -281,19 +342,26 @@ class _UnitScreenState extends State<UnitScreen> {
                     library: library,
                     links: links,
                   ),
-                ListTile(title: Text('History', style: heading)),
-                for (final c in history)
-                  ListTile(
-                    title: Text(
-                      c.fromStageId == null
-                          ? '${modelCountText(c.modelCount)} added at ${stageName(c.toStageId)}'
-                          : '${modelCountText(c.modelCount)} ${stageName(c.fromStageId)} → ${stageName(c.toStageId)}',
-                    ),
-                    subtitle: Text(
-                      MaterialLocalizations.of(context)
-                          .formatShortMonthDay(c.happenedAt.toLocal()),
-                    ),
-                  ),
+                Section(
+                  title: 'History',
+                  child: history.isEmpty
+                      ? const SectionHint('No history yet')
+                      : sectionRows(context, [
+                          for (final c in history)
+                            ListTile(
+                              title: Text(
+                                c.fromStageId == null
+                                    ? '${modelCountText(c.modelCount)} added at ${stageName(c.toStageId)}'
+                                    : '${modelCountText(c.modelCount)} ${stageName(c.fromStageId)} → ${stageName(c.toStageId)}',
+                              ),
+                              subtitle: Text(
+                                MaterialLocalizations.of(
+                                  context,
+                                ).formatShortMonthDay(c.happenedAt.toLocal()),
+                              ),
+                            ),
+                        ]),
+                ),
               ],
             ),
           },
@@ -549,67 +617,61 @@ class _UnitPaintsState extends State<_UnitPaints> {
       for (final s in paintedUnits(all))
         if (s.collection.id != widget.collection.id || s.unit != widget.name) s,
     ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ListTile(
-          title: Text(
-            'Paints',
-            style: stencil(Theme.of(context).textTheme.titleSmall),
+    return Section(
+      title: 'Paints',
+      count: used.length,
+      actions: [
+        if (others.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.content_copy),
+            tooltip: 'Copy Paints from another Unit',
+            onPressed: () => _copyPaints(others),
           ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (others.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.content_copy),
-                  tooltip: 'Copy Paints from another Unit',
-                  onPressed: () => _copyPaints(others),
-                ),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline),
-                tooltip: 'Add Paint',
-                onPressed: () => _addPaint(library, used),
-              ),
-            ],
-          ),
+        IconButton(
+          icon: const Icon(Icons.add),
+          tooltip: 'Add Paint',
+          onPressed: () => _addPaint(library, used),
         ),
-        for (final l in used)
-          ListTile(
-            key: ValueKey(l.id),
-            title: Text(l.paint.name),
-            subtitle: Text(
-              [
-                [
-                  l.paint.brand,
-                  if (l.paint.range.isNotEmpty) l.paint.range,
-                ].join(' / '),
-                if (l.note.isNotEmpty) l.note,
-                if (!l.paint.owned) 'Wanted',
-              ].join(' · '),
-            ),
-            onTap: () => _editNote(l),
-            trailing: IconButton(
-              icon: const Icon(Icons.remove_circle_outline),
-              tooltip: 'Remove Paint',
-              onPressed: () => attempt(context, () async {
-                await widget.vault.removeUnitPaint(l.id);
-                if (mounted) {
-                  showUndo(
-                    context,
-                    'Removed ${l.paint.name}',
-                    () => widget.vault.addUnitPaint(
-                      l.collectionId,
-                      l.unit,
-                      l.paint.id,
-                      note: l.note,
-                    ),
-                  );
-                }
-              }),
-            ),
-          ),
       ],
+      child: used.isEmpty
+          ? const SectionHint('No Paints yet')
+          : sectionRows(context, [
+              for (final l in used)
+                ListTile(
+                  key: ValueKey(l.id),
+                  title: Text(l.paint.name),
+                  subtitle: Text(
+                    [
+                      [
+                        l.paint.brand,
+                        if (l.paint.range.isNotEmpty) l.paint.range,
+                      ].join(' / '),
+                      if (l.note.isNotEmpty) l.note,
+                      if (!l.paint.owned) 'Wanted',
+                    ].join(' · '),
+                  ),
+                  onTap: () => _editNote(l),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    tooltip: 'Remove Paint',
+                    onPressed: () => attempt(context, () async {
+                      await widget.vault.removeUnitPaint(l.id);
+                      if (mounted) {
+                        showUndo(
+                          context,
+                          'Removed ${l.paint.name}',
+                          () => widget.vault.addUnitPaint(
+                            l.collectionId,
+                            l.unit,
+                            l.paint.id,
+                            note: l.note,
+                          ),
+                        );
+                      }
+                    }),
+                  ),
+                ),
+            ]),
     );
   }
 
