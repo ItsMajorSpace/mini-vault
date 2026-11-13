@@ -20,10 +20,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final dir = await getApplicationSupportDirectory();
   // A new file name: the pre-sync database (mini_vault.db) has plain tables where PowerSync wants views.
-  final db = PowerSyncDatabase(
-    schema: Schema([...SqliteVaultStore.schema.tables, photoQueueTable]),
-    path: '${dir.path}/vault.db',
-  );
+  final db = PowerSyncDatabase(schema: appSchema, path: '${dir.path}/vault.db');
   await db.initialize();
   final auth = await openAuth(File('${dir.path}/session.json'));
   final photos = PhotoFiles(db, auth, Directory('${dir.path}/photos'));
@@ -56,7 +53,9 @@ class MiniVaultApp extends StatelessWidget {
                 vault: Vault(SqliteVaultStore(db)),
                 db: db,
                 photos: photos,
+                email: auth.currentUser?.email,
                 onSignOut: auth.signOut,
+                onSyncNow: () => syncNow(auth, db, photos.queue),
                 onDeleteAccount: () => deleteAccount(context, auth),
               ),
       ),
@@ -175,8 +174,10 @@ class CollectionsScreen extends StatefulWidget {
     required this.vault,
     required this.db,
     this.photos,
+    this.email,
     this.onSignOut,
     this.onDeleteAccount,
+    this.onSyncNow,
   });
 
   final Vault vault;
@@ -186,8 +187,16 @@ class CollectionsScreen extends StatefulWidget {
 
   /// Null hides Units' photos.
   final PhotoFiles? photos;
+
+  /// The signed-in user's, shown atop the account menu.
+  final String? email;
+
+  /// Null hides the account menu.
   final VoidCallback? onSignOut;
   final VoidCallback? onDeleteAccount;
+
+  /// Null hides Sync now.
+  final Future<void> Function()? onSyncNow;
 
   @override
   State<CollectionsScreen> createState() => _CollectionsScreenState();
@@ -196,6 +205,52 @@ class CollectionsScreen extends StatefulWidget {
 class _CollectionsScreenState extends State<CollectionsScreen> {
   late final _collections = widget.vault.watchCollections();
   late final _progress = widget.vault.watchProgressByWorkflow();
+  // Kept up to date rather than read on tap, so signing out can warn without waiting on SQLite.
+  int _unsynced = 0;
+  late final StreamSubscription<int> _unsyncedSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _unsyncedSubscription = watchUnsynced(widget.db)
+        .listen((n) => setState(() => _unsynced = n));
+  }
+
+  @override
+  void dispose() {
+    _unsyncedSubscription.cancel();
+    super.dispose();
+  }
+
+  /// Signing out clears this device, so with changes not synced yet it asks first.
+  Future<void> _signOut(VoidCallback signOut) async {
+    final n = _unsynced;
+    if (n > 0) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Sign out with unsynced changes?'),
+          content: Text(
+            '${n == 1 ? "1 change hasn't" : "$n changes haven't"} synced yet and will be lost. '
+            'Connect to the internet and wait for them to sync to keep them.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: destructive(context),
+              child: const Text('Sign out anyway'),
+            ),
+          ],
+        ),
+      );
+      if (!(confirmed ?? false)) return;
+    }
+    signOut();
+  }
 
   Future<void> _create() async {
     final workflows = await widget.vault.workflows();
@@ -299,23 +354,34 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
             ),
           ),
           if (widget.onSignOut case final signOut?)
-            IconButton(
-              icon: const Icon(Icons.logout),
-              tooltip: 'Sign out',
-              style: destructive(context),
-              onPressed: signOut,
-            ),
-          if (widget.onDeleteAccount case final delete?)
-            IconButton(
-              icon: const Icon(Icons.person_remove),
-              tooltip: 'Delete account',
-              style: destructive(context),
-              onPressed: delete,
+            PopupMenuButton<VoidCallback>(
+              tooltip: 'Account',
+              onSelected: (action) => action(),
+              itemBuilder: (context) => [
+                if (widget.email case final email?)
+                  PopupMenuItem(enabled: false, child: Text(email)),
+                PopupMenuItem(
+                  value: () => _signOut(signOut),
+                  child: const Text('Sign out'),
+                ),
+                if (widget.onDeleteAccount case final delete?) ...[
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: delete,
+                    child: Text(
+                      'Delete account',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(32),
-          child: SyncStatusBar(db: widget.db),
+          child: SyncStatusBar(db: widget.db, onSyncNow: widget.onSyncNow),
         ),
       ),
       body: Builder(
@@ -922,11 +988,15 @@ class _UnitDialogState extends State<_UnitDialog> {
   }
 }
 
-/// Shows whether local changes are still waiting to be uploaded, and whether the app is connected.
+/// Shows how many local changes are still waiting to be uploaded, and whether the app is connected.
+/// Connected with changes waiting, it offers to sync now.
 class SyncStatusBar extends StatefulWidget {
-  const SyncStatusBar({super.key, required this.db});
+  const SyncStatusBar({super.key, required this.db, this.onSyncNow});
 
   final PowerSyncDatabase db;
+
+  /// Null hides Sync now.
+  final Future<void> Function()? onSyncNow;
 
   @override
   State<SyncStatusBar> createState() => _SyncStatusBarState();
@@ -935,6 +1005,7 @@ class SyncStatusBar extends StatefulWidget {
 class _SyncStatusBarState extends State<SyncStatusBar> {
   late SyncStatus _status = widget.db.currentStatus;
   int _waiting = 0;
+  bool _syncing = false;
   late final List<StreamSubscription<void>> _subscriptions;
 
   @override
@@ -942,13 +1013,7 @@ class _SyncStatusBarState extends State<SyncStatusBar> {
     super.initState();
     _subscriptions = [
       widget.db.statusStream.listen((s) => setState(() => _status = s)),
-      // ps_crud is PowerSync's upload queue: local writes add to it, finished uploads remove from it.
-      widget.db
-          .watch(
-            'SELECT count(*) AS n FROM ps_crud',
-            triggerOnTables: const ['ps_crud'],
-          )
-          .listen((rows) => setState(() => _waiting = rows.first['n'] as int)),
+      watchUnsynced(widget.db).listen((n) => setState(() => _waiting = n)),
     ];
   }
 
@@ -958,6 +1023,17 @@ class _SyncStatusBarState extends State<SyncStatusBar> {
       s.cancel();
     }
     super.dispose();
+  }
+
+  Future<void> _syncNow(Future<void> Function() syncNow) async {
+    setState(() => _syncing = true);
+    try {
+      await syncNow();
+    } on Exception {
+      // No popup: the count staying up shows it did not sync.
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
   }
 
   @override
@@ -972,7 +1048,30 @@ class _SyncStatusBarState extends State<SyncStatusBar> {
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: [Icon(icon, size: 16), const SizedBox(width: 8), Text(text)],
+        children: [
+          Icon(icon, size: 16),
+          const SizedBox(width: 8),
+          Text(text),
+          if (widget.onSyncNow case final syncNow?
+              when _status.connected && _waiting > 0) ...[
+            const SizedBox(width: 8),
+            if (_syncing)
+              const SizedBox.square(
+                dimension: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              TextButton(
+                // Compact to fit the bar under the app bar.
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: () => _syncNow(syncNow),
+                child: const Text('Sync now'),
+              ),
+          ],
+        ],
       ),
     );
   }

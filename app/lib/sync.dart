@@ -56,9 +56,7 @@ void syncWhileSignedIn(
               AuthChangeEvent.signedIn ||
               AuthChangeEvent.passwordRecovery
           when state.session != null:
-        // A new connector each time: a connector caches its credentials, which would sync the previous account.
-        await db.connect(connector: _ServerConnector(auth));
-        await photos.startSync();
+        await syncNow(auth, db, photos);
       case AuthChangeEvent.signedOut:
         await photos.stopSyncing();
         await photos.clearQueue();
@@ -66,6 +64,19 @@ void syncWhileSignedIn(
       default:
     }
   });
+}
+
+/// (Re)connects with a fresh connector, which retries uploads and pulls right away, and syncs [photos] now.
+Future<void> syncNow(
+  GoTrueClient auth,
+  PowerSyncDatabase db,
+  // ignore: experimental_member_use, PowerSync's official attachment queue (see photos.dart).
+  AttachmentQueue photos,
+) async {
+  // A new connector each time: a connector caches its credentials, which would sync the previous account.
+  await db.connect(connector: _ServerConnector(auth));
+  // Restarting the queue scans its attachments straight away.
+  await photos.startSync();
 }
 
 /// Deletes the signed-in user's account on the server: every row they own, their photos and their GoTrue user.
