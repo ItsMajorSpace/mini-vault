@@ -1,6 +1,8 @@
-/// Password reset, account deletion and the app version. Signing out is in the Collections screen's account menu.
+/// Password reset, account deletion and the About dialog. Signing out is in the Collections screen's account menu.
 library;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:gotrue/gotrue.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -210,15 +212,25 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
 }
 
 /// The app's `version (build)`, e.g. `0.3.0 (42)`, so bug reports say which release they came from.
-class AppVersion extends StatelessWidget {
-  const AppVersion({super.key});
-
-  @override
-  Widget build(BuildContext context) => FutureBuilder(
-    future: PackageInfo.fromPlatform(),
-    builder: (context, snapshot) => Text(switch (snapshot.data) {
-      final info? => '${info.version} (${info.buildNumber})',
-      null => '',
-    }),
+/// The About dialog: app version, the font's source, and (through "View licenses") every bundled license.
+Future<void> showAbout(BuildContext context) async {
+  final info = await PackageInfo.fromPlatform();
+  if (!context.mounted) return;
+  showAboutDialog(
+    context: context,
+    applicationName: 'Mini Vault',
+    applicationVersion: '${info.version} (${info.buildNumber})',
+    children: const [
+      Text(
+        'Headings use Black Ops One: fonts.google.com/specimen/Black+Ops+One',
+      ),
+    ],
   );
 }
+
+/// The OFL requires the font's copyright and license to ship with the app; they show on the license page.
+void registerFontLicense() => LicenseRegistry.addLicense(() async* {
+  yield LicenseEntryWithLineBreaks([
+    'Black Ops One',
+  ], await rootBundle.loadString('assets/fonts/OFL.txt'));
+});
