@@ -2398,9 +2398,11 @@ void main() {
       ]);
       expect(moved.statusCode, 204, reason: moved.body);
 
-      // Two devices Merge the same pair, one each way.
+      // Two devices Merge the same pair automatically, the same way (into the lowest id); a third the other way.
       final merged = await upload(user.token, merge(a, b, localCount: 10));
       expect(merged.statusCode, 204, reason: merged.body);
+      final same = await upload(user.token, merge(a, b, localCount: 14));
+      expect(same.statusCode, 422, reason: same.body);
       final again = await upload(user.token, merge(b, a, localCount: 10));
       expect(again.statusCode, 422, reason: again.body);
 

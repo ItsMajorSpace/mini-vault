@@ -70,15 +70,8 @@ class _UnitScreenState extends State<UnitScreen> {
     });
   }
 
-  /// Merges the other Batches at one Stage into the first: tapping the Merge chip is the explicit choice.
-  Future<void> _merge(List<Batch> batches) => attempt(context, () async {
-    for (final other in batches.skip(1)) {
-      await widget.vault.mergeBatches(batches.first, other);
-    }
-  });
-
   /// Sets how many of the Unit's models are at one Stage, without moving any: a recount of the Batch there or, once
-  /// confirmed, deleting it when set to 0. Only for a Stage with exactly one Batch.
+  /// confirmed, deleting it when set to 0.
   Future<void> _recount(StageGroup g) async {
     final count = TextEditingController(text: '${g.modelCount}');
     final save = await showDialog<bool>(
@@ -108,7 +101,8 @@ class _UnitScreenState extends State<UnitScreen> {
     // Not disposed: the closing dialog's TextField still uses it (as in the Batch screen's move dialog).
     final n = int.tryParse(count.text);
     if (save != true || n == null || n == g.modelCount || !mounted) return;
-    final batch = g.batches.single;
+    // A Stage has one Batch, bar a moment after sync before the automatic Merge (ADR 0009).
+    final batch = g.batches.first;
     if (n > 0) {
       return attempt(
         context,
@@ -132,31 +126,9 @@ class _UnitScreenState extends State<UnitScreen> {
     unit.name,
     [for (final s in unit.stages) s.stage],
     g,
-    // Several Batches here: Merge them first, as before.
-    onRecount: g.batches.length > 1 ? null : () => _recount(g),
-    onDetails: () => _details(g.batches),
+    onRecount: () => _recount(g),
+    onDetails: () => _open(g.batches.first),
   );
-
-  /// Opens the only Batch, or asks which one when there are several.
-  Future<void> _details(List<Batch> batches) async {
-    final batch = batches.length == 1
-        ? batches.single
-        : await showDialog<Batch>(
-            context: context,
-            builder: (context) => SimpleDialog(
-              title: const Text('Which Unit?'),
-              children: [
-                for (final u in batches)
-                  ListTile(
-                    title: Text(modelCountText(u.modelCount)),
-                    subtitle: u.notes.isEmpty ? null : Text(u.notes),
-                    onTap: () => Navigator.pop(context, u),
-                  ),
-              ],
-            ),
-          );
-    if (batch != null && mounted) await _open(batch);
-  }
 
   Future<void> _open(Batch batch) async {
     await Navigator.push(
@@ -244,20 +216,7 @@ class _UnitScreenState extends State<UnitScreen> {
                         color: stageColour(g.stage.colour),
                       ),
                       title: Text(g.stage.name),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (g.batches.length > 1)
-                            ActionChip(
-                              label: const Text('Merge'),
-                              tooltip:
-                                  'Merge the ${g.batches.length} Units here',
-                              onPressed: () => _merge(g.batches),
-                            ),
-                          const SizedBox(width: 8),
-                          Text(modelCountText(g.modelCount)),
-                        ],
-                      ),
+                      trailing: Text(modelCountText(g.modelCount)),
                       onTap: g.modelCount == 0 ? null : () => _sheet(unit, g),
                     ),
                   ),
