@@ -700,6 +700,158 @@ void main() {
     });
   });
 
+  group('Deleting a Stage that holds Units', () {
+    late Workflow w;
+    late Collection marines, orks;
+    late Unit a, b;
+    setUp(() async {
+      await syncStarterWorkflow();
+      w = await vault.createWorkflow('Shared');
+      marines = await vault.createCollection('Marines', workflowId: w.id);
+      orks = await vault.createCollection('Orks', workflowId: w.id);
+      a = await vault.addUnit(
+        marines,
+        name: 'A',
+        modelCount: 5,
+        stageId: w.stages[3].id,
+      );
+      b = await vault.addUnit(
+        orks,
+        name: 'B',
+        modelCount: 3,
+        stageId: w.stages[3].id,
+      );
+    });
+
+    Future<List<String>> stageNames() async => [
+      for (final s
+          in (await vault.workflows()).firstWhere((x) => x.id == w.id).stages)
+        s.name,
+    ];
+    Future<List<String>> history(Unit u) async => [
+      for (final c in await vault.watchHistory(u.id).first)
+        '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
+    ];
+
+    test('moves its Units in every Collection to the destination, recording a Stage Change each, then deletes it', () async {
+      final [..., assembled, primed, _, _, _] = w.stages;
+      await expectLater(vault.deleteStage(w.id, primed.id), throwsStateError);
+
+      await vault.deleteStage(w.id, primed.id, moveUnitsTo: assembled.id);
+      await restart();
+
+      expect(await stageNames(), isNot(contains('Primed')));
+      for (final c in [marines, orks]) {
+        final units = (await vault.watchStageGroups(c).first).expand(
+          (g) => g.units,
+        );
+        expect(units.single.stageId, assembled.id);
+      }
+      expect(await history(a), [
+        'null -> ${primed.id} (5)',
+        '${primed.id} -> ${assembled.id} (5)',
+      ]);
+      expect(await history(b), [
+        'null -> ${primed.id} (3)',
+        '${primed.id} -> ${assembled.id} (3)',
+      ]);
+    });
+
+    test('uploads as one transaction: moves, then the Owned or Finished change, then the Stage delete', () async {
+      final unassembled = w.stages[1];
+      await vault.moveUnit(a, unassembled.id);
+      await vault.moveUnit(b, unassembled.id);
+      await db.execute('DELETE FROM ps_crud');
+
+      await vault.deleteStage(
+        w.id,
+        unassembled.id,
+        moveUnitsTo: w.stages[0].id,
+        ownedStageId: w.stages[2].id,
+      );
+
+      final transaction = (await db.getNextCrudTransaction())!;
+      expect(transaction.crud.map((e) => (e.op, e.table)), [
+        (UpdateType.patch, 'units'),
+        (UpdateType.put, 'stage_changes'),
+        (UpdateType.patch, 'units'),
+        (UpdateType.put, 'stage_changes'),
+        (UpdateType.patch, 'workflows'),
+        (UpdateType.delete, 'stages'),
+      ]);
+      await transaction.complete();
+      expect(await db.getNextCrudTransaction(), isNull);
+    });
+
+    test('the Owned or Finished Stage needs a replacement, in order, and nothing changes without one', () async {
+      final [wishlist, unassembled, assembled, ..., based, done] = w.stages;
+      await vault.moveUnit(a, done.id);
+
+      await expectLater(
+        vault.deleteStage(w.id, done.id, moveUnitsTo: based.id),
+        throwsStateError,
+      );
+      await expectLater(
+        vault.deleteStage(
+          w.id,
+          done.id,
+          moveUnitsTo: based.id,
+          finishedStageId: done.id,
+        ),
+        throwsStateError,
+      );
+      await expectLater(
+        vault.deleteStage(
+          w.id,
+          done.id,
+          moveUnitsTo: based.id,
+          finishedStageId: wishlist.id,
+        ),
+        throwsArgumentError,
+      );
+      expect(await stageNames(), contains('Done'));
+
+      await vault.deleteStage(
+        w.id,
+        done.id,
+        moveUnitsTo: based.id,
+        finishedStageId: based.id,
+      );
+      await vault.deleteStage(w.id, unassembled.id, ownedStageId: assembled.id);
+
+      final read = (await vault.workflows()).firstWhere((x) => x.id == w.id);
+      expect(
+        (read.ownedStage.name, read.finishedStage.name),
+        ('Assembled', 'Based'),
+      );
+      expect(
+        await stageNames(),
+        isNot(anyOf(contains('Done'), contains('Unassembled'))),
+      );
+    });
+
+    test(
+      'the destination must be another Stage of the same Workflow',
+      () async {
+        final primed = w.stages[3];
+        final starter = (await vault.starterWorkflow())!;
+        for (final destination in [
+          primed.id,
+          starter.stages.first.id,
+          'nowhere',
+        ]) {
+          await expectLater(
+            vault.deleteStage(w.id, primed.id, moveUnitsTo: destination),
+            throwsArgumentError,
+            reason: destination,
+          );
+        }
+        expect(await stageNames(), contains('Primed'));
+        expect(await history(a), hasLength(1));
+      },
+    );
+  });
+
   group('Tags', () {
     late Collection collection;
     late Unit unit;
