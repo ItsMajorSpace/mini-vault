@@ -16,7 +16,7 @@ A number of models tracked together because they are at the same Stage; it belon
 _Avoid_: Batch, entry, kit, box
 
 **Squad**:
-All the Units in a Collection that share a name; its models are spread across Stages. Not a game-rules unit either: it is whatever a person chose to name alike.
+All the Units in a Collection that share a name; its models are spread across Stages. Not a game-rules unit either: it is whatever a person chose to name alike. A Squad may use Paints, each with an optional note on where or how (e.g. "armour base"); renaming the Squad keeps them, and they stay with the name even while no Unit has it.
 _Avoid_: Group, line, entry
 
 **Workflow**:
@@ -55,3 +55,7 @@ _Avoid_: Roster, list, army
 **Tag**:
 A free-form label on a Unit, used for faction or any other grouping below the Collection. Game Systems belong to Collections, not Tags.
 _Avoid_: Category, label, faction field
+
+**Paint**:
+One product from one manufacturer, named by brand, range and name (e.g. Citadel / Base / Macragge Blue), in a person's paint library independent of any Collection. Each Paint is either owned or wanted; the wanted ones are the shopping list. Washes, contrast paints, primers and technicals are Paints too. Brands written alike, ignoring case, are the same brand, and no two Paints share brand, range and name.
+_Avoid_: Color, colour, pot, swatch
