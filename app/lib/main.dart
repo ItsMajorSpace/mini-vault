@@ -633,8 +633,12 @@ class _UnitScreenState extends State<UnitScreen> {
             AsyncSnapshot(:final error?) => Center(
               child: Text('Could not load the Unit: $error'),
             ),
-            _ when unit == null => const Center(
+            _ when unit == null && !snapshot.hasData => const Center(
               child: CircularProgressIndicator(),
+            ),
+            // A move onto a Stage with a matching Unit Merges this one into it (ADR 0004).
+            _ when unit == null => const Center(
+              child: Text('This Unit was merged into another or deleted.'),
             ),
             _ => ListView(
               children: [
