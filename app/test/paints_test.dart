@@ -55,11 +55,17 @@ void main() {
       }))!;
       await tester.pumpWidget(
         MaterialApp(
-          home: CollectionsScreen(vault: Vault(SqliteVaultStore(db)), db: db),
+          home: HomeScreen(
+            vault: Vault(SqliteVaultStore(db)),
+            collections: CollectionsScreen(
+              vault: Vault(SqliteVaultStore(db)),
+              db: db,
+            ),
+          ),
         ),
       );
       await settle(tester);
-      await tester.tap(find.byTooltip('Paints'));
+      await tester.tap(find.widgetWithText(NavigationDestination, 'Paints'));
       await settle(tester);
 
       final order = [
