@@ -1,14 +1,18 @@
+// ignore_for_file: experimental_member_use
+
 import 'dart:io';
 
 import 'package:domain_core/domain_core.dart';
 import 'package:domain_core/sqlite_store.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gotrue/gotrue.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
 import 'package:mini_vault/progress.dart';
 import 'package:mini_vault/theme.dart';
 import 'package:mini_vault/workflows.dart';
+import 'package:powersync/attachments/attachments.dart';
 import 'package:powersync/powersync.dart';
 
 // Smoke test: the Collections screen renders what is stored in real SQLite after an app restart,
@@ -305,6 +309,117 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'Squad rows lead with the newest photo on this device, else a placeholder',
+    (tester) async {
+      final (db, vault, collection, files) = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's', 's')",
+        );
+        await db.execute(
+          "INSERT INTO stages (id, workflow_id, name, position) VALUES ('s', 'w', 'Wishlist', 0)",
+        );
+        final vault = Vault(SqliteVaultStore(db));
+        final collection = await vault.createCollection('Space Marines');
+        final other = await vault.createCollection('Dark Angels');
+        Future<String> unit(Collection c, String name) async =>
+            (await vault.addUnit(
+              c,
+              name: name,
+              modelCount: 1,
+              stageId: 's',
+            )).id;
+        // (Unit, file, queue timestamp, downloaded): the newest file is the one with the latest timestamp.
+        final photos = [
+          (await unit(collection, 'Intercessors'), 'old', 1, true),
+          (await unit(collection, 'Intercessors'), 'new', 2, true),
+          (await unit(other, 'Intercessors'), 'other', 9, true),
+          (await unit(collection, 'Captain'), 'here', 1, true),
+          (await unit(collection, 'Captain'), 'incoming', 2, false),
+        ];
+        await unit(collection, 'Terminators');
+        for (final (i, (unitId, file, ts, downloaded)) in photos.indexed) {
+          await SqliteVaultStore.insertPhoto(
+            db,
+            Photo(id: 'p$i', unitId: unitId, fileId: file),
+          );
+          await db.execute(
+            'INSERT INTO ${photoQueueTable.name} (id, filename, local_uri, timestamp, state, has_synced) '
+            'VALUES (?, ?, ?, ?, ?, 1)',
+            [
+              file,
+              '$file.jpg',
+              downloaded ? '$file.jpg' : null,
+              ts,
+              (downloaded
+                      ? AttachmentState.synced
+                      : AttachmentState.queuedDownload)
+                  .toInt(),
+            ],
+          );
+        }
+        final files = PhotoFiles(
+          db,
+          GoTrueClient(url: 'http://localhost'),
+          Directory('${dir.path}/photos'),
+        );
+        return (db, vault, collection, files);
+      }))!;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CollectionScreen(
+            vault: vault,
+            db: db,
+            collection: collection,
+            photos: files,
+          ),
+        ),
+      );
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      Finder inRow(String squad, Finder matching) => find.descendant(
+        of: find.ancestor(
+          of: find.text(squad),
+          matching: find.byType(ListTile),
+        ),
+        matching: matching,
+      );
+      final image = tester.widget<Image>(
+        inRow('Intercessors', find.byType(Image)),
+      );
+      expect((image.image as ResizeImage).imageProvider, isA<FileImage>());
+      expect(
+        ((image.image as ResizeImage).imageProvider as FileImage).file.path,
+        '${files.dir.path}/new.jpg',
+      );
+      // The newest is not downloaded yet: placeholder, not an older photo.
+      for (final squad in ['Captain', 'Terminators']) {
+        expect(inRow(squad, find.byType(Image)), findsNothing);
+        expect(inRow(squad, find.byIcon(Icons.image_outlined)), findsOneWidget);
+      }
+      // Every row's leading square is the same size.
+      for (final squad in ['Intercessors', 'Captain', 'Terminators']) {
+        expect(
+          tester.getSize(inRow(squad, find.byType(SquadThumbnail))),
+          const Size.square(48),
+        );
+      }
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'Recently painted lists the last 3 moved Squads, newest first; tapping one opens its Move sheet',

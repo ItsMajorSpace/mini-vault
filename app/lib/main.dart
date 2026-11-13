@@ -625,6 +625,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     children: [
                       for (final squad in squads)
                         ListTile(
+                          leading: SquadThumbnail(
+                            key: ValueKey(squad.name),
+                            files: widget.photos,
+                            collectionId: _collection.id,
+                            squadName: squad.name,
+                          ),
                           title: Text(squad.name),
                           subtitle: StageBar(squad.progress),
                           trailing: Text(modelCountText(squad.modelCount)),
