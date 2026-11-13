@@ -5,7 +5,7 @@ import 'package:domain_core/army_list.dart';
 import 'package:domain_core/domain_core.dart';
 import 'package:material_ui/material_ui.dart';
 
-import 'squad.dart';
+import 'unit.dart';
 import 'workflows.dart';
 
 /// One previewed entry: ticked to import, with an editable name and count.
@@ -101,15 +101,15 @@ class _ArmyListScreenState extends State<ArmyListScreen> {
   }
 
   Future<void> _select(Collection? collection) async {
-    final units = collection == null
-        ? const <Unit>[]
-        : await widget.vault.unitsOf(collection);
+    final batches = collection == null
+        ? const <Batch>[]
+        : await widget.vault.batchesOf(collection);
     if (!mounted) return;
     setState(() {
       _collection = collection;
       _stageId = _workflow?.stages.firstOrNull?.id;
       _existing = {};
-      for (final u in units) {
+      for (final u in batches) {
         _existing[u.name] = (_existing[u.name] ?? 0) + u.modelCount;
       }
     });
