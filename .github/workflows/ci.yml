@@ -128,13 +128,15 @@ jobs:
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
           cache-to: ${{ env.PUBLISH == 'true' && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE) || '' }}
 
-  # Sideloadable release APK against production, debug-signed (no keystore).
+  # Sideloadable release APK against production, signed with the release key.
   apk:
     name: apk
     needs: check
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The signing secrets live in the production environment.
+    environment: production
     permissions:
       contents: write  # attach the APK to the GitHub Release
     steps:
@@ -157,12 +159,29 @@ jobs:
           channel: stable
           cache: true
 
+      # Never ship a debug-signed APK on a tag: fail if any secret is missing.
+      - name: Write release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for v in KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            [ -n "${!v}" ] || { echo "::error::Signing secret for $v is not set."; exit 1; }
+          done
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
       # The tag is the only source of the app version (ADR 0006).
       - name: Build release APK
         working-directory: app
         env:
           TAG: ${{ github.ref_name }}
           BUILD_NUMBER: ${{ github.run_number }}
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: >-
           flutter build apk --release
           --build-name="${TAG#v}"
@@ -171,7 +190,7 @@ jobs:
           --dart-define=POWERSYNC_URL=https://sync.minivault.bingoscape.org
           --dart-define=API_URL=https://api.minivault.bingoscape.org
 
-      - name: Check APK version
+      - name: Check APK version and signature
         env:
           TAG: ${{ github.ref_name }}
           BUILD_NUMBER: ${{ github.run_number }}
@@ -179,6 +198,8 @@ jobs:
           aapt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt
           "$aapt" dump badging app/build/app/outputs/flutter-apk/app-release.apk > badging.txt
           grep -F "versionCode='$BUILD_NUMBER' versionName='${TAG#v}'" badging.txt
+          certs=$("$(dirname "$aapt")"/apksigner verify --print-certs app/build/app/outputs/flutter-apk/app-release.apk)
+          if grep -q "CN=Android Debug" <<< "$certs"; then echo "::error::APK is debug-signed."; exit 1; fi
 
       # Creates the Release if only a bare tag was pushed; `|| true` because it
       # usually exists already. A real failure still fails the upload below.
