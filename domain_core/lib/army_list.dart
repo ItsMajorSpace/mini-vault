@@ -59,7 +59,9 @@ int _gwModels(List<String> block) {
     if (m != null &&
         indent(line) == indent(block.first) &&
         i + 1 < block.length &&
-        indent(block[i + 1]) > indent(line)) {
+        indent(block[i + 1]) > indent(line) &&
+        // Unbulleted deeper lines (Layout B) continue a wargear list, they don't nest under a model.
+        RegExp(r'^\s*[•◦]').hasMatch(block[i + 1])) {
       models += int.parse(m[1]!);
     }
   }

@@ -95,6 +95,13 @@ void main() {
     ]);
   });
 
+  test('Warhammer 40k app, layout B: a multiple wargear line with a continuation is not models', () {
+    final list = parseArmyList(
+      layoutB.replaceFirst('1x Eldritch Lance', '2x Eldritch Lance'),
+    )!;
+    expect(list.entries.first, (name: 'Illuminor Szeras', count: 1));
+  });
+
   test('Warhammer 40k app: text after the points is dropped', () {
     final list = parseArmyList(
       layoutA.replaceFirst(
