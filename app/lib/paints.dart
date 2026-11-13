@@ -21,7 +21,7 @@ class PaintsScreen extends StatefulWidget {
 }
 
 class _PaintsScreenState extends State<PaintsScreen> {
-  late final _paints = widget.vault.watchPaints();
+  late var _paints = widget.vault.watchPaints();
   late final _links = widget.vault.watchAllSquadPaints();
   List<Paint> _known = const [];
   List<({Collection collection, SquadPaint link})> _usage = const [];
@@ -38,6 +38,7 @@ class _PaintsScreenState extends State<PaintsScreen> {
         usedBy: paint == null
             ? const []
             : paintedSquads(_usage, paintId: paint.id),
+        onDelete: paint == null ? null : () => _delete(paint),
         onOpenSquad: (collection, squad) => Navigator.push(
           context,
           MaterialPageRoute<void>(
@@ -111,9 +112,12 @@ class _PaintsScreenState extends State<PaintsScreen> {
         stream: _paints,
         builder: (context, snapshot) {
           _usage = links.data ?? const [];
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('Could not load Paints: ${snapshot.error}'),
+          if (snapshot.error case final error?) {
+            return LoadError(
+              what: 'your Paints',
+              error: error,
+              onRetry: () =>
+                  setState(() => _paints = widget.vault.watchPaints()),
             );
           }
           final paints = snapshot.data;
@@ -178,30 +182,13 @@ class _PaintsScreenState extends State<PaintsScreen> {
                     title: Text(p.name),
                     subtitle: Text(p.range),
                     onTap: () => _edit(p),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: p.owned
-                              ? 'Owned: mark wanted'
-                              : 'Wanted: mark owned',
-                          icon: Icon(
-                            p.owned
-                                ? Icons.check_circle
-                                : Icons.shopping_cart_outlined,
-                          ),
-                          onPressed: () => attempt(
-                            context,
-                            () => widget.vault.setPaintOwned(p.id, !p.owned),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Delete Paint',
-                          icon: const Icon(Icons.delete),
-                          style: destructive(context),
-                          onPressed: () => _delete(p),
-                        ),
-                      ],
+                    trailing: ChoiceChip(
+                      label: Text(p.owned ? 'Owned' : 'Wanted'),
+                      selected: p.owned,
+                      onSelected: (owned) => attempt(
+                        context,
+                        () => widget.vault.setPaintOwned(p.id, owned),
+                      ),
                     ),
                   ),
               ],
@@ -231,6 +218,7 @@ class PaintDialog extends StatefulWidget {
     this.owned = true,
     this.usedBy = const [],
     this.onOpenSquad,
+    this.onDelete,
   });
 
   /// The library, for suggestions.
@@ -248,6 +236,9 @@ class PaintDialog extends StatefulWidget {
   /// The Squads that use the Paint; tapping one closes the dialog and calls [onOpenSquad].
   final List<({Collection collection, String squad})> usedBy;
   final void Function(Collection collection, String squad)? onOpenSquad;
+
+  /// Shown as Delete when set; closes the dialog and calls it, which asks to confirm.
+  final VoidCallback? onDelete;
 
   @override
   State<PaintDialog> createState() => _PaintDialogState();
@@ -359,6 +350,15 @@ class _PaintDialogState extends State<PaintDialog> {
         ),
       ),
       actions: [
+        if (widget.onDelete case final delete?)
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              delete();
+            },
+            style: destructive(context),
+            child: const Text('Delete'),
+          ),
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
