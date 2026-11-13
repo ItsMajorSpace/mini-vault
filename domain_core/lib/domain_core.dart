@@ -62,11 +62,32 @@ class Collection {
     required this.id,
     required this.name,
     required this.workflowId,
+    this.gameSystem,
   });
 
   final String id;
   final String name;
   final String workflowId;
+
+  /// The Game System it belongs to, as typed; null if none.
+  final String? gameSystem;
+}
+
+/// Groups [collections] by Game System (ignoring case and outer spaces, as [tagKey]): A–Z, with the Collections
+/// without one last under a null name. Each group is named as its first Collection spells it and keeps their order.
+List<({String? gameSystem, List<Collection> collections})> groupByGameSystem(
+  Iterable<Collection> collections,
+) {
+  final byKey = <String?, List<Collection>>{};
+  for (final c in collections) {
+    (byKey[c.gameSystem == null ? null : tagKey(c.gameSystem!)] ??= []).add(c);
+  }
+  final keys = byKey.keys.toList()
+    ..sort((a, b) => a == null ? 1 : (b == null ? -1 : a.compareTo(b)));
+  return [
+    for (final k in keys)
+      (gameSystem: byKey[k]!.first.gameSystem?.trim(), collections: byKey[k]!),
+  ];
 }
 
 /// A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection.
@@ -311,6 +332,7 @@ abstract interface class VaultStore {
   Stream<List<Collection>> watchCollections();
   Future<void> insertCollection(Collection collection);
   Future<void> renameCollection(String id, String name);
+  Future<void> setGameSystem(String id, String? gameSystem);
 
   /// Deletes the Collection and its Units, with their Tags and Photos, in one transaction.
   Future<void> deleteCollection(String id);
@@ -581,7 +603,11 @@ class Vault {
 
   /// Creates a Collection that uses the given Workflow, or the starter Workflow.
   /// Throws a [StateError] while there is no Workflow yet (the starter Workflow has not synced).
-  Future<Collection> createCollection(String name, {String? workflowId}) async {
+  Future<Collection> createCollection(
+    String name, {
+    String? workflowId,
+    String? gameSystem,
+  }) async {
     final workflow = workflowId == null
         ? await starterWorkflow()
         : await _workflow(workflowId);
@@ -592,6 +618,7 @@ class Vault {
       id: _newId(),
       name: validName(name),
       workflowId: workflow.id,
+      gameSystem: await _knownGameSystem(gameSystem),
     );
     await _store.insertCollection(collection);
     return collection;
@@ -599,6 +626,26 @@ class Vault {
 
   Future<void> renameCollection(String id, String name) =>
       _store.renameCollection(id, validName(name));
+
+  /// Sets the Collection's Game System; blank or null removes it.
+  Future<void> setGameSystem(String id, String? gameSystem) async =>
+      _store.setGameSystem(id, await _knownGameSystem(gameSystem));
+
+  /// The Game Systems in use, A–Z, each spelled as its first Collection spells it.
+  Future<List<String>> gameSystems() async => [
+    for (final g in groupByGameSystem(await _store.collections()))
+      ?g.gameSystem,
+  ];
+
+  /// [name] as [validGameSystem], spelled like a Game System already in use if one matches.
+  Future<String?> _knownGameSystem(String? name) async {
+    final valid = validGameSystem(name);
+    if (valid == null) return null;
+    return (await gameSystems())
+            .where((g) => tagKey(g) == tagKey(valid))
+            .firstOrNull ??
+        valid;
+  }
 
   /// The Collection's Units, by name: what deleting it would delete.
   Future<List<Unit>> unitsOf(Collection collection) =>
@@ -1103,6 +1150,12 @@ int validModelCount(int count) => count >= 1
     : throw ArgumentError.value(count, 'modelCount', 'must be at least 1');
 
 /// Trims [name], throwing an [ArgumentError] if it is blank. Shared with the write API, which validates uploaded names.
+/// A Game System name, trimmed; null if [name] is null or blank (no Game System).
+String? validGameSystem(String? name) => switch (name?.trim()) {
+  '' || null => null,
+  final n => n,
+};
+
 String validName(String name) {
   final trimmed = name.trim();
   if (trimmed.isEmpty) {

@@ -27,7 +27,11 @@ class SqliteVaultStore implements VaultStore {
       Column.integer('position'),
       Column.text('colour'),
     ]),
-    Table('collections', [Column.text('name'), Column.text('workflow_id')]),
+    Table('collections', [
+      Column.text('name'),
+      Column.text('workflow_id'),
+      Column.text('game_system'),
+    ]),
     Table('units', [
       Column.text('collection_id'),
       Column.text('stage_id'),
@@ -238,19 +242,31 @@ class SqliteVaultStore implements VaultStore {
             id: c['id'] as String,
             name: c['name'] as String,
             workflowId: c['workflow_id'] as String,
+            gameSystem: c['game_system'] as String?,
           ),
       ];
 
   @override
   Future<void> insertCollection(Collection collection) => _db.execute(
-    'INSERT INTO collections (id, name, workflow_id) VALUES (?, ?, ?)',
-    [collection.id, collection.name, collection.workflowId],
+    'INSERT INTO collections (id, name, workflow_id, game_system) VALUES (?, ?, ?, ?)',
+    [
+      collection.id,
+      collection.name,
+      collection.workflowId,
+      collection.gameSystem,
+    ],
   );
 
   // An UPDATE of one column, so sync uploads it as a per-field change (PATCH).
   @override
   Future<void> renameCollection(String id, String name) =>
       _db.execute('UPDATE collections SET name = ? WHERE id = ?', [name, id]);
+
+  @override
+  Future<void> setGameSystem(String id, String? gameSystem) => _db.execute(
+    'UPDATE collections SET game_system = ? WHERE id = ?',
+    [gameSystem, id],
+  );
 
   // As deleteUnit, for every Unit: Stage Changes are left to the server, and children go first. The server also
   // deletes Units this device hasn't seen yet when the Collection's delete arrives.

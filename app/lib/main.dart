@@ -210,22 +210,45 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
       );
       return;
     }
-    final picked = await showDialog<(String, String)>(
+    final gameSystems = await widget.vault.gameSystems();
+    if (!mounted) return;
+    final picked = await showDialog<(String, String?, String)>(
       context: context,
-      builder: (_) => NewCollectionDialog(workflows: workflows),
+      builder: (_) =>
+          NewCollectionDialog(workflows: workflows, gameSystems: gameSystems),
     );
-    if (picked case (final name, final workflowId) when mounted) {
+    if (picked case (final name, final workflowId, final gameSystem)
+        when mounted) {
       await attempt(
         context,
-        () => widget.vault.createCollection(name, workflowId: workflowId),
+        () => widget.vault.createCollection(
+          name,
+          workflowId: workflowId,
+          gameSystem: gameSystem,
+        ),
       );
     }
   }
 
-  Future<void> _rename(Collection collection) async {
-    final name = await askName(context, 'Rename Collection', collection.name);
-    if (name == null) return;
-    await widget.vault.renameCollection(collection.id, name);
+  Future<void> _edit(Collection collection) async {
+    final gameSystems = await widget.vault.gameSystems();
+    if (!mounted) return;
+    final edited = await showDialog<(String, String?, String)>(
+      context: context,
+      builder: (_) =>
+          NewCollectionDialog(gameSystems: gameSystems, collection: collection),
+    );
+    if (edited case (final name, _, final gameSystem) when mounted) {
+      // Only changed fields, so an edit to the other field on another device is kept.
+      await attempt(context, () async {
+        if (name.trim() != collection.name) {
+          await widget.vault.renameCollection(collection.id, name);
+        }
+        if (validGameSystem(gameSystem) != collection.gameSystem) {
+          await widget.vault.setGameSystem(collection.id, gameSystem);
+        }
+      });
+    }
   }
 
   /// Asks first, saying how many Units and models go with the Collection.
@@ -309,52 +332,65 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
           if (collections.isEmpty) {
             return const Center(child: Text('No Collections yet'));
           }
+          final groups = groupByGameSystem(collections);
+          // Headers only once some Collection has a Game System; until then the list is as before.
+          final headed = groups.any((g) => g.gameSystem != null);
           return ListView(
             children: [
-              for (final c in collections)
-                ListTile(
-                  key: ValueKey(c.id),
-                  title: Text(c.name),
-                  // Keyed by Workflow, so switching it restarts the watch on the new one.
-                  subtitle: ProgressSummary(
-                    key: ValueKey(c.workflowId),
-                    vault: widget.vault,
-                    collection: c,
-                  ),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => CollectionScreen(
-                        vault: widget.vault,
-                        db: widget.db,
-                        photos: widget.photos,
-                        collection: c,
-                      ),
+              for (final g in groups) ...[
+                if (headed)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: Text(
+                      g.gameSystem ?? 'Other',
+                      style: Theme.of(context).textTheme.titleSmall,
                     ),
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.swap_horiz),
-                        tooltip: 'Switch Workflow',
-                        onPressed: () =>
-                            switchWorkflow(context, widget.vault, c),
+                for (final c in g.collections)
+                  ListTile(
+                    key: ValueKey(c.id),
+                    title: Text(c.name),
+                    // Keyed by Workflow, so switching it restarts the watch on the new one.
+                    subtitle: ProgressSummary(
+                      key: ValueKey(c.workflowId),
+                      vault: widget.vault,
+                      collection: c,
+                    ),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => CollectionScreen(
+                          vault: widget.vault,
+                          db: widget.db,
+                          photos: widget.photos,
+                          collection: c,
+                        ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        tooltip: 'Rename Collection',
-                        onPressed: () => _rename(c),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete),
-                        tooltip: 'Delete Collection',
-                        style: destructive(context),
-                        onPressed: () => _delete(c),
-                      ),
-                    ],
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.swap_horiz),
+                          tooltip: 'Switch Workflow',
+                          onPressed: () =>
+                              switchWorkflow(context, widget.vault, c),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit),
+                          tooltip: 'Edit Collection',
+                          onPressed: () => _edit(c),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete),
+                          tooltip: 'Delete Collection',
+                          style: destructive(context),
+                          onPressed: () => _delete(c),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
+              ],
             ],
           );
         },
