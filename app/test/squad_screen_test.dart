@@ -330,6 +330,60 @@ void main() {
   );
 
   testWidgets(
+    '+ opens New Unit named after the Squad, at the Owned Stage, suggesting Squad names as the Name is typed',
+    (tester) async {
+      final (vault, collection) = await openSquad(tester, stages, [(5, 0)]);
+      await tester.runAsync(
+        () => vault.addUnit(
+          collection,
+          name: 'Assault Intercessors',
+          modelCount: 3,
+          stageId: 's0',
+        ),
+      );
+      await settle(tester);
+
+      await tapAndWait(tester, find.byTooltip('New Unit'));
+      expect(find.text('New Unit'), findsOneWidget);
+      final name = find.widgetWithText(TextFormField, 'Name');
+      expect(
+        tester.widget<TextFormField>(name).controller!.text,
+        'Intercessors',
+      );
+      // The Owned Stage, not the first one (Wishlist), is preselected.
+      expect(
+        tester
+            .widget<DropdownButtonFormField<String>>(
+              find.byType(DropdownButtonFormField<String>),
+            )
+            .initialValue,
+        's1',
+      );
+
+      // Part of a name, in any case, offers every Squad containing it; picking one fills it in.
+      await tester.enterText(name, 'CESS');
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(InkWell, 'Intercessors'), findsOneWidget);
+      expect(find.text('Assault Intercessors'), findsOneWidget);
+      await tester.tap(find.text('Assault Intercessors'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextFormField>(name).controller!.text,
+        'Assault Intercessors',
+      );
+
+      await tapAndWait(tester, find.text('Save'));
+      final units = (await tester.runAsync(() => vault.unitsOf(collection)))!;
+      expect([
+        for (final u in units)
+          if (u.name == 'Assault Intercessors') (u.modelCount, u.stageId),
+      ], unorderedEquals([(3, 's0'), (1, 's1')]));
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'a 7-Stage Squad fits a 1080×2340 phone screen without scrolling',
     (tester) async {
       tester.view.physicalSize = const Size(1080, 2340);
