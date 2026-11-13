@@ -265,20 +265,32 @@ class SqliteVaultStore implements VaultStore {
     await _insertStageChange(tx, change);
   }
 
+  // A new Stage Change must sort after every one this device knows for the Unit, or a device whose clock runs
+  // behind another's could never move it: so it is stamped at least 1 ms after the latest known one.
   static Future<void> _insertStageChange(
     SqliteWriteContext tx,
     StageChange c,
-  ) => tx.execute(
-    'INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [
-      c.id,
-      c.unitId,
-      c.fromStageId,
-      c.toStageId,
-      c.modelCount,
-      c.happenedAt.toUtc().toIso8601String(),
-    ],
-  );
+  ) async {
+    var at = c.happenedAt.toUtc();
+    for (final row in await tx.getAll(
+      'SELECT happened_at FROM stage_changes WHERE unit_id = ?',
+      [c.unitId],
+    )) {
+      final known = DateTime.parse(row['happened_at'] as String).toUtc();
+      if (!at.isAfter(known)) at = known.add(const Duration(milliseconds: 1));
+    }
+    await tx.execute(
+      'INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        c.id,
+        c.unitId,
+        c.fromStageId,
+        c.toStageId,
+        c.modelCount,
+        at.toIso8601String(),
+      ],
+    );
+  }
 
   // Sorted after parsing: synced timestamps come back from Postgres in a different text format than local ones.
   // Ties break on id, as on the server.

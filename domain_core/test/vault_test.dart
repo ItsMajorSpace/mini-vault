@@ -653,6 +653,27 @@ void main() {
       expect(await history(), ['null -> s1 (10)']);
     });
 
+    test(
+      'a move sorts after a synced one stamped ahead of this device\'s clock',
+      () async {
+        // Another device, its clock far ahead, moved the Unit to s3; sync delivers it in Postgres's text format.
+        await db.execute(
+          "INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES ('sc-ahead', ?, 's1', 's3', 10, '2099-01-01 00:00:00+00')",
+          [unit.id],
+        );
+        await db.execute("UPDATE units SET stage_id = 's3' WHERE id = ?", [
+          unit.id,
+        ]);
+
+        await vault.moveUnit(await reload(), 's5');
+
+        final latest = (await vault.watchHistory(unit.id).first).last;
+        expect(latest.toStageId, 's5');
+        expect(latest.happenedAt.isAfter(DateTime.utc(2099)), isTrue);
+        expect((await reload()).stageId, 's5');
+      },
+    );
+
     test('moves a Unit forward and back, recording each move in order, across restarts', () async {
       await vault.moveUnit(unit, 's4');
       await vault.moveUnit(await reload(), 's2');
