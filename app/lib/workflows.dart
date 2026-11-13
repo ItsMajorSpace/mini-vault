@@ -4,6 +4,8 @@ library;
 import 'package:domain_core/domain_core.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'theme.dart';
+
 /// Runs a Vault operation, showing a refusal (an [ArgumentError] or [StateError]) as a snack bar.
 Future<void> attempt(BuildContext context, Future<void> Function() op) async {
   try {
@@ -66,6 +68,7 @@ class WorkflowsScreen extends StatelessWidget {
                   trailing: IconButton(
                     icon: const Icon(Icons.delete),
                     tooltip: 'Delete Workflow',
+                    style: destructive(context),
                     onPressed: () =>
                         attempt(context, () => vault.deleteWorkflow(w.id)),
                   ),
@@ -338,6 +341,7 @@ class _DeleteStageDialogState extends State<_DeleteStageDialog> {
             owned: widget.owned ? _owned : null,
             finished: widget.finished ? _finished : null,
           )),
+          style: destructive(context),
           child: const Text('Delete'),
         ),
       ],

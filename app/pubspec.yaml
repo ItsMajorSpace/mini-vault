@@ -27,3 +27,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: BlackOpsOne
+      fonts:
+        - asset: assets/fonts/BlackOpsOne-Regular.ttf
