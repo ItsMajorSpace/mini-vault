@@ -7,6 +7,10 @@ Tracks where each part of a tabletop miniature collection stands on its way from
 **Collection**:
 A named set of Units owned by one person, all progressing through the same Workflow.
 
+**Game System**:
+The tabletop game a Collection belongs to (e.g. Warhammer 40k, D&D), named freely by the person; a Collection has at most one. Collections whose Game System is written alike, ignoring case, share it.
+_Avoid_: System, game, franchise, category
+
 **Unit**:
 A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection. Not the same as a unit in game rules: one in-game unit may be several Units here while its models are at different Stages.
 _Avoid_: Batch, entry, kit, box
@@ -45,5 +49,5 @@ Moving only some of a Unit's models to another Stage, which creates a new Unit f
 Combining two Units that share a Collection, name and Stage into one Unit. Happens automatically when models are moved onto a Stage where such a Unit already exists; Units that already share a Stage are Merged only by explicit choice.
 
 **Tag**:
-A free-form label on a Unit, used for game system, faction or any other grouping. Mini Vault knows nothing about specific game systems; Tags are how a person expresses them.
+A free-form label on a Unit, used for faction or any other grouping below the Collection. Game Systems belong to Collections, not Tags.
 _Avoid_: Category, label, faction field

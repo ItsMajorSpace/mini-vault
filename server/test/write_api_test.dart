@@ -194,6 +194,52 @@ void main() {
     ]);
   });
 
+  test('a Collection\'s Game System is stored trimmed, and blank clears it', () async {
+    final user = await signUp();
+    final id = await newId();
+    Future<Object?> gameSystem() async => (await db.execute(
+      r'SELECT game_system FROM collections WHERE id = $1::uuid',
+      parameters: [id],
+    )).single.single;
+
+    final created = await upload(user.token, [
+      {
+        'op': 'PUT',
+        'type': 'collections',
+        'id': id,
+        'data': {
+          'name': 'Space Marines',
+          'workflow_id': await workflowOf(user.id),
+          'game_system': ' Warhammer 40k ',
+        },
+      },
+    ]);
+    expect(created.statusCode, 204, reason: created.body);
+    expect(await gameSystem(), 'Warhammer 40k');
+
+    for (final cleared in ['  ', null]) {
+      await upload(user.token, [
+        {
+          'op': 'PATCH',
+          'type': 'collections',
+          'id': id,
+          'data': {'game_system': 'D&D'},
+        },
+      ]);
+      expect(await gameSystem(), 'D&D');
+      final patched = await upload(user.token, [
+        {
+          'op': 'PATCH',
+          'type': 'collections',
+          'id': id,
+          'data': {'game_system': cleared},
+        },
+      ]);
+      expect(patched.statusCode, 204, reason: patched.body);
+      expect(await gameSystem(), isNull);
+    }
+  });
+
   test(
     "writes to another user's rows are rejected and change nothing",
     () async {

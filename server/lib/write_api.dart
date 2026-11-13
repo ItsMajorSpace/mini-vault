@@ -25,7 +25,7 @@ const _writable = {
     'position': 'int',
     'colour': 'text',
   },
-  'collections': {'name': 'text', 'workflow_id': 'uuid'},
+  'collections': {'name': 'text', 'workflow_id': 'uuid', 'game_system': 'text'},
   'units': {
     'collection_id': 'uuid',
     'stage_id': 'uuid',
@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS collections (
   name text NOT NULL,
   workflow_id uuid NOT NULL
 );
+-- Free text; Collections whose Game System matches ignoring case share it (domain_core's tagKey). Null: none.
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS game_system text;
 CREATE TABLE IF NOT EXISTS units (
   id uuid PRIMARY KEY,
   owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
@@ -344,6 +346,13 @@ Future<void> _apply(
     } on ArgumentError catch (e) {
       throw _Rejected(422, '${e.message}');
     }
+  }
+  if (data.containsKey('game_system')) {
+    final gameSystem = data['game_system'];
+    if (gameSystem is! String?) {
+      throw _Rejected(422, 'A Game System must be text, not $gameSystem');
+    }
+    data['game_system'] = validGameSystem(gameSystem);
   }
   final colour = data['colour'];
   if (data.containsKey('colour') &&

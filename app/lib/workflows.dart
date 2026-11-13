@@ -519,30 +519,51 @@ class _NameDialogState extends State<NameDialog> {
 }
 
 /// Asks for a new Collection's name and Workflow, the first (starter) Workflow preselected.
+/// Name, Game System and (for a new Collection) Workflow. Pops `(name, workflowId, gameSystem)`; the Workflow is
+/// null when editing.
 class NewCollectionDialog extends StatefulWidget {
-  const NewCollectionDialog({super.key, required this.workflows});
+  const NewCollectionDialog({
+    super.key,
+    this.workflows = const [],
+    this.gameSystems = const [],
+    this.collection,
+  });
 
   final List<Workflow> workflows;
+
+  /// Game Systems in use, suggested as the user types.
+  final List<String> gameSystems;
+
+  /// The Collection being edited; null for a new one.
+  final Collection? collection;
 
   @override
   State<NewCollectionDialog> createState() => _NewCollectionDialogState();
 }
 
 class _NewCollectionDialogState extends State<NewCollectionDialog> {
-  final _name = TextEditingController();
-  late String _workflowId = widget.workflows.first.id;
+  late final _name = TextEditingController(text: widget.collection?.name);
+  late final _gameSystem = TextEditingController(
+    text: widget.collection?.gameSystem,
+  );
+  final _gameSystemFocus = FocusNode();
+  late String? _workflowId = widget.workflows.firstOrNull?.id;
 
   @override
   void dispose() {
     _name.dispose();
+    _gameSystem.dispose();
+    _gameSystemFocus.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    void save() => Navigator.pop(context, (_name.text, _workflowId));
+    final editing = widget.collection != null;
+    void save() =>
+        Navigator.pop(context, (_name.text, _workflowId, _gameSystem.text));
     return AlertDialog(
-      title: const Text('New Collection'),
+      title: Text(editing ? 'Edit Collection' : 'New Collection'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -551,15 +572,31 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
             autofocus: true,
             decoration: const InputDecoration(labelText: 'Name'),
           ),
-          DropdownButtonFormField<String>(
-            initialValue: _workflowId,
-            decoration: const InputDecoration(labelText: 'Workflow'),
-            items: [
-              for (final w in widget.workflows)
-                DropdownMenuItem(value: w.id, child: Text(w.name)),
+          Autocomplete<String>(
+            textEditingController: _gameSystem,
+            focusNode: _gameSystemFocus,
+            optionsBuilder: (value) => [
+              for (final g in widget.gameSystems)
+                if (tagKey(g).startsWith(tagKey(value.text)) &&
+                    tagKey(g) != tagKey(value.text))
+                  g,
             ],
-            onChanged: (id) => setState(() => _workflowId = id!),
+            fieldViewBuilder: (context, field, focus, submit) => TextField(
+              controller: field,
+              focusNode: focus,
+              decoration: const InputDecoration(labelText: 'Game System'),
+            ),
           ),
+          if (!editing)
+            DropdownButtonFormField<String>(
+              initialValue: _workflowId,
+              decoration: const InputDecoration(labelText: 'Workflow'),
+              items: [
+                for (final w in widget.workflows)
+                  DropdownMenuItem(value: w.id, child: Text(w.name)),
+              ],
+              onChanged: (id) => setState(() => _workflowId = id!),
+            ),
         ],
       ),
       actions: [
@@ -567,7 +604,7 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        TextButton(onPressed: save, child: const Text('Create')),
+        TextButton(onPressed: save, child: Text(editing ? 'Save' : 'Create')),
       ],
     );
   }
