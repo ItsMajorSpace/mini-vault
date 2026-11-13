@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:powersync/powersync.dart' hide Column;
 
+import 'photos.dart';
 import 'progress.dart';
 import 'sync.dart';
 import 'workflows.dart';
@@ -17,20 +18,27 @@ Future<void> main() async {
   final dir = await getApplicationSupportDirectory();
   // A new file name: the pre-sync database (mini_vault.db) has plain tables where PowerSync wants views.
   final db = PowerSyncDatabase(
-    schema: SqliteVaultStore.schema,
+    schema: Schema([...SqliteVaultStore.schema.tables, photoQueueTable]),
     path: '${dir.path}/vault.db',
   );
   await db.initialize();
   final auth = await openAuth(File('${dir.path}/session.json'));
-  syncWhileSignedIn(auth, db);
-  runApp(MiniVaultApp(auth: auth, db: db));
+  final photos = PhotoFiles(db, auth, Directory('${dir.path}/photos'));
+  syncWhileSignedIn(auth, db, photos.queue);
+  runApp(MiniVaultApp(auth: auth, db: db, photos: photos));
 }
 
 class MiniVaultApp extends StatelessWidget {
-  const MiniVaultApp({super.key, required this.auth, required this.db});
+  const MiniVaultApp({
+    super.key,
+    required this.auth,
+    required this.db,
+    required this.photos,
+  });
 
   final GoTrueClient auth;
   final PowerSyncDatabase db;
+  final PhotoFiles photos;
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +51,7 @@ class MiniVaultApp extends StatelessWidget {
             : CollectionsScreen(
                 vault: Vault(SqliteVaultStore(db)),
                 db: db,
+                photos: photos,
                 onSignOut: auth.signOut,
               ),
       ),
@@ -146,6 +155,7 @@ class CollectionsScreen extends StatefulWidget {
     super.key,
     required this.vault,
     required this.db,
+    this.photos,
     this.onSignOut,
   });
 
@@ -153,6 +163,9 @@ class CollectionsScreen extends StatefulWidget {
 
   /// For the sync status only; Collections go through [vault].
   final PowerSyncDatabase db;
+
+  /// Null hides Units' photos.
+  final PhotoFiles? photos;
   final VoidCallback? onSignOut;
 
   @override
@@ -249,6 +262,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                       builder: (_) => CollectionScreen(
                         vault: widget.vault,
                         db: widget.db,
+                        photos: widget.photos,
                         collection: c,
                       ),
                     ),
@@ -278,6 +292,7 @@ class CollectionScreen extends StatefulWidget {
     super.key,
     required this.vault,
     required this.db,
+    this.photos,
     required this.collection,
   });
 
@@ -285,6 +300,7 @@ class CollectionScreen extends StatefulWidget {
 
   /// For the sync status only; Units go through [vault].
   final PowerSyncDatabase db;
+  final PhotoFiles? photos;
   final Collection collection;
 
   @override
@@ -368,6 +384,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                         MaterialPageRoute<void>(
                           builder: (_) => UnitScreen(
                             vault: widget.vault,
+                            photos: widget.photos,
                             collection: widget.collection,
                             unitId: u.id,
                           ),
@@ -391,16 +408,18 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 }
 
-/// A Unit's fields, its Stage (with a Move action) and its history of Stage Changes.
+/// A Unit's fields, its photos, its Stage (with a Move action) and its history of Stage Changes.
 class UnitScreen extends StatefulWidget {
   const UnitScreen({
     super.key,
     required this.vault,
+    this.photos,
     required this.collection,
     required this.unitId,
   });
 
   final Vault vault;
+  final PhotoFiles? photos;
   final Collection collection;
   final String unitId;
 
@@ -506,6 +525,12 @@ class _UnitScreenState extends State<UnitScreen> {
             ),
             _ => ListView(
               children: [
+                if (widget.photos case final photos?)
+                  UnitPhotos(
+                    vault: widget.vault,
+                    files: photos,
+                    unitId: unit.id,
+                  ),
                 ListTile(
                   title: Text(stageName(unit.stageId)),
                   subtitle: Text(

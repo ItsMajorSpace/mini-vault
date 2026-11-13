@@ -101,6 +101,18 @@ class StageChange {
   final DateTime happenedAt;
 }
 
+/// A photo of a Unit. Its image file is stored once, under [fileId]: a Split's copy of a photo is a second row
+/// pointing at the same file, and the file is only deleted once no row points at it.
+class Photo {
+  const Photo({required this.id, required this.unitId, required this.fileId});
+
+  final String id;
+  final String unitId;
+
+  /// The image file's id, which is also its PowerSync attachment id.
+  final String fileId;
+}
+
 /// One Stage of a Collection's Workflow, with the Collection's Units at it.
 class StageGroup {
   const StageGroup(this.stage, this.units);
@@ -237,7 +249,7 @@ abstract interface class VaultStore {
     String? notes,
   });
 
-  /// Deletes the Unit and its Tags.
+  /// Deletes the Unit, its Tags and its Photos.
   Future<void> deleteUnit(String id);
 
   /// Emits the Unit's Tags, by name, now and again whenever they change.
@@ -249,6 +261,11 @@ abstract interface class VaultStore {
   /// Adds Tags to a Unit, keyed by their [tagId]; a Tag whose id is already there is left as it is.
   Future<void> insertTags(String unitId, Map<String, String> namesById);
   Future<void> deleteTag(String id);
+
+  /// Emits the Unit's Photos, in the same order on every device, now and again whenever they change.
+  Stream<List<Photo>> watchPhotos(String unitId);
+  Future<void> insertPhotos(List<Photo> photos);
+  Future<void> deletePhoto(String id);
 }
 
 /// The domain operations a collector can perform.
@@ -596,6 +613,45 @@ class Vault {
       ).entries)
         if (k.startsWith(key)) name,
     ]..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  }
+
+  /// The most Photos a Unit may have. The write API enforces the same limit.
+  static const maxPhotos = 10;
+
+  /// The Unit's Photos, in the same order on every device, emitted again whenever they change.
+  Stream<List<Photo>> watchPhotos(String unitId) => _store.watchPhotos(unitId);
+
+  /// The Unit's Photos. With [addPhotos], what a Split needs to copy them to the new Unit.
+  Future<List<Photo>> photosOf(String unitId) =>
+      _store.watchPhotos(unitId).first;
+
+  /// A Photo for a new image file on the Unit, not yet stored: the app stores it in the same transaction that
+  /// queues its file for upload. Throws a [StateError] if the Unit already has [maxPhotos].
+  Future<Photo> newPhoto(String unitId) async {
+    await _checkRoom(unitId, 1);
+    return Photo(id: _newId(), unitId: unitId, fileId: _newId());
+  }
+
+  /// Attaches already stored image files to the Unit, e.g. a Split's copies of its source's Photos.
+  /// A file the Unit already has is skipped. Throws a [StateError] if the Unit would get more than [maxPhotos].
+  Future<List<Photo>> addPhotos(String unitId, Iterable<String> fileIds) async {
+    final has = {for (final p in await photosOf(unitId)) p.fileId};
+    final photos = [
+      for (final fileId in {...fileIds}.difference(has))
+        Photo(id: _newId(), unitId: unitId, fileId: fileId),
+    ];
+    await _checkRoom(unitId, photos.length);
+    if (photos.isNotEmpty) await _store.insertPhotos(photos);
+    return photos;
+  }
+
+  /// Removes the Photo. The server deletes its file once no Photo points at it.
+  Future<void> removePhoto(String id) => _store.deletePhoto(id);
+
+  Future<void> _checkRoom(String unitId, int adding) async {
+    if ((await photosOf(unitId)).length + adding > maxPhotos) {
+      throw StateError('A Unit can have at most $maxPhotos photos');
+    }
   }
 
   static Map<String, String> _byKey(Iterable<String> names) {

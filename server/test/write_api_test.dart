@@ -650,6 +650,7 @@ void main() {
     final stageChangeId = await newId();
     final wishlist = await stageOf(alice.id, 'Wishlist');
     final tag = putTag(unitId, 'Necrons');
+    final photoId = await newId();
     final uploaded = await upload(alice.token, [
       putUnit(unitId, collectionId: id, stageId: wishlist),
       {
@@ -664,6 +665,12 @@ void main() {
         },
       },
       tag,
+      {
+        'op': 'PUT',
+        'type': 'photos',
+        'id': photoId,
+        'data': {'unit_id': unitId, 'file_id': await newId()},
+      },
     ]);
     expect(uploaded.statusCode, 204, reason: uploaded.body);
 
@@ -707,7 +714,10 @@ void main() {
       if (i > 0) await Future<void>.delayed(const Duration(milliseconds: 250));
       aliceIds = await syncedIds(alice.token);
     }
-    expect(aliceIds, containsAll([id, unitId, stageChangeId, tag['id']]));
+    expect(
+      aliceIds,
+      containsAll([id, unitId, stageChangeId, tag['id'], photoId]),
+    );
     expect(aliceIds, contains(await workflowOf(alice.id)));
 
     final bobIds = await syncedIds(bob.token);
@@ -1264,5 +1274,287 @@ void main() {
         expect((await unit(user.unitId)).single.last, 'Wishlist');
       },
     );
+  });
+
+  group('Photos', () {
+    /// A fake JPEG: the write API checks the magic number, not the whole image.
+    final jpeg = [0xff, 0xd8, 0xff, 0xe0, ...List.filled(100, 7)];
+    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0];
+
+    Uri file(String id) => _upload.resolve('/photos/$id');
+    Map<String, String> auth(String token, [String type = 'image/jpeg']) => {
+      'authorization': 'Bearer $token',
+      'content-type': type,
+    };
+
+    Future<String> addUnit(({String token, String id}) user) async {
+      final id = await newId();
+      final response = await upload(user.token, [
+        putUnit(
+          id,
+          collectionId: await createCollection(user),
+          stageId: await stageOf(user.id, 'Wishlist'),
+        ),
+      ]);
+      expect(response.statusCode, 204, reason: response.body);
+      return id;
+    }
+
+    Map<String, Object?> putPhoto(String id, String unitId, String fileId) => {
+      'op': 'PUT',
+      'type': 'photos',
+      'id': id,
+      'data': {'unit_id': unitId, 'file_id': fileId},
+    };
+
+    /// Adds a Photo row on [unitId] for a new file and uploads [jpeg] as that file; returns the file id.
+    Future<String> addPhoto(
+      ({String token, String id}) user,
+      String unitId,
+    ) async {
+      final fileId = await newId();
+      final row = await upload(user.token, [
+        putPhoto(await newId(), unitId, fileId),
+      ]);
+      expect(row.statusCode, 204, reason: row.body);
+      final put = await http.put(
+        file(fileId),
+        headers: auth(user.token),
+        body: jpeg,
+      );
+      expect(put.statusCode, 204, reason: put.body);
+      return fileId;
+    }
+
+    test('are uploaded and downloaded by their owner, with a token', () async {
+      final user = await signUp();
+      final fileId = await addPhoto(user, await addUnit(user));
+
+      final got = await http.get(file(fileId), headers: auth(user.token));
+      expect(got.statusCode, 200);
+      expect(got.headers['content-type'], 'image/jpeg');
+      expect(got.bodyBytes, jpeg);
+      expect((await http.get(file(fileId))).statusCode, 401);
+    });
+
+    test(
+      'are not uploaded before a Photo row of the user points at them',
+      () async {
+        final user = await signUp();
+        final put = await http.put(
+          file(await newId()),
+          headers: auth(user.token),
+          body: jpeg,
+        );
+        expect(put.statusCode, 409);
+      },
+    );
+
+    test(
+      'are not served to, deleted by or overwritten by another user',
+      () async {
+        final alice = await signUp();
+        final bob = await signUp();
+        final unitId = await addUnit(alice);
+        final fileId = await addPhoto(alice, unitId);
+
+        expect(
+          (await http.get(file(fileId), headers: auth(bob.token))).statusCode,
+          404,
+        );
+        expect(
+          (await http.delete(
+            file(fileId),
+            headers: auth(bob.token),
+          )).statusCode,
+          404,
+        );
+        // Bob's own row can't point at Alice's Unit, and without one he can't upload.
+        expect(
+          (await upload(bob.token, [
+            putPhoto(await newId(), unitId, fileId),
+          ])).statusCode,
+          403,
+        );
+        expect(
+          (await http.put(
+            file(fileId),
+            headers: auth(bob.token),
+            body: [0xff, 0xd8, 0xff, 0],
+          )).statusCode,
+          409,
+        );
+        final got = await http.get(file(fileId), headers: auth(alice.token));
+        expect(got.bodyBytes, jpeg);
+      },
+    );
+
+    test('reject files that are not images, too large, or not of their declared type', () async {
+      final user = await signUp();
+      final unitId = await addUnit(user);
+      final fileId = await newId();
+      expect(
+        (await upload(user.token, [
+          putPhoto(await newId(), unitId, fileId),
+        ])).statusCode,
+        204,
+      );
+
+      for (final (reason, type, body, status) in [
+        ('a script', 'image/jpeg', utf8.encode('#!/bin/sh\necho hi'), 415),
+        ('PNG bytes declared JPEG', 'image/jpeg', png, 415),
+        ('JPEG bytes declared HTML', 'text/html', jpeg, 415),
+        (
+          'over 10 MiB',
+          'image/jpeg',
+          [...jpeg, ...List.filled(10 << 20, 0)],
+          413,
+        ),
+      ]) {
+        final put = await http.put(
+          file(fileId),
+          headers: auth(user.token, type),
+          body: body,
+        );
+        expect(put.statusCode, status, reason: reason);
+      }
+      expect(
+        (await http.get(file(fileId), headers: auth(user.token))).statusCode,
+        404,
+      );
+      final pngPut = await http.put(
+        file(fileId),
+        headers: auth(user.token, 'image/png'),
+        body: png,
+      );
+      expect(pngPut.statusCode, 204);
+    });
+
+    test(
+      'reject ids that are not UUIDs, so no path leaves the photo directory',
+      () async {
+        final user = await signUp();
+        for (final id in [
+          '..%2F..%2Fetc%2Fpasswd',
+          '..%2F${user.id}',
+          '%2E%2E',
+          'ABCDEF00-0000-4000-8000-000000000000',
+          '${await newId()}.jpg',
+        ]) {
+          final url = Uri.parse('http://localhost:8000/photos/$id');
+          final get = await http.get(url, headers: auth(user.token));
+          final put = await http.put(
+            url,
+            headers: auth(user.token),
+            body: jpeg,
+          );
+          final delete = await http.delete(url, headers: auth(user.token));
+          expect(
+            [get.statusCode, put.statusCode, delete.statusCode],
+            everyElement(anyOf(400, 404)),
+            reason: id,
+          );
+        }
+        // A Photo row's file id must be a UUID too.
+        final row = await upload(user.token, [
+          putPhoto(await newId(), await addUnit(user), '../../etc/passwd'),
+        ]);
+        expect(row.statusCode, 422, reason: row.body);
+      },
+    );
+
+    test('a file shared by two Photos survives deleting one, and is deleted with the last', () async {
+      final user = await signUp();
+      final unitId = await addUnit(user);
+      final splitId = await addUnit(user);
+      final fileId = await addPhoto(user, unitId);
+      // A Split copies the Photo: a second row pointing at the same file.
+      final copyId = await newId();
+      expect(
+        (await upload(user.token, [
+          putPhoto(copyId, splitId, fileId),
+        ])).statusCode,
+        204,
+      );
+      Future<int> download() async =>
+          (await http.get(file(fileId), headers: auth(user.token))).statusCode;
+
+      final original =
+          (await db.execute(
+                r'SELECT id::text FROM photos WHERE unit_id = $1::uuid',
+                parameters: [unitId],
+              )).single.single
+              as String;
+      expect(
+        (await upload(user.token, [
+          {'op': 'DELETE', 'type': 'photos', 'id': original},
+        ])).statusCode,
+        204,
+      );
+      expect(await download(), 200);
+      expect(
+        (await http.delete(file(fileId), headers: auth(user.token))).statusCode,
+        409,
+        reason: 'a Photo still points at the file',
+      );
+
+      // As the app deletes a Unit: its Photos, then the Unit.
+      expect(
+        (await upload(user.token, [
+          {'op': 'DELETE', 'type': 'photos', 'id': copyId},
+          {'op': 'DELETE', 'type': 'units', 'id': splitId},
+        ])).statusCode,
+        204,
+      );
+      expect(await download(), 404);
+    });
+
+    test(
+      'are deleted with their Unit, even if only the Unit delete arrives',
+      () async {
+        final user = await signUp();
+        final unitId = await addUnit(user);
+        final fileId = await addPhoto(user, unitId);
+        expect(
+          (await upload(user.token, [
+            {'op': 'DELETE', 'type': 'units', 'id': unitId},
+          ])).statusCode,
+          204,
+        );
+        expect(
+          (await http.get(file(fileId), headers: auth(user.token))).statusCode,
+          404,
+        );
+      },
+    );
+
+    test('are at most ten per Unit, and never edited', () async {
+      final user = await signUp();
+      final unitId = await addUnit(user);
+      final ops = [
+        for (var i = 0; i < 10; i++)
+          putPhoto(await newId(), unitId, await newId()),
+      ];
+      expect((await upload(user.token, ops)).statusCode, 204);
+
+      final eleventh = await upload(user.token, [
+        putPhoto(await newId(), unitId, await newId()),
+      ]);
+      expect(eleventh.statusCode, 422, reason: eleventh.body);
+      final edit = await upload(user.token, [
+        {
+          'op': 'PATCH',
+          'type': 'photos',
+          'id': ops.first['id'],
+          'data': {'file_id': await newId()},
+        },
+      ]);
+      expect(edit.statusCode, 422, reason: edit.body);
+      final count = await db.execute(
+        r'SELECT count(*) FROM photos WHERE unit_id = $1::uuid',
+        parameters: [unitId],
+      );
+      expect(count.single.single, 10);
+    });
   });
 }

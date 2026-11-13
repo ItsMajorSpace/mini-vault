@@ -14,3 +14,4 @@ streams:
       - SELECT * FROM units WHERE owner_id = auth.user_id()
       - SELECT * FROM stage_changes WHERE owner_id = auth.user_id()
       - SELECT * FROM unit_tags WHERE owner_id = auth.user_id()
+      - SELECT * FROM photos WHERE owner_id = auth.user_id()
