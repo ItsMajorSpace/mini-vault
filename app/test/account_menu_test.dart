@@ -233,4 +233,26 @@ void main() {
     expect(find.text('All changes synced'), findsOneWidget);
     expect(find.text('Sync now'), findsNothing);
   });
+
+  testWidgets('Sync now also shows on a Collection\'s own screen', (
+    tester,
+  ) async {
+    final db = await openDb(tester, waiting: 0);
+    await tester.runAsync(
+      () => db.execute(
+        "INSERT INTO collections (id, name, workflow_id) VALUES ('c', 'Crimson Fists', 'w')",
+      ),
+    );
+    var syncs = 0;
+    await pumpCollections(tester, db, onSyncNow: () async => syncs++);
+    // ignore: invalid_use_of_protected_member, deprecated_member_use, no server to connect to here.
+    db.setStatus(db.currentStatus.copyWith(connected: true));
+    await tester.tap(find.text('Crimson Fists'));
+    await settle(tester);
+
+    expect(find.text('Sync now'), findsOneWidget);
+    await tester.tap(find.text('Sync now'));
+    await tester.pump();
+    expect(syncs, 1);
+  });
 }

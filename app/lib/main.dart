@@ -430,6 +430,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                           db: widget.db,
                           photos: widget.photos,
                           collection: c,
+                          onSyncNow: widget.onSyncNow,
                         ),
                       ),
                     ),
@@ -486,6 +487,7 @@ class CollectionScreen extends StatefulWidget {
     required this.db,
     this.photos,
     required this.collection,
+    this.onSyncNow,
   });
 
   final Vault vault;
@@ -494,6 +496,7 @@ class CollectionScreen extends StatefulWidget {
   final PowerSyncDatabase db;
   final PhotoFiles? photos;
   final Collection collection;
+  final Future<void> Function()? onSyncNow;
 
   @override
   State<CollectionScreen> createState() => _CollectionScreenState();
@@ -536,7 +539,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
             title: Text(widget.collection.name),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(32),
-              child: SyncStatusBar(db: widget.db),
+              child: SyncStatusBar(db: widget.db, onSyncNow: widget.onSyncNow),
             ),
           ),
           body: switch (snapshot) {
