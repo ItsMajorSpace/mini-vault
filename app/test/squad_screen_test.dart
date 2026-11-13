@@ -227,4 +227,103 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('⌄ and ⌃ move one model; long-press moves a chosen batch', (
+    tester,
+  ) async {
+    final (vault, collection) = (await tester.runAsync(() async {
+      final dir = await Directory.systemTemp.createTemp('app_test');
+      final db = PowerSyncDatabase(
+        schema: SqliteVaultStore.schema,
+        path: '${dir.path}/vault.db',
+      );
+      await db.execute(
+        "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's1', 's1')",
+      );
+      for (final (i, name) in ['Wishlist', 'Unassembled', 'Primed'].indexed) {
+        await db.execute(
+          'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
+          ['s$i', 'w', name, i],
+        );
+      }
+      final vault = Vault(SqliteVaultStore(db));
+      final collection = await vault.createCollection('Space Marines');
+      await vault.addUnit(
+        collection,
+        name: 'Intercessors',
+        modelCount: 3,
+        stageId: 's0',
+      );
+      return (vault, collection);
+    }))!;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SquadScreen(
+          vault: vault,
+          collection: collection,
+          name: 'Intercessors',
+        ),
+      ),
+    );
+    await settle(tester);
+
+    List<String?> counts() => [
+      for (final t in tester.widgetList<Text>(find.byType(Text)))
+        if (RegExp(r'^\d+ models?$').hasMatch(t.data ?? '')) t.data,
+    ];
+    Finder button(String from, String to) => find.ancestor(
+      of: find.byWidgetPredicate(
+        (w) => w is Icon && w.semanticLabel == 'Move 1 model from $from to $to',
+      ),
+      matching: find.byType(IconButton),
+    );
+    bool enabled(String from, String to) =>
+        tester.widget<IconButton>(button(from, to)).onPressed != null;
+
+    expect(counts(), ['3 models', '0 models', '0 models']);
+    expect(enabled('Wishlist', 'Unassembled'), isTrue);
+    expect(enabled('Unassembled', 'Wishlist'), isFalse);
+    expect(enabled('Unassembled', 'Primed'), isFalse);
+    expect(enabled('Primed', 'Unassembled'), isFalse);
+
+    await tapAndWait(tester, button('Wishlist', 'Unassembled'));
+    expect(counts(), ['2 models', '1 model', '0 models']);
+    expect(enabled('Unassembled', 'Wishlist'), isTrue);
+    expect(enabled('Unassembled', 'Primed'), isTrue);
+
+    await tapAndWait(tester, button('Unassembled', 'Wishlist'));
+    expect(counts(), ['3 models', '0 models', '0 models']);
+
+    // Long-press: prefilled with every model at the source, refusing more than that.
+    // Held in real time outside the fake-async zone: the move the dialog ends in writes to SQLite.
+    await tester.runAsync(() async {
+      final press = await tester.startGesture(
+        tester.getCenter(button('Wishlist', 'Unassembled')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await press.up();
+    });
+    await settle(tester);
+    expect(find.text('Move how many?'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '3',
+    );
+    await tester.enterText(find.byType(TextField), '4');
+    await tester.tap(find.text('Move'));
+    await tester.pump();
+    expect(find.text('From 1 to 3'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '2');
+    await tapAndWait(tester, find.text('Move'));
+    expect(find.text('Move how many?'), findsNothing);
+    expect(counts(), ['1 model', '2 models', '0 models']);
+
+    // Disabled buttons ignore long-press too.
+    await tester.longPress(button('Primed', 'Unassembled'));
+    await tester.pumpAndSettle();
+    expect(find.text('Move how many?'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+  });
 }
