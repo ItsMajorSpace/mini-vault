@@ -1910,6 +1910,43 @@ void main() {
         unorderedEquals([(oldest.id, 's2', 5), (younger.id, 's1', 2)]),
       );
     });
+
+    test('an Army List import adds Units at one Stage with the Tag, Merging same-name entries and Units there', () async {
+      final there = await add(3, 's2');
+      final other = await add(4, 's1');
+
+      await vault.importArmyList(collection, 's2', [
+        (name: 'Intercessors', count: 5),
+        (name: 'Captain', count: 1),
+        (name: 'Captain', count: 1),
+      ], tag: 'Ultramarines');
+
+      final units = await vault.unitsOf(collection);
+      expect(
+        [for (final u in units) (u.name, u.stageId, u.modelCount)],
+        unorderedEquals([
+          ('Intercessors', 's2', 8),
+          ('Intercessors', 's1', 4),
+          ('Captain', 's2', 2),
+        ]),
+      );
+      expect(await history(there.id), contains('null -> s2 (5)'));
+      expect(await vault.tagsOf(there.id), ['Ultramarines']);
+      expect(await vault.tagsOf(other.id), isEmpty);
+      final captain = units.firstWhere((u) => u.name == 'Captain');
+      expect(await vault.tagsOf(captain.id), ['Ultramarines']);
+    });
+
+    test('an Army List import with a bad entry adds nothing', () async {
+      await expectLater(
+        vault.importArmyList(collection, 's2', [
+          (name: 'Captain', count: 1),
+          (name: ' ', count: 1),
+        ]),
+        throwsArgumentError,
+      );
+      expect(await vault.unitsOf(collection), isEmpty);
+    });
   });
 
   group('Recently moved Squads', () {

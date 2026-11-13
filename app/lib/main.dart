@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:powersync/powersync.dart' hide Column;
 
 import 'account.dart';
+import 'army_list.dart';
 import 'photos.dart';
 import 'progress.dart';
 import 'squad.dart';
@@ -293,6 +294,16 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
       appBar: AppBar(
         title: const Text('Collections'),
         actions: [
+          IconButton(
+            tooltip: 'Import army list',
+            icon: const Icon(Icons.playlist_add),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => ArmyListScreen(vault: widget.vault),
+              ),
+            ),
+          ),
           SyncIcon(db: widget.db, onSyncNow: widget.onSyncNow),
           PopupMenuButton<VoidCallback>(
             tooltip: 'Account',
@@ -633,6 +644,18 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     value: () =>
                         switchWorkflow(context, widget.vault, _collection),
                     child: const Text('Switch Workflow'),
+                  ),
+                  PopupMenuItem(
+                    value: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => ArmyListScreen(
+                          vault: widget.vault,
+                          collection: _collection,
+                        ),
+                      ),
+                    ),
+                    child: const Text('Import army list'),
                   ),
                   const PopupMenuDivider(),
                   PopupMenuItem(
