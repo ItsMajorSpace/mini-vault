@@ -169,6 +169,38 @@ Stormraven Gunship (300 Points)
 Exported with App Version: v2.8.1 (1), Data Version: v995
 ''';
 
+// A real Army Forge export: the newer `[N Units]` header, two joined heroes.
+const knightBrothers = r'''
+++ Knight Brothers (v3.6.0) [GF 3000pts] [7 Units] ++
+
+Crowe [1] Q3+ D3+ | 130pts | Hero, Tough(3), Fearless, Versatile Expert, Knightborn, Ravage(3), Bane in Melee Aura
+Flamer Pistol (6", A1, Reliable, Anti-Cover, Assault), Energy Sword (A3, Rending)
+| Joined to:
+Purifiers [10] Q3+ D3+ | 330pts | 10x Knightborn, 10x Fearless, 10x Ravage(1)
+10x Assault Cyclic Rifle (9", A1, Anti-Cover, Assault, Surge), 10x Hand Weapon (A1)
+
+Interceptors [5] Q3+ D3+ | 195pts | 5x Knightborn, 5x Fearless, 5x Teleport, Caster(1), Versatile Reach Aura
+5x Assault Cyclic Rifle (9", A1, Anti-Cover, Assault, Surge), 5x Energy Sword (A1, Rending)
+
+Purifiers [10] Q3+ D3+ | 350pts | 10x Knightborn, 10x Fearless, 10x Ravage(1)
+10x Assault Cyclic Rifle (9", A1, Anti-Cover, Assault, Surge), 10x Energy Sword (A1, Rending)
+
+Interceptors [5] Q3+ D3+ | 180pts | 5x Knightborn, 5x Fearless, 5x Teleport, Versatile Reach Aura
+5x Assault Cyclic Rifle (9", A1, Anti-Cover, Assault, Surge), 5x Energy Sword (A1, Rending)
+
+Voldus [1] Q3+ D3+ | 275pts | Hero, Tough(6), Fearless, Knightborn, Bane in Melee Aura, Ravage(6), Ambush
+Burst Cyclic Rifle (18", A6, Anti-Cover, Surge), Slayer Hammer (A6, Shred)
+| Joined to:
+Knight Destroyers [3] Q3+ D3+ | 405pts | Tough(3), 3x Knightborn, 3x Fearless, 3x Ravage(2), 3x Ambush, Caster(1), Regeneration Aura
+3x Assault Cyclic Rifle (9", A1, Anti-Cover, Assault, Surge), 3x Slayer Hammer (A3, Shred)
+
+Knight APC [1] Q3+ D3+ | 195pts | Fast, Fearless, Tough(6), Transport(11), Knightborn
+Burst Cyclic Rifle (18", A3, Anti-Cover, Surge), Overrun (A2, Thrust)
+
+Knight Nemesis Walker [1] Q3+ D2+ | 940pts | Ambush, Caster(2), Fear(3), Tough(18), Knightborn, Fearless, Teleport
+Stomp (A6, AP(2)), Assault Slayer Volley-Gun (15", A6, Anti-Cover, Assault, Surge), 2x Walker Slayer Hammer (A3, Shred), Assault Slayer Fusion-Beamer Cannon (9", A2, AP(4), Deadly(3), Assault)
+''';
+
 void main() {
   test('Warhammer 40k app, layout A: wargear under ◦, mixed model types summed, characters and vehicles 1', () {
     final list = parseArmyList(layoutA)!;
@@ -243,6 +275,23 @@ void main() {
     expect(list.gameSystem, 'XYZ');
     expect(list.faction, 'Orc Marauders');
     expect(list.entries, [(name: 'Boyz', count: 20)]);
+  });
+
+  test('Army Forge v3.6.0: [N Units] header, joined heroes separate', () {
+    final list = parseArmyList(knightBrothers)!;
+    expect(list.gameSystem, 'Grimdark Future');
+    expect(list.faction, 'Knight Brothers');
+    expect(list.entries, [
+      (name: 'Crowe', count: 1),
+      (name: 'Purifiers', count: 10),
+      (name: 'Interceptors', count: 5),
+      (name: 'Purifiers', count: 10),
+      (name: 'Interceptors', count: 5),
+      (name: 'Voldus', count: 1),
+      (name: 'Knight Destroyers', count: 3),
+      (name: 'Knight APC', count: 1),
+      (name: 'Knight Nemesis Walker', count: 1),
+    ]);
   });
 
   test('unrecognised text gives no list', () {
