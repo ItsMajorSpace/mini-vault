@@ -87,6 +87,20 @@ class SqliteVaultStore implements VaultStore {
       Column.text('squad_name'),
       Column.text('file_id'),
     ]),
+    // A Collection's Paint Schemes (ADR 0010); a Scheme Step's Paints are rows of scheme_step_paints, in position
+    // order. technique and note are '' when none.
+    Table('paint_schemes', [Column.text('collection_id'), Column.text('name')]),
+    Table('scheme_steps', [
+      Column.text('scheme_id'),
+      Column.integer('position'),
+      Column.text('technique'),
+      Column.text('note'),
+    ]),
+    Table('scheme_step_paints', [
+      Column.text('step_id'),
+      Column.text('paint_id'),
+      Column.integer('position'),
+    ]),
   ]);
 
   // Stage order is (position, id): concurrent reorders on two devices can merge into equal positions, and the id
@@ -195,14 +209,16 @@ class SqliteVaultStore implements VaultStore {
   Future<void> reorderStages(List<String> order) =>
       _db.writeTransaction((tx) => _writeOrder(tx, order));
 
-  /// Renumbers the Stages 0, 1, 2... in [order], writing (and so uploading) only the positions that change.
+  /// Renumbers the rows of [table] (Stages unless given) 0, 1, 2... in [order], writing (and so uploading) only the
+  /// positions that change.
   static Future<void> _writeOrder(
     SqliteWriteContext tx,
-    List<String> order,
-  ) async {
+    List<String> order, [
+    String table = 'stages',
+  ]) async {
     for (final (position, id) in order.indexed) {
       await tx.execute(
-        'UPDATE stages SET position = ? WHERE id = ? AND position IS NOT ?',
+        'UPDATE $table SET position = ? WHERE id = ? AND position IS NOT ?',
         [position, id, position],
       );
     }
@@ -319,6 +335,12 @@ class SqliteVaultStore implements VaultStore {
       'squad_photos',
     ]) {
       await tx.execute('DELETE FROM $table WHERE collection_id = ?', [id]);
+    }
+    for (final scheme in await tx.getAll(
+      'SELECT id FROM paint_schemes WHERE collection_id = ?',
+      [id],
+    )) {
+      await _deletePaintScheme(tx, scheme['id'] as String);
     }
     await tx.execute('DELETE FROM collections WHERE id = ?', [id]);
   });
@@ -690,8 +712,192 @@ class SqliteVaultStore implements VaultStore {
   @override
   Future<void> deletePaint(String id) => _db.writeTransaction((tx) async {
     await tx.execute('DELETE FROM squad_paints WHERE paint_id = ?', [id]);
+    await tx.execute('DELETE FROM scheme_step_paints WHERE paint_id = ?', [id]);
     await tx.execute('DELETE FROM paints WHERE id = ?', [id]);
   });
+
+  static Paint _toPaint(Map<String, Object?> p) => Paint(
+    id: p['id'] as String,
+    brand: p['brand'] as String,
+    range: p['range'] as String,
+    name: p['name'] as String,
+    owned: p['owned'] == 1,
+  );
+
+  @override
+  Stream<List<PaintScheme>> watchPaintSchemes(String collectionId) => _db
+      .watch(
+        'SELECT s.*, (SELECT count(*) FROM scheme_steps WHERE scheme_id = s.id) AS steps FROM paint_schemes s '
+        'WHERE s.collection_id = ? ORDER BY s.name COLLATE NOCASE, s.id',
+        parameters: [collectionId],
+      )
+      .map(
+        (rows) => [
+          for (final r in rows)
+            PaintScheme(
+              id: r['id'] as String,
+              collectionId: r['collection_id'] as String,
+              name: r['name'] as String,
+              stepCount: r['steps'] as int,
+            ),
+        ],
+      );
+
+  @override
+  Future<void> insertPaintScheme(PaintScheme scheme) => _db.execute(
+    'INSERT INTO paint_schemes (id, collection_id, name) VALUES (?, ?, ?)',
+    [scheme.id, scheme.collectionId, scheme.name],
+  );
+
+  @override
+  Future<void> renamePaintScheme(String id, String name) =>
+      _db.execute('UPDATE paint_schemes SET name = ? WHERE id = ?', [name, id]);
+
+  @override
+  Future<void> deletePaintScheme(String id) =>
+      _db.writeTransaction((tx) => _deletePaintScheme(tx, id));
+
+  // Children first, as for a Collection. The server would cascade them anyway.
+  static Future<void> _deletePaintScheme(
+    SqliteWriteContext tx,
+    String id,
+  ) async {
+    await tx.execute(
+      'DELETE FROM scheme_step_paints WHERE step_id IN (SELECT id FROM scheme_steps WHERE scheme_id = ?)',
+      [id],
+    );
+    await tx.execute('DELETE FROM scheme_steps WHERE scheme_id = ?', [id]);
+    await tx.execute('DELETE FROM paint_schemes WHERE id = ?', [id]);
+  }
+
+  // Step order is (position, id), as for Stages: a reorder writes only the positions that change, the latest write
+  // per Step wins, and concurrent reorders on two devices can merge into a mix of both (or equal positions, e.g. two
+  // Steps appended offline). The id breaks ties the same way everywhere, so every device still shows one order and no
+  // Step is lost or doubled; the person drags again if the mix isn't what they want.
+  @override
+  Stream<List<SchemeStep>> watchSchemeSteps(String schemeId) => _db
+      .onChange(['scheme_steps', 'scheme_step_paints', 'paints'])
+      .asyncMap(
+        (_) => _db.readTransaction((tx) async {
+          final steps = await tx.getAll(
+            'SELECT * FROM scheme_steps WHERE scheme_id = ? ORDER BY position, id',
+            [schemeId],
+          );
+          final paints = await tx.getAll(
+            'SELECT l.step_id, p.* FROM scheme_step_paints l JOIN scheme_steps s ON s.id = l.step_id '
+            'JOIN paints p ON p.id = l.paint_id WHERE s.scheme_id = ? ORDER BY l.position, l.id',
+            [schemeId],
+          );
+          return [
+            for (final s in steps)
+              SchemeStep(
+                id: s['id'] as String,
+                schemeId: schemeId,
+                technique: s['technique'] as String? ?? '',
+                note: s['note'] as String? ?? '',
+                paints: [
+                  for (final p in paints)
+                    if (p['step_id'] == s['id']) _toPaint(p),
+                ],
+              ),
+          ];
+        }),
+      );
+
+  @override
+  Future<void> insertSchemeStep(SchemeStep step) =>
+      _db.writeTransaction((tx) async {
+        await tx.execute(
+          'INSERT INTO scheme_steps (id, scheme_id, position, technique, note) '
+          'SELECT ?, ?, coalesce(max(position) + 1, 0), ?, ? FROM scheme_steps WHERE scheme_id = ?',
+          [step.id, step.schemeId, step.technique, step.note, step.schemeId],
+        );
+        await _writeStepPaints(tx, step);
+      });
+
+  // One UPDATE per changed column, so a Technique edit and a note edit on two devices both stay.
+  @override
+  Future<void> updateSchemeStep(SchemeStep step) => _db.writeTransaction((
+    tx,
+  ) async {
+    for (final (column, value) in [
+      ('technique', step.technique),
+      ('note', step.note),
+    ]) {
+      await tx.execute(
+        'UPDATE scheme_steps SET $column = ? WHERE id = ? AND $column IS NOT ?',
+        [value, step.id, value],
+      );
+    }
+    await _writeStepPaints(tx, step);
+  });
+
+  /// Makes [step]'s Paint rows match [SchemeStep.paints]: removes the others, adds the missing ones (`uuid()` is
+  /// PowerSync's) and numbers them all in list order, writing only what changes.
+  static Future<void> _writeStepPaints(
+    SqliteWriteContext tx,
+    SchemeStep step,
+  ) async {
+    final wanted = [for (final p in step.paints) p.id];
+    final had = {
+      for (final r in await tx.getAll(
+        'SELECT id, paint_id FROM scheme_step_paints WHERE step_id = ?',
+        [step.id],
+      ))
+        r['paint_id'] as String: r['id'] as String,
+    };
+    for (final MapEntry(key: paintId, value: id) in had.entries) {
+      if (!wanted.contains(paintId)) {
+        await tx.execute('DELETE FROM scheme_step_paints WHERE id = ?', [id]);
+      }
+    }
+    for (final (position, paintId) in wanted.indexed) {
+      if (had[paintId] case final id?) {
+        await tx.execute(
+          'UPDATE scheme_step_paints SET position = ? WHERE id = ? AND position IS NOT ?',
+          [position, id, position],
+        );
+      } else {
+        await tx.execute(
+          'INSERT INTO scheme_step_paints (id, step_id, paint_id, position) VALUES (uuid(), ?, ?, ?)',
+          [step.id, paintId, position],
+        );
+      }
+    }
+  }
+
+  @override
+  Future<void> reorderSchemeSteps(List<String> order) =>
+      _db.writeTransaction((tx) => _writeOrder(tx, order, 'scheme_steps'));
+
+  @override
+  Future<void> deleteSchemeStep(String id) => _db.writeTransaction((tx) async {
+    await tx.execute('DELETE FROM scheme_step_paints WHERE step_id = ?', [id]);
+    await tx.execute('DELETE FROM scheme_steps WHERE id = ?', [id]);
+  });
+
+  @override
+  Future<List<String>> allTechniques() async => [
+    for (final r in await _db.getAll(
+      "SELECT DISTINCT technique FROM scheme_steps WHERE technique <> '' ORDER BY technique COLLATE NOCASE, technique",
+    ))
+      r['technique'] as String,
+  ];
+
+  @override
+  Stream<List<({String paintId, String schemeId})>> watchSchemePaints() => _db
+      .watch(
+        'SELECT DISTINCT l.paint_id, s.scheme_id FROM scheme_step_paints l JOIN scheme_steps s ON s.id = l.step_id',
+      )
+      .map(
+        (rows) => [
+          for (final r in rows)
+            (
+              paintId: r['paint_id'] as String,
+              schemeId: r['scheme_id'] as String,
+            ),
+        ],
+      );
 
   @override
   // Table `squad_paints` holds Unit Paints, keyed by Unit name in `squad_name` (ADR 0008).
