@@ -653,7 +653,8 @@ class Vault {
     return unit;
   }
 
-  /// Moves the whole Unit to [stageId], any Stage of its Collection's Workflow, forward or back.
+  /// Moves the whole Unit to [stageId], any Stage of its Collection's Workflow, forward or back, and Merges it into
+  /// the Unit already there with its name, if any (ADR 0004): that Unit survives, with this move in its history.
   /// Does nothing if it is already there.
   Future<void> moveUnit(Unit unit, String stageId) async {
     final collection = (await _store.collections()).firstWhere(
@@ -669,12 +670,86 @@ class Vault {
     }
     if (stageId == unit.stageId) return;
     await _store.insertStageChange(_stageChange(unit, unit.stageId, stageId));
+    await _mergeOnArrival(collection, _at(unit, stageId));
+  }
+
+  /// Merges [arrived], just moved to its Stage, into a Unit already there with its name; returns the Unit now
+  /// holding its models. Two uploads (move, then Merge): if the write API rejects the Merge, the move still stands.
+  Future<Unit> _mergeOnArrival(Collection collection, Unit arrived) async {
+    final there = mergeCandidates(arrived, await unitsOf(collection));
+    if (there.isEmpty) return arrived;
+    await mergeUnits(there.first, arrived);
+    return _at(
+      there.first,
+      there.first.stageId,
+      there.first.modelCount + arrived.modelCount,
+    );
+  }
+
+  static Unit _at(Unit u, String stageId, [int? modelCount]) => Unit(
+    id: u.id,
+    collectionId: u.collectionId,
+    stageId: stageId,
+    name: u.name,
+    modelCount: modelCount ?? u.modelCount,
+    notes: u.notes,
+  );
+
+  /// Moves [modelCount] models of the Squad [name] in [collection] from [fromStageId] to [toStageId], forward or
+  /// back, Merging them into the Squad's Unit there (see [moveUnit], [splitUnit]). When several of its Units are at
+  /// [fromStageId] (after concurrent moves on two devices), it takes from the oldest first: the one whose earliest
+  /// Stage Change is earliest, ties broken by id. Throws an [ArgumentError] unless [modelCount] is at least 1 and at
+  /// most what the Squad has at [fromStageId], or if the two Stages are the same.
+  Future<void> moveModels(
+    Collection collection,
+    String name,
+    String fromStageId,
+    String toStageId,
+    int modelCount,
+  ) async {
+    if (fromStageId == toStageId) {
+      throw ArgumentError.value(
+        toStageId,
+        'toStageId',
+        'is the Stage the models are at',
+      );
+    }
+    final at = [
+      for (final u in await unitsOf(collection))
+        if (u.name == name && u.stageId == fromStageId)
+          (u, (await _store.watchStageChanges(u.id).first).first.happenedAt),
+    ];
+    at.sort((a, b) {
+      final byAge = a.$2.compareTo(b.$2);
+      return byAge != 0 ? byAge : a.$1.id.compareTo(b.$1.id);
+    });
+    final total = at.fold(0, (n, e) => n + e.$1.modelCount);
+    if (modelCount < 1 || modelCount > total) {
+      throw ArgumentError.value(
+        modelCount,
+        'modelCount',
+        'must be at least 1 and at most the $total models at that Stage',
+      );
+    }
+    var left = modelCount;
+    for (final (unit, _) in at) {
+      if (left == 0) break;
+      if (left >= unit.modelCount) {
+        await moveUnit(unit, toStageId);
+        left -= unit.modelCount;
+      } else {
+        await splitUnit(unit, toStageId, left);
+        left = 0;
+      }
+    }
   }
 
   /// Splits [unit]: moves [modelCount] of its models, at least 1 and fewer than all (all is [moveUnit]), to another
   /// Stage of its Collection's Workflow. The new Unit holding them copies the name, notes, Tags and Photos, and its
   /// history starts with this move. The Split uploads as a delta (N models off [unit]), never as [unit]'s new count,
   /// so Splits made on other devices add up; the write API rejects one that would leave [unit] under 1 model.
+  /// If a Unit with its name is already at [stageId], the new Unit is then Merged into it (ADR 0004), and that Unit,
+  /// with its new count, is returned instead.
   Future<Unit> splitUnit(Unit unit, String stageId, int modelCount) async {
     if (modelCount < 1 || modelCount >= unit.modelCount) {
       throw ArgumentError.value(
@@ -714,7 +789,7 @@ class Vault {
           Photo(id: _newId(), unitId: created.id, fileId: p.fileId),
       ],
     );
-    return created;
+    return _mergeOnArrival(collection, created);
   }
 
   /// The Units [unit] may be Merged with: the others in [units] in its Collection, with its name, at its Stage.
@@ -727,7 +802,7 @@ class Vault {
         u,
   ];
 
-  /// Merges [other] into [unit], only ever by explicit choice. [unit] gets both counts, the union of their Tags,
+  /// Merges [other] into [unit]. [unit] gets both counts, the union of their Tags,
   /// [other]'s Photos up to [maxPhotos], and a copy of [other]'s Stage Changes in its history (Stage Changes are
   /// append-only, so they are copied, not moved); [other] is deleted. The write API adds [other]'s count as it is
   /// on the server, and rejects the Merge if either Unit is gone or they no longer share Collection, name and Stage.

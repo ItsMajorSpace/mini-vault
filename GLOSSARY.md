@@ -11,6 +11,10 @@ A named set of Units owned by one person, all progressing through the same Workf
 A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection. Not the same as a unit in game rules: one in-game unit may be several Units here while its models are at different Stages.
 _Avoid_: Batch, entry, kit, box
 
+**Squad**:
+All the Units in a Collection that share a name; its models are spread across Stages. Not a game-rules unit either: it is whatever a person chose to name alike.
+_Avoid_: Group, line, entry
+
 **Workflow**:
 An ordered, linear list of Stages, reusable across Collections; changing it changes it for every Collection that uses it.
 _Avoid_: Pipeline, process, status list
@@ -34,7 +38,7 @@ _Avoid_: Event, log entry, transition
 Moving only some of a Unit's models to another Stage, which creates a new Unit for those models.
 
 **Merge**:
-Combining two Units that share a Collection, name and Stage into one Unit, by explicit choice.
+Combining two Units that share a Collection, name and Stage into one Unit. Happens automatically when models are moved onto a Stage where such a Unit already exists; Units that already share a Stage are Merged only by explicit choice.
 
 **Tag**:
 A free-form label on a Unit, used for game system, faction or any other grouping. Mini Vault knows nothing about specific game systems; Tags are how a person expresses them.
