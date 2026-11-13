@@ -318,6 +318,23 @@ Future<bool> confirmDeleteUnit(
     ) ??
     false;
 
+/// Says what was just done, offering to [undo] it, itself a normal Vault operation.
+void showUndo(
+  BuildContext context,
+  String message,
+  Future<void> Function() undo,
+) => ScaffoldMessenger.of(context).showSnackBar(
+  SnackBar(
+    content: Text(message),
+    // A SnackBar with an action stays up until dismissed by default; an old Undo should not linger.
+    persist: false,
+    action: SnackBarAction(
+      label: 'Undo',
+      onPressed: () => attempt(context, undo),
+    ),
+  ),
+);
+
 /// The Move sheet for a Stage of the Squad [name] with models, [stages] being its Workflow's: how many to move and
 /// where, or recount them ([onRecount], null to disable), or open their details ([onDetails], null to disable).
 Future<void> showMoveSheet(
@@ -335,10 +352,16 @@ Future<void> showMoveSheet(
   builder: (_) => _MoveSheet(
     from: from,
     stages: stages,
-    onMove: (n, to) => attempt(
-      context,
-      () => vault.moveModels(collection, name, from.stage.id, to.id, n),
-    ),
+    onMove: (n, to) => attempt(context, () async {
+      await vault.moveModels(collection, name, from.stage.id, to.id, n);
+      if (context.mounted) {
+        showUndo(
+          context,
+          'Moved ${modelCountText(n)} to ${to.name}',
+          () => vault.moveModels(collection, name, to.id, from.stage.id, n),
+        );
+      }
+    }),
     onRecount: onRecount,
     onDetails: onDetails,
   ),
@@ -552,8 +575,21 @@ class _SquadPaintsState extends State<_SquadPaints> {
             trailing: IconButton(
               icon: const Icon(Icons.remove_circle_outline),
               tooltip: 'Remove Paint',
-              onPressed: () =>
-                  attempt(context, () => widget.vault.removeSquadPaint(l.id)),
+              onPressed: () => attempt(context, () async {
+                await widget.vault.removeSquadPaint(l.id);
+                if (mounted) {
+                  showUndo(
+                    context,
+                    'Removed ${l.paint.name}',
+                    () => widget.vault.addSquadPaint(
+                      l.collectionId,
+                      l.squad,
+                      l.paint.id,
+                      note: l.note,
+                    ),
+                  );
+                }
+              }),
             ),
           ),
       ],
