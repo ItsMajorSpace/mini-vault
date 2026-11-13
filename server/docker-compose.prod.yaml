@@ -1,0 +1,129 @@
+# Production stack on the bingoscape server (ADR 0005), installed as ~/mini-vault/docker-compose.yaml by
+# server/deploy/deploy.sh. docker-compose.yaml stays the dev/CI stack; keep the two in step.
+# Host ports, bound to 127.0.0.1 for nginx only (bingoscape has 3000 and 5432; see docs/deploy.md):
+#   GoTrue (auth)   9101  -> https://auth.minivault.bingoscape.org
+#   PowerSync       9102  -> https://sync.minivault.bingoscape.org
+#   Write API       9103  -> https://api.minivault.bingoscape.org
+# Postgres is not published on the host.
+name: mini-vault
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:18.7-alpine
+    restart: unless-stopped
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?}
+      POWERSYNC_DB_PASSWORD: ${POWERSYNC_DB_PASSWORD:?}
+    volumes:
+      - pg_data:/var/lib/postgresql
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  auth:
+    image: supabase/gotrue:v2.197.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: https://auth.minivault.bingoscape.org
+      GOTRUE_SITE_URL: https://auth.minivault.bingoscape.org
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${AUTH_DB_PASSWORD}@postgres:5432/postgres?sslmode=disable
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:?}
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY:-3600}
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      # shortcut: no SMTP yet, so accounts are confirmed without an email and password reset cannot send; #76 adds SMTP.
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-}
+      # GoTrue refuses to start with an empty port, even with no SMTP host.
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-}
+      GOTRUE_SMTP_SENDER_NAME: Mini Vault
+      GOTRUE_MAILER_TEMPLATES_RECOVERY: http://api:8000/email/recovery
+      GOTRUE_MAILER_SUBJECTS_RECOVERY: Your Mini Vault password reset code
+    ports:
+      - "127.0.0.1:9101:9999"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  # One-shot: creates the synced tables, the starter-Workflow trigger and the publication, then exits.
+  migrate:
+    image: ghcr.io/itsmajorspace/mini-vault-server:${IMAGE_TAG:?}
+    command: ["migrate"]
+    depends_on:
+      auth:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres?sslmode=disable
+    logging: *default-logging
+
+  api:
+    image: ghcr.io/itsmajorspace/mini-vault-server:${IMAGE_TAG:?}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
+      PHOTOS_DIR: /photos
+      PORT: 8000
+    volumes:
+      - photos:/photos
+    ports:
+      - "127.0.0.1:9103:8000"
+    logging: *default-logging
+
+  powersync:
+    image: journeyapps/powersync-service:1.28.3
+    restart: unless-stopped
+    command: ["start", "-r", "unified"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./powersync:/config:ro
+    environment:
+      POWERSYNC_CONFIG_PATH: /config/service.yaml
+      NODE_OPTIONS: --max-old-space-size=800
+      PS_DATA_SOURCE_URI: postgres://powersync_role:${POWERSYNC_DB_PASSWORD}@postgres:5432/postgres
+      PS_STORAGE_SOURCE_URI: postgres://powersync_role:${POWERSYNC_DB_PASSWORD}@postgres:5432/powersync_storage
+      PS_JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "127.0.0.1:9102:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/probes/liveness').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 2s
+      retries: 15
+    logging: *default-logging
+
+volumes:
+  pg_data:
+  photos:

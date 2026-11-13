@@ -137,6 +137,11 @@ void main() {
       row.toList(),
   ];
 
+  test('/health answers 200 while Postgres is up', () async {
+    final response = await http.get(_upload.resolve('/health'));
+    expect(response.statusCode, 200);
+  });
+
   test(
     'sign-up creates exactly one starter Workflow for the new account',
     () async {
