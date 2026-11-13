@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Flutter 3.50.0 ships Dart 3.14.0, matching the workspace's `sdk: ^3.14.0`.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.50.0
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: dart analyze
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: domain_core tests
+        working-directory: domain_core
+        run: dart test
+
+      - name: app widget tests
+        working-directory: app
+        run: flutter test
+
+      - name: Start server stack
+        working-directory: server
+        run: |
+          cp .env.example .env
+          # Throwaway secrets for this run only.
+          sed -i \
+            -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 16)/" \
+            -e "s/^AUTH_DB_PASSWORD=.*/AUTH_DB_PASSWORD=$(openssl rand -hex 16)/" \
+            -e "s/^POWERSYNC_DB_PASSWORD=.*/POWERSYNC_DB_PASSWORD=$(openssl rand -hex 16)/" \
+            -e "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" \
+            .env
+          docker compose up -d --build --wait
+
+      - name: server tests
+        working-directory: server
+        run: dart test
+
+      - name: Dump server stack logs
+        if: failure()
+        working-directory: server
+        run: docker compose logs
