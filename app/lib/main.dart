@@ -363,7 +363,9 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                         child: Text(
                           'Recently painted',
-                          style: Theme.of(context).textTheme.titleSmall,
+                          style: stencil(
+                            Theme.of(context).textTheme.titleSmall,
+                          ),
                         ),
                       ),
                       for (final r in squads)
@@ -408,7 +410,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                     child: Text(
                       g.gameSystem ?? 'Other',
-                      style: Theme.of(context).textTheme.titleSmall,
+                      style: stencil(Theme.of(context).textTheme.titleSmall),
                     ),
                   ),
                 for (final c in g.collections)
@@ -892,7 +894,7 @@ class _UnitScreenState extends State<UnitScreen> {
                 ListTile(
                   title: Text(
                     'History',
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: stencil(Theme.of(context).textTheme.titleMedium),
                   ),
                 ),
                 StreamBuilder(

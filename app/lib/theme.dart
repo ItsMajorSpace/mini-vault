@@ -8,6 +8,9 @@ const _amber = Color(0xFFFFA000);
 // Rust light enough for AA (>= 4.5:1) on gunmetal and the dialog steel.
 const _rust = Color(0xFFF4876A);
 
+/// [s] in the stencil font, for section headers built on body-sized styles.
+TextStyle? stencil(TextStyle? s) => s?.copyWith(fontFamily: stencilFont);
+
 /// A Stage colour, stored as `#RRGGBB`.
 Color stageColour(String hex) =>
     Color(0xFF000000 | int.parse(hex.substring(1), radix: 16));
@@ -47,8 +50,11 @@ final ThemeData grimdarkTheme = () {
   final base = ThemeData(
     colorScheme: scheme,
     scaffoldBackgroundColor: _gunmetal,
+    floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      backgroundColor: _amber,
+      foregroundColor: _gunmetal,
+    ),
   );
-  TextStyle? stencil(TextStyle? s) => s?.copyWith(fontFamily: stencilFont);
   final t = base.textTheme;
   return base.copyWith(
     textTheme: t.copyWith(
@@ -59,8 +65,6 @@ final ThemeData grimdarkTheme = () {
       headlineMedium: stencil(t.headlineMedium),
       headlineSmall: stencil(t.headlineSmall),
       titleLarge: stencil(t.titleLarge),
-      titleMedium: stencil(t.titleMedium),
-      titleSmall: stencil(t.titleSmall),
     ),
   );
 }();

@@ -25,8 +25,27 @@ void main() {
 
     final theme = Theme.of(tester.element(find.text('Delete')));
     expect(theme.brightness, Brightness.dark);
-    expect(theme.textTheme.headlineSmall!.fontFamily, stencilFont);
-    expect(theme.textTheme.bodyLarge!.fontFamily, isNot(stencilFont));
+    final t = theme.textTheme;
+    for (final s in [
+      t.displayLarge,
+      t.displayMedium,
+      t.displaySmall,
+      t.headlineLarge,
+      t.headlineMedium,
+      t.headlineSmall,
+      t.titleLarge,
+    ]) {
+      expect(s!.fontFamily, stencilFont);
+    }
+    for (final s in [
+      t.titleMedium,
+      t.titleSmall,
+      t.bodyLarge,
+      t.bodyMedium,
+      t.labelLarge,
+    ]) {
+      expect(s!.fontFamily, isNot(stencilFont));
+    }
     expect(
       tester
           .widget<RichText>(
@@ -52,6 +71,34 @@ void main() {
           .style!
           .color,
       theme.colorScheme.error,
+    );
+  });
+
+  testWidgets('FAB is solid amber with a gunmetal icon', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: grimdarkTheme,
+        home: Scaffold(
+          floatingActionButton: FloatingActionButton(
+            onPressed: () {},
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ),
+    );
+
+    final scheme = grimdarkTheme.colorScheme;
+    final material = tester.widget<Material>(
+      find.descendant(
+        of: find.byType(FloatingActionButton),
+        matching: find.byType(Material),
+      ),
+    );
+    expect(material.color, scheme.primary);
+    expect(scheme.primary, const Color(0xFFFFA000));
+    expect(
+      IconTheme.of(tester.element(find.byIcon(Icons.add))).color,
+      scheme.onPrimary,
     );
   });
 
