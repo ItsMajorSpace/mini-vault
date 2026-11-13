@@ -1,0 +1,393 @@
+<title>Mini Vault Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
+<style>
+:root { color-scheme: dark;
+  /* app/lib/theme.dart */
+  --gunmetal: #1C1F22;      /* surface, scaffold */
+  --amber: #FFA000;         /* primary */
+  --rust: #F4876A;          /* error / destructive */
+  --on-surface: #E4E6E8;
+  --on-surface-var: #B0B7BD;
+  --c-lowest: #16191B;
+  --c-low: #23272B;
+  --c: #2B3035;
+  --c-high: #31373C;
+  --c-highest: #3A4046;
+  --outline: #6B737A;
+  --outline-var: #3A4046;
+  --amber-tint: rgba(255,160,0,.14);
+  --scrim: rgba(0,0,0,.55);
+  /* page only */
+  --page: #0E1012;
+  --note-bg: #15181A;
+  --note-ink: #C9CED2;
+  /* sample Stage colours */
+  --s-wish: #9E9E9E; --s-unas: #A1887F; --s-asm: #90A4AE; --s-prim: #7986CB; --s-paint: #4FC3F7; --s-done: #81C784;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--on-surface); font: 14px/1.4 Roboto, system-ui, sans-serif; padding: 24px 16px 48px; }
+h1 { font: 28px 'Black Ops One', sans-serif; color: var(--amber); margin: 0 0 4px; letter-spacing: .5px; }
+.lede { color: var(--on-surface-var); max-width: 760px; margin: 0 0 24px; }
+.board { display: flex; flex-wrap: wrap; gap: 32px 28px; align-items: flex-start; }
+.col { width: 360px; max-width: 100%; }
+.cap { font: 13px 'Black Ops One', sans-serif; color: var(--on-surface-var); letter-spacing: 1px; margin: 0 0 8px; text-transform: uppercase; }
+.cap b { color: var(--amber); font-weight: 400; }
+
+/* phone */
+.phone { position: relative; width: 100%; height: 760px; background: var(--gunmetal); border: 1px solid #2E3338; border-radius: 22px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+.status { height: 24px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; font-size: 12px; color: var(--on-surface-var); }
+.appbar { height: 64px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 4px; }
+.appbar .t { flex: 1; font: 22px 'Black Ops One', sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+.appbar .t small { display: block; font: 12px Roboto, sans-serif; color: var(--on-surface-var); }
+.body { flex: 1; overflow: hidden; position: relative; }
+.ms { font-family: 'Material Symbols Outlined'; font-size: 24px; line-height: 1; font-weight: 400; font-style: normal; display: inline-block; -webkit-font-feature-settings: 'liga'; font-feature-settings: 'liga'; user-select: none; }
+.ib { width: 48px; height: 48px; flex: none; display: inline-grid; place-items: center; color: var(--on-surface-var); border-radius: 24px; }
+.ib.amber { color: var(--amber); }
+.ib.rust { color: var(--rust); }
+
+/* generic rows */
+.tile { min-height: 48px; display: flex; align-items: center; gap: 16px; padding: 8px 16px; }
+.tile .main { flex: 1; min-width: 0; }
+.tile .sub { color: var(--on-surface-var); font-size: 13px; }
+.tile .trail { color: var(--on-surface-var); font-size: 13px; white-space: nowrap; }
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.dim { opacity: .45; }
+.flathead { font: 14px 'Black Ops One', sans-serif; padding: 14px 16px; }
+
+/* chips */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--outline); border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--on-surface-var); white-space: nowrap; }
+.chip .ms { font-size: 18px; }
+.chip.sel { background: var(--amber-tint); border-color: var(--amber); color: var(--on-surface); }
+.chip.tonal { background: var(--c-high); border-color: transparent; color: var(--on-surface); }
+.chip.paint { height: 28px; padding: 0 10px 0 6px; border-radius: 14px; background: var(--c-high); border-color: transparent; color: var(--on-surface); font-weight: 400; font-size: 13px; }
+.chip.paint .ms { font-size: 16px; color: var(--amber); }
+.chip.wanted { border: 1px dashed var(--outline); background: transparent; }
+
+/* ===== Section(title, actions, child) ===== */
+.section { margin: 0 16px 20px; }
+.sh { display: flex; align-items: center; min-height: 48px; margin-right: -12px; }
+.sh .bar { width: 4px; height: 18px; background: var(--amber); border-radius: 2px; margin-right: 10px; }
+.sh .st { font: 15px 'Black Ops One', sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--on-surface); }
+.sh .count { margin-left: 8px; color: var(--on-surface-var); font-size: 13px; }
+.sh .sp { flex: 1; }
+.card { background: var(--c-low); border-radius: 12px; overflow: hidden; }
+.card .tile + .tile { border-top: 1px solid var(--outline-var); }
+.card .tile { padding-left: 16px; padding-right: 16px; }
+.empty-hint { color: var(--on-surface-var); padding: 14px 16px; font-style: italic; }
+
+/* photos */
+.strip { display: flex; gap: 8px; padding: 12px; overflow: hidden; }
+.ph { width: 96px; height: 96px; flex: none; border-radius: 8px; }
+.ph.a { background: linear-gradient(135deg,#2a4a8a 0%,#1d2f5c 55%,#c9a54a 56%,#1d2f5c 62%); }
+.ph.b { background: radial-gradient(circle at 40% 35%,#3d63b0 0 28%,#1b2a4d 30%), #222; }
+.ph.c { background: linear-gradient(160deg,#5a5f66,#2b2f33 60%,#6d6248); }
+.ph.sm { width: 48px; height: 48px; border-radius: 6px; }
+
+/* stage bar */
+.sbar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--c-highest); margin-top: 6px; }
+.sbar i { display: block; height: 100%; }
+
+/* collection */
+.desc { margin: 0 16px 8px; padding: 10px 12px; border-radius: 8px; color: var(--on-surface-var); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; position: relative; }
+.desc-wrap { display: flex; align-items: flex-start; }
+.schemes { display: flex; gap: 8px; overflow: hidden; }
+.scheme { flex: none; height: 56px; min-width: 112px; padding: 0 14px; background: var(--c-low); border-radius: 12px; display: flex; flex-direction: column; justify-content: center; border-left: 3px solid var(--amber); }
+.scheme b { font: 15px 'Black Ops One', sans-serif; font-weight: 400; }
+.scheme span { color: var(--on-surface-var); font-size: 12px; }
+.scheme.add { border: 1px dashed var(--outline); color: var(--amber); flex-direction: row; align-items: center; gap: 6px; min-width: 0; font-weight: 500; }
+.urow { display: flex; align-items: center; min-height: 72px; border-bottom: 1px solid var(--outline-var); }
+.thumb { width: 56px; height: 56px; flex: none; display: grid; place-items: center; border-radius: 10px; margin: 0 4px 0 -4px; }
+.thumb .ph { width: 48px; height: 48px; box-shadow: 0 0 0 1px var(--outline); }
+.thumb .add { width: 48px; height: 48px; border-radius: 6px; border: 1.5px dashed var(--outline); display: grid; place-items: center; color: var(--on-surface-var); background: var(--c-lowest); }
+.thumb .add .ms { font-size: 22px; }
+.urow .rest { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 12px 0 12px 8px; align-self: stretch; }
+.urow .name { font-size: 16px; }
+.progress { flex: none; height: 44px; background: var(--c); display: flex; align-items: center; gap: 10px; padding: 0 16px; font-size: 13px; color: var(--on-surface-var); border-top: 1px solid var(--outline-var); }
+.progress .ms { margin-left: auto; }
+.nav { height: 80px; flex: none; background: var(--c-low); display: flex; }
+.nav div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--on-surface-var); }
+.nav .pill { width: 64px; height: 32px; border-radius: 16px; display: grid; place-items: center; }
+.nav .on .pill { background: var(--amber-tint); color: var(--amber); }
+.nav .on { color: var(--on-surface); }
+.fab { position: absolute; right: 16px; width: 56px; height: 56px; border-radius: 16px; background: var(--amber); color: var(--gunmetal); display: grid; place-items: center; box-shadow: 0 4px 10px rgba(0,0,0,.45); }
+.efab { position: absolute; right: 16px; bottom: 16px; height: 56px; border-radius: 16px; background: var(--amber); color: var(--gunmetal); display: flex; align-items: center; gap: 10px; padding: 0 20px 0 16px; font-weight: 500; box-shadow: 0 4px 10px rgba(0,0,0,.45); }
+
+/* scheme steps */
+.step { display: flex; gap: 12px; background: var(--c-low); border-radius: 12px; padding: 12px 0 12px 12px; margin-bottom: 8px; }
+.num { width: 32px; height: 32px; flex: none; border-radius: 50%; border: 2px solid var(--amber); color: var(--amber); display: grid; place-items: center; font: 15px 'Black Ops One', sans-serif; }
+.step .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.tech { font-weight: 500; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.tech.none { color: var(--on-surface-var); font-weight: 400; font-style: italic; }
+.mix { font-size: 11px; font-weight: 700; letter-spacing: .8px; color: var(--gunmetal); background: var(--on-surface-var); border-radius: 4px; padding: 1px 5px; }
+.snote { color: var(--on-surface-var); font-size: 13px; }
+.handle { width: 48px; flex: none; display: grid; place-items: center; color: var(--outline); align-self: center; }
+.step.lift { background: var(--c-high); box-shadow: 0 8px 18px rgba(0,0,0,.55); transform: rotate(-.6deg); }
+
+/* sheet */
+.scrim { position: absolute; inset: 0; background: var(--scrim); }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 96px; background: var(--c-low); border-radius: 28px 28px 0 0; display: flex; flex-direction: column; }
+.grab { width: 32px; height: 4px; border-radius: 2px; background: var(--outline); margin: 14px auto 6px; }
+.sheet h3 { font: 20px 'Black Ops One', sans-serif; font-weight: 400; margin: 6px 24px 4px; }
+.sheet .scroll { flex: 1; overflow: hidden; padding: 0 24px; }
+.lbl { font-size: 12px; font-weight: 500; letter-spacing: .6px; color: var(--on-surface-var); text-transform: uppercase; margin: 16px 0 8px; display: flex; justify-content: space-between; }
+.lbl em { font-style: normal; text-transform: none; letter-spacing: 0; color: var(--outline); font-weight: 400; }
+.field { border: 1px solid var(--outline); border-radius: 4px; padding: 0 12px; min-height: 56px; display: flex; align-items: center; gap: 8px; position: relative; font-size: 16px; }
+.field.focus { border: 2px solid var(--amber); }
+.field .fl { position: absolute; top: -9px; left: 10px; background: var(--c-low); padding: 0 4px; font-size: 12px; color: var(--amber); }
+.field.tall { align-items: flex-start; padding-top: 16px; min-height: 80px; }
+.caret { width: 2px; height: 20px; background: var(--amber); }
+.sel-paint { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px 0 4px 12px; background: var(--c); border-radius: 8px; margin-bottom: 6px; }
+.sel-paint .main { flex: 1; min-width: 0; }
+.sel-paint .sub { font-size: 12px; color: var(--on-surface-var); }
+.btns { display: flex; align-items: center; gap: 8px; padding: 12px 16px 16px 8px; border-top: 1px solid var(--outline-var); }
+.tbtn { height: 40px; padding: 0 12px; display: inline-flex; align-items: center; font-weight: 500; color: var(--amber); border-radius: 20px; }
+.tbtn.rust { color: var(--rust); }
+.fbtn { height: 40px; padding: 0 24px; display: inline-flex; align-items: center; font-weight: 500; background: var(--amber); color: var(--gunmetal); border-radius: 20px; }
+
+/* annotations */
+.notes { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.notes li { background: var(--note-bg); border-left: 3px solid var(--amber); border-radius: 4px; padding: 8px 10px; font-size: 13px; color: var(--note-ink); }
+.notes li.bad { border-left-color: var(--rust); }
+.notes code { font: 12px ui-monospace, Menlo, monospace; color: var(--amber); }
+.widget { margin-top: 40px; max-width: 760px; background: var(--note-bg); border-radius: 12px; padding: 16px 18px; }
+.widget h2 { font: 18px 'Black Ops One', sans-serif; font-weight: 400; color: var(--amber); margin: 0 0 8px; }
+.widget pre { overflow-x: auto; font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--note-ink); margin: 8px 0 0; white-space: pre; }
+@media (max-width: 400px) { body { padding: 16px 16px 40px; } .phone { height: 720px; } }
+</style>
+<h1>Mini Vault Mockups</h1>
+<p class="lede">Unit screen sections (#124), Collection description, Paint Schemes and thumbnail taps (#121, #123, #125), and the Paint Scheme screens. Grimdark theme from <code>theme.dart</code>: gunmetal scaffold, steel containers, amber accent, rust for destructive actions, Black Ops One for headings only. All frames 360dp wide.</p>
+
+<div class="board">
+
+<!-- ================= 1. UNIT BEFORE ================= -->
+<div class="col">
+<p class="cap">1 · Unit screen <b>before</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Intercessors</span><span class="ib"><span class="ms">edit</span></span><span class="ib"><span class="ms">delete_outline</span></span></div>
+  <div class="body">
+    <div class="tile dim"><span class="dot" style="background:var(--s-wish)"></span><span class="main">Wishlist</span><span class="trail">0 models</span></div>
+    <div class="tile dim"><span class="dot" style="background:var(--s-unas)"></span><span class="main">Unassembled</span><span class="trail">0 models</span></div>
+    <div class="tile"><span class="dot" style="background:var(--s-asm)"></span><span class="main">Assembled</span><span class="trail">3 models</span></div>
+    <div class="tile"><span class="dot" style="background:var(--s-prim)"></span><span class="main">Primed</span><span class="trail">5 models</span></div>
+    <div class="tile"><span class="dot" style="background:var(--s-paint)"></span><span class="main">Painted</span><span class="trail">2 models</span></div>
+    <div class="strip" style="padding:8px 12px"><div class="ph a"></div><div class="ph b"></div><span class="ib"><span class="ms">photo_camera</span></span><span class="ib"><span class="ms">photo_library</span></span></div>
+    <div class="chips" style="padding:0 16px"><span class="chip">Ultramarines</span><span class="chip">Troops</span></div>
+    <div class="tile"><span class="ms" style="color:var(--on-surface-var)">notes</span><span class="main">Sgt. has the power sword arm. Magnetised backpacks.</span></div>
+    <div class="flathead" style="display:flex;align-items:center">Paints<span style="flex:1"></span><span class="ms" style="color:var(--on-surface-var);margin-right:20px">content_copy</span><span class="ms" style="color:var(--on-surface-var)">add_circle_outline</span></div>
+    <div class="tile"><div class="main">Macragge Blue<div class="sub">Citadel / Base · armour base</div></div><span class="ms" style="color:var(--on-surface-var)">remove_circle_outline</span></div>
+    <div class="tile"><div class="main">Nuln Oil<div class="sub">Citadel / Shade</div></div><span class="ms" style="color:var(--on-surface-var)">remove_circle_outline</span></div>
+    <div class="flathead">History</div>
+    <div class="tile"><div class="main">2 models Primed → Painted<div class="sub">Nov 9</div></div></div>
+  </div>
+  <div class="fab" style="bottom:16px"><span class="ms">add</span></div>
+</div>
+<ul class="notes">
+  <li class="bad">Everything is a <code>ListTile</code> on the same gunmetal: Stage rows, photos, Tags, notes and Paint rows run together with no start or end.</li>
+  <li class="bad">Tags sit mid-page; only Paints and History have headers, Models, Photos and Notes have none.</li>
+</ul>
+</div>
+
+<!-- ================= 2. UNIT AFTER ================= -->
+<div class="col">
+<p class="cap">2 · Unit screen <b>after</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Intercessors<small>Ultramarines · 10 models</small></span><span class="ib"><span class="ms">edit</span></span><span class="ib"><span class="ms">delete_outline</span></span></div>
+  <div class="body">
+    <div class="chips" style="padding:0 16px 8px"><span class="chip tonal"><span class="ms">sell</span>Ultramarines</span><span class="chip tonal">2nd Company</span><span class="chip tonal">Troops</span></div>
+
+    <div class="section">
+      <div class="sh"><span class="bar"></span><span class="st">Models</span><span class="count">10</span><span class="sp"></span></div>
+      <div class="card">
+        <div class="tile dim"><span class="dot" style="background:var(--s-wish)"></span><span class="main">Wishlist</span><span class="trail">0</span></div>
+        <div class="tile"><span class="dot" style="background:var(--s-asm)"></span><span class="main">Assembled</span><span class="trail">3 models</span><span class="ms" style="color:var(--outline);font-size:20px">chevron_right</span></div>
+        <div class="tile"><span class="dot" style="background:var(--s-prim)"></span><span class="main">Primed</span><span class="trail">5 models</span><span class="ms" style="color:var(--outline);font-size:20px">chevron_right</span></div>
+        <div class="tile"><span class="dot" style="background:var(--s-paint)"></span><span class="main">Painted</span><span class="trail">2 models</span><span class="ms" style="color:var(--outline);font-size:20px">chevron_right</span></div>
+        <div class="tile dim"><span class="dot" style="background:var(--s-done)"></span><span class="main">Based</span><span class="trail">0</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="sh"><span class="bar"></span><span class="st">Photos</span><span class="count">3</span><span class="sp"></span><span class="ib amber"><span class="ms">photo_camera</span></span><span class="ib amber"><span class="ms">add_photo_alternate</span></span></div>
+      <div class="card"><div class="strip"><div class="ph a"></div><div class="ph b"></div><div class="ph c"></div></div></div>
+    </div>
+
+    <div class="section">
+      <div class="sh"><span class="bar"></span><span class="st">Notes</span><span class="sp"></span><span class="ib amber"><span class="ms">edit_note</span></span></div>
+      <div class="card"><div class="tile" style="padding:12px 16px">Sgt. has the power sword arm. Backpacks magnetised; spare helmets in the bits box.</div></div>
+    </div>
+
+    <div class="section">
+      <div class="sh"><span class="bar"></span><span class="st">Paints</span><span class="count">4</span><span class="sp"></span><span class="ib amber"><span class="ms">content_copy</span></span><span class="ib amber"><span class="ms">add</span></span></div>
+      <div class="card">
+        <div class="tile"><div class="main">Macragge Blue<div class="sub">Citadel / Base · armour base</div></div><span class="ib" style="margin-right:-12px"><span class="ms">remove_circle_outline</span></span></div>
+      </div>
+    </div>
+  </div>
+  <div class="fab" style="bottom:16px"><span class="ms">add</span></div>
+</div>
+<ul class="notes">
+  <li>Tags as tonal <code>Chip</code>s in a <code>Wrap</code> right under the <code>AppBar</code>, outside any section (they describe the whole Unit). App bar gets a subtitle: Collection · model count.</li>
+  <li>Every section is the same <code>Section(title, count, actions, child)</code>: 48dp header with a 4dp amber bar + stencil caps title, actions as amber <code>IconButton</code>s on the right, content in a <code>Card.filled</code> (surfaceContainerLow #23272B, radius 12). 20dp between sections.</li>
+  <li>Inside a card, rows are 48dp+ <code>ListTile</code>s separated by <code>Divider(height:1)</code> in outlineVariant. Empty Stages stay dimmed (disabled, no tap target); moving Stages show a chevron to say they open the Move sheet.</li>
+  <li>Photos: Take/Choose move from the end of the strip into the header actions, so the strip is only photos and the actions stay visible with 10 photos.</li>
+</ul>
+</div>
+
+<!-- ================= 2b. UNIT AFTER, scrolled ================= -->
+<div class="col">
+<p class="cap">2b · Unit screen after, <b>scrolled</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar" style="background:var(--c)"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Intercessors<small>Ultramarines · 10 models</small></span><span class="ib"><span class="ms">edit</span></span><span class="ib"><span class="ms">delete_outline</span></span></div>
+  <div class="body" style="padding-top:8px">
+    <div class="section">
+      <div class="sh"><span class="bar"></span><span class="st">Paints</span><span class="count">4</span><span class="sp"></span><span class="ib amber"><span class="ms">content_copy</span></span><span class="ib amber"><span class="ms">add</span></span></div>
+      <div class="card">
+        <div class="tile"><div class="main">Macragge Blue<div class="sub">Citadel / Base · armour base</div></div><span class="ib" style="margin-right:-12px"><span class="ms">remove_circle_outline</span></span></div>
+        <div class="tile"><div class="main">Nuln Oil<div class="sub">Citadel / Shade · recesses</div></div><span class="ib" style="margin-right:-12px"><span class="ms">remove_circle_outline</span></span></div>
+        <div class="tile"><div class="main">Calgar Blue<div class="sub">Citadel / Layer · Wanted</div></div><span class="ib" style="margin-right:-12px"><span class="ms">remove_circle_outline</span></span></div>
+        <div class="tile"><div class="main">Retributor Armour<div class="sub">Citadel / Base · eagles, trim</div></div><span class="ib" style="margin-right:-12px"><span class="ms">remove_circle_outline</span></span></div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="sh"><span class="bar"></span><span class="st">History</span><span class="sp"></span></div>
+      <div class="card">
+        <div class="tile"><div class="main">2 models Primed → Painted<div class="sub">Nov 9</div></div></div>
+        <div class="tile"><div class="main">5 models Assembled → Primed<div class="sub">Oct 30</div></div></div>
+        <div class="tile"><div class="main">10 models Unassembled → Assembled<div class="sub">Oct 21</div></div></div>
+        <div class="tile"><div class="main">10 models added at Unassembled<div class="sub">Oct 2</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="fab" style="bottom:16px"><span class="ms">add</span></div>
+</div>
+<ul class="notes">
+  <li>Paints: "Copy Paints from" and "Add Paint" are the header actions (copy hidden when no other Unit has Paints). Rows keep brand / range · note · Wanted as subtitle.</li>
+  <li>History: same card, newest first, read-only rows. An empty section shows one italic hint line in its card ("No notes yet") instead of disappearing, so the order never shifts.</li>
+  <li>App bar uses M3 scroll-under elevation (surfaceContainer) so the header stays separated from the cards below. Leave 88dp bottom padding for the FAB.</li>
+</ul>
+</div>
+
+<!-- ================= 3. COLLECTION AFTER ================= -->
+<div class="col">
+<p class="cap">3 · Collection screen <b>after</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Ultramarines<small>Warhammer 40k</small></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="desc">2nd Company strike force, Codex-compliant blue with gold trim. Painting for the club escalation league in spring, 1000 points first, then Gladius.</div>
+
+    <div class="section" style="margin-bottom:8px">
+      <div class="sh"><span class="bar"></span><span class="st">Paint Schemes</span><span class="sp"></span><span class="ib amber"><span class="ms">add</span></span></div>
+      <div class="schemes">
+        <div class="scheme"><b>Armour</b><span>7 Scheme Steps</span></div>
+        <div class="scheme"><b>Bases</b><span>4 Scheme Steps</span></div>
+        <div class="scheme"><b>Gold trim</b><span>3 Scheme Steps</span></div>
+      </div>
+    </div>
+
+    <div class="section" style="margin-bottom:0">
+      <div class="sh"><span class="bar"></span><span class="st">Units</span><span class="count">6</span><span class="sp"></span></div>
+      <div class="urow"><span class="thumb"><span class="ph a sm"></span></span><span class="rest"><span class="main" style="flex:1;min-width:0"><span class="name">Intercessors</span><span class="sbar"><i style="width:30%;background:var(--s-asm)"></i><i style="width:50%;background:var(--s-prim)"></i><i style="width:20%;background:var(--s-paint)"></i></span></span><span class="trail" style="color:var(--on-surface-var);font-size:13px">10 models</span></span></div>
+      <div class="urow"><span class="thumb"><span class="add"><span class="ms">add_a_photo</span></span></span><span class="rest"><span class="main" style="flex:1;min-width:0"><span class="name">Captain in Gravis Armour</span><span class="sbar"><i style="width:100%;background:var(--s-unas)"></i></span></span><span class="trail" style="color:var(--on-surface-var);font-size:13px">1 model</span></span></div>
+      <div class="urow"><span class="thumb"><span class="ph b sm"></span></span><span class="rest"><span class="main" style="flex:1;min-width:0"><span class="name">Hellblasters</span><span class="sbar"><i style="width:60%;background:var(--s-paint)"></i><i style="width:40%;background:var(--s-done)"></i></span></span><span class="trail" style="color:var(--on-surface-var);font-size:13px">5 models</span></span></div>
+      <div class="urow"><span class="thumb"><span class="add"><span class="ms">add_a_photo</span></span></span><span class="rest"><span class="main" style="flex:1;min-width:0"><span class="name">Redemptor Dreadnought</span><span class="sbar"><i style="width:100%;background:var(--s-wish)"></i></span></span><span class="trail" style="color:var(--on-surface-var);font-size:13px">1 model</span></span></div>
+    </div>
+    <div class="fab" style="bottom:12px"><span class="ms">add</span></div>
+  </div>
+  <div class="progress"><span class="ms" style="margin:0;font-size:20px">bar_chart</span>17 owned · 2 finished · 1 wanted<span class="ms">expand_less</span></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>Description: <code>InkWell</code> around <code>Text(maxLines: 2, overflow: ellipsis)</code> in onSurfaceVariant, padded 16dp; tap opens Edit Collection. Absent when empty, no placeholder.</li>
+  <li>Paint Schemes: the same <code>Section</code> header (add = new Paint Scheme), then one 56dp-tall horizontal <code>ListView</code> of small <code>Card.filled</code> tiles (stencil name, Step count, amber left edge). One row only, so Units stay the main content however many schemes exist.</li>
+  <li>Unit row: a 56×56 <code>InkWell</code> around the thumbnail is its own target (photo opens the viewer, placeholder opens Take/Choose photo); the rest is a second <code>InkWell</code> opening the Unit. Placeholder = dashed outline + <code>Icons.add_a_photo</code>, semantic label "Add photo".</li>
+  <li>Units header uses <code>Section</code> without a card: the list is the page's main content and scrolls under it. Keep the existing ProgressDrawer above the <code>NavigationBar</code>.</li>
+</ul>
+</div>
+
+<!-- ================= 4. PAINT SCHEME ================= -->
+<div class="col">
+<p class="cap">4 · Paint Scheme screen</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Armour<small>Ultramarines · Paint Scheme</small></span><span class="ib"><span class="ms">edit</span></span><span class="ib"><span class="ms">delete_outline</span></span></div>
+  <div class="body" style="padding:4px 16px 0">
+    <div class="step"><span class="num">1</span><div class="main"><span class="tech">Prime</span><div class="chips" style="gap:6px"><span class="chip paint"><span class="ms">format_paint</span>Chaos Black</span></div></div><span class="handle"><span class="ms">drag_handle</span></span></div>
+    <div class="step"><span class="num">2</span><div class="main"><span class="tech">Basecoat</span><div class="chips" style="gap:6px"><span class="chip paint"><span class="ms">format_paint</span>Macragge Blue</span></div><span class="snote">Two thin coats</span></div><span class="handle"><span class="ms">drag_handle</span></span></div>
+    <div class="step"><span class="num">3</span><div class="main"><span class="tech">Wash</span><div class="chips" style="gap:6px"><span class="chip paint"><span class="ms">format_paint</span>Nuln Oil</span></div><span class="snote">Recesses only</span></div><span class="handle"><span class="ms">drag_handle</span></span></div>
+    <div class="step lift"><span class="num">4</span><div class="main"><span class="tech">Drybrush <span class="mix">MIX</span></span><div class="chips" style="gap:6px"><span class="chip paint"><span class="ms">format_paint</span>Macragge Blue</span><span class="chip paint"><span class="ms">format_paint</span>White Scar</span></div><span class="snote">2:1, edges of armour plates</span></div><span class="handle" style="color:var(--amber)"><span class="ms">drag_handle</span></span></div>
+    <div class="step"><span class="num">5</span><div class="main"><span class="tech">Edge highlight</span><div class="chips" style="gap:6px"><span class="chip paint wanted"><span class="ms">format_paint</span>Calgar Blue</span></div><span class="snote">Wanted · thin lines along top edges</span></div><span class="handle"><span class="ms">drag_handle</span></span></div>
+    <div class="step"><span class="num">6</span><div class="main"><span class="tech none">No Technique</span><span class="snote" style="color:var(--on-surface)">Matt varnish before any decals</span></div><span class="handle"><span class="ms">drag_handle</span></span></div>
+  </div>
+  <div class="efab"><span class="ms">add</span>Add Scheme Step</div>
+</div>
+<ul class="notes">
+  <li><code>ReorderableListView</code> of <code>Card.filled</code> Scheme Steps with a stencil numeral in an amber ring, and a trailing 48dp <code>ReorderableDragStartListener(Icon(Icons.drag_handle))</code>; the lifted Step (4) uses surfaceContainerHigh + elevation via <code>proxyDecorator</code>.</li>
+  <li>Technique is the Step's title (bodyLarge, w500). Paints are small tonal <code>Chip</code>s with a format_paint icon; Paints have no stored colour, so no swatches. Several Paints get a "MIX" badge; a ratio such as 2:1 lives in the note.</li>
+  <li>Wanted Paints get a dashed chip and "Wanted" in the note line. A Step with only a note shows "No Technique" in italics. Tap a Step to edit; rename/delete the scheme from the app bar (delete asks first).</li>
+</ul>
+</div>
+
+<!-- ================= 5. SCHEME STEP SHEET ================= -->
+<div class="col">
+<p class="cap">5 · Scheme Step <b>edit sheet</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Armour</span></div>
+  <div class="body"><div style="padding:4px 16px"><div class="step"><span class="num">1</span><div class="main"><span class="tech">Prime</span></div></div></div></div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <h3>Scheme Step 4</h3>
+    <div class="scroll">
+      <div class="lbl">Paints <em>several = mixed</em></div>
+      <div class="sel-paint"><div class="main">Macragge Blue<div class="sub">Citadel / Base</div></div><span class="ib"><span class="ms">close</span></span></div>
+      <div class="sel-paint"><div class="main">White Scar<div class="sub">Citadel / Layer</div></div><span class="ib"><span class="ms">close</span></span></div>
+      <span class="chip" style="height:40px;border-radius:20px;color:var(--amber);border-color:var(--outline)"><span class="ms">add</span>Add Paint</span>
+
+      <div class="lbl" style="margin-top:20px">Technique</div>
+      <div class="field focus"><span class="fl">Technique</span>Drybrush<span class="caret"></span><span style="flex:1"></span><span class="ms" style="color:var(--on-surface-var)">cancel</span></div>
+      <div class="chips" style="margin-top:10px;gap:6px">
+        <span class="chip">Basecoat</span><span class="chip">Layer</span><span class="chip">Wash</span><span class="chip sel"><span class="ms">check</span>Drybrush</span><span class="chip">Edge highlight</span><span class="chip">Glaze</span><span class="chip">Prime</span><span class="chip">+5</span>
+      </div>
+
+      <div class="field tall" style="margin-top:22px"><span class="fl" style="color:var(--on-surface-var)">Note (optional)</span>2:1, edges of armour plates</div>
+    </div>
+    <div class="btns"><span class="tbtn rust">Delete</span><span style="flex:1"></span><span class="tbtn">Cancel</span><span class="fbtn">Save</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li><code>showModalBottomSheet(isScrollControlled: true, showDragHandle: true)</code> with a stencil title "Scheme Step N" (or "New Scheme Step").</li>
+  <li>Paints: selected Paints as 48dp rows with a remove <code>IconButton</code>; "Add Paint" reuses <code>AddPaintDialog</code> (library search, owned and wanted, create new). Order kept as picked.</li>
+  <li>Technique: <code>TextField</code> + <code>Wrap</code> of <code>ChoiceChip</code>s: the ten suggestions plus Techniques used before ("Prime"), filtered as you type; tapping fills the field. "+5" expands the rest.</li>
+  <li>Save is disabled until a Paint, Technique or note is set (helper text says so). Delete in rust, left; only shown when editing.</li>
+</ul>
+</div>
+
+</div>
+
+<div class="widget">
+  <h2>Reusable widget: Section</h2>
+  <p style="margin:0;color:var(--note-ink)">One widget gives Unit, Collection and Paint Scheme screens the same section boundary. Widget tests can find each header by its title, in order.</p>
+<pre>/// A titled block of a screen: amber bar + stencil caps title, optional count,
+/// trailing actions, then [child] in a filled card unless [card] is false.
+class Section extends StatelessWidget {
+  const Section({super.key, required this.title, this.count,
+      this.actions = const [], required this.child, this.card = true});
+  final String title; final int? count;
+  final List&lt;Widget&gt; actions;          // IconButtons, amber, 48dp
+  final Widget child; final bool card;
+  // build: Padding(h:16, bottom:20) &gt; Column[
+  //   SizedBox(height:48, Row[Container(4x18, primary), Text(title.toUpperCase(),
+  //     style: stencil(titleSmall)), if count Text(count), Spacer(), ...actions]),
+  //   card ? Card.filled(margin: zero, clipBehavior: antiAlias,
+  //            color: surfaceContainerLow, child: child) : child ]
+}</pre>
+</div>
