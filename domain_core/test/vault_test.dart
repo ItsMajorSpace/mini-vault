@@ -469,18 +469,18 @@ void main() {
       await vault.createCollection('Space Marines');
       await expectation;
     });
-    test('is deleted with its Units and their Tags and Photos, in one upload; another Collection is untouched', () async {
+    test('is deleted with its Batches and their Tags and Photos, in one upload; another Collection is untouched', () async {
       await syncStarterWorkflow();
       final doomed = await vault.createCollection('Space Marines');
       final kept = await vault.createCollection('Kill Team');
-      Future<Unit> add(Collection c, String name) async {
-        final u = await vault.addUnit(
+      Future<Batch> add(Collection c, String name) async {
+        final u = await vault.addBatch(
           c,
           name: name,
           modelCount: 5,
           stageId: 's0',
         );
-        await vault.moveUnit(u, 's1');
+        await vault.moveBatch(u, 's1');
         await vault.addTags(u.id, ['Imperium']);
         await vault.addPhotos(u.id, ['file-$name']);
         return u;
@@ -491,17 +491,17 @@ void main() {
       final c = await add(kept, 'Veterans');
       await (await db.getCrudBatch(limit: 1000))!.complete();
 
-      expect((await vault.unitsOf(doomed)).length, 2);
+      expect((await vault.batchesOf(doomed)).length, 2);
       await vault.deleteCollection(doomed.id);
       await restart();
 
       expect((await vault.collections()).map((c) => c.name), ['Kill Team']);
-      expect(await vault.unitsOf(doomed), isEmpty);
+      expect(await vault.batchesOf(doomed), isEmpty);
       for (final u in [a, b]) {
         expect(await vault.tagsOf(u.id), isEmpty);
         expect(await vault.photosOf(u.id), isEmpty);
       }
-      expect((await vault.unitsOf(kept)).single.id, c.id);
+      expect((await vault.batchesOf(kept)).single.id, c.id);
       expect(await vault.tagsOf(c.id), ['Imperium']);
       expect(await vault.photosOf(c.id), hasLength(1));
       expect(await vault.watchHistory(c.id).first, hasLength(2));
@@ -528,23 +528,23 @@ void main() {
     });
   });
 
-  group('Unit', () {
+  group('Batch', () {
     late Collection collection;
     setUp(() async {
       await syncStarterWorkflow();
       collection = await vault.createCollection('Space Marines');
     });
 
-    /// The Collection's groups as "Stage (model count): Unit names", for compact expectations.
+    /// The Collection's groups as "Stage (model count): Batch names", for compact expectations.
     Future<List<String>> groups() async => [
       for (final g in await vault.watchStageGroups(collection).first)
-        '${g.stage.name} (${g.modelCount}): ${g.units.map((u) => u.name).join(', ')}',
+        '${g.stage.name} (${g.modelCount}): ${g.batches.map((u) => u.name).join(', ')}',
     ];
 
     test(
       'is added at a Stage with its fields, and persists across restarts',
       () async {
-        final added = await vault.addUnit(
+        final added = await vault.addBatch(
           collection,
           name: ' Intercessors ',
           modelCount: 10,
@@ -554,43 +554,46 @@ void main() {
         await restart();
 
         final [group] = (await vault.watchStageGroups(collection).first)
-            .where((g) => g.units.isNotEmpty)
+            .where((g) => g.batches.isNotEmpty)
             .toList();
-        final [unit] = group.units;
+        final [batch] = group.batches;
         expect(group.stage.name, 'Assembled');
-        expect(unit.id, added.id);
-        expect(unit.collectionId, collection.id);
+        expect(batch.id, added.id);
+        expect(batch.collectionId, collection.id);
         expect(
-          (unit.name, unit.modelCount, unit.notes),
+          (batch.name, batch.modelCount, batch.notes),
           ('Intercessors', 10, 'Magnetised arms'),
         );
       },
     );
 
-    test('keeps its Stage from being deleted until the Unit is gone', () async {
-      final unit = await vault.addUnit(
-        collection,
-        name: 'Intercessors',
-        modelCount: 10,
-        stageId: 's3',
-      );
+    test(
+      'keeps its Stage from being deleted until the Batch is gone',
+      () async {
+        final batch = await vault.addBatch(
+          collection,
+          name: 'Intercessors',
+          modelCount: 10,
+          stageId: 's3',
+        );
 
-      await expectLater(
-        vault.deleteStage(collection.workflowId, 's3'),
-        throwsStateError,
-      );
-      await vault.deleteUnit(unit.id);
-      await vault.deleteStage(collection.workflowId, 's3');
+        await expectLater(
+          vault.deleteStage(collection.workflowId, 's3'),
+          throwsStateError,
+        );
+        await vault.deleteBatch(batch.id);
+        await vault.deleteStage(collection.workflowId, 's3');
 
-      expect(await groups(), isNot(contains(startsWith('Primed'))));
-    });
+        expect(await groups(), isNot(contains(startsWith('Primed'))));
+      },
+    );
 
     test('cannot be added with a blank name, no models, or a Stage outside the Workflow', () async {
-      Future<Unit> add({
+      Future<Batch> add({
         String name = 'Intercessors',
         int count = 1,
         String stage = 's0',
-      }) => vault.addUnit(
+      }) => vault.addBatch(
         collection,
         name: name,
         modelCount: count,
@@ -604,7 +607,7 @@ void main() {
     });
 
     test('is edited per field, rejecting a blank name or no models', () async {
-      final unit = await vault.addUnit(
+      final batch = await vault.addBatch(
         collection,
         name: 'Intercessors',
         modelCount: 10,
@@ -613,19 +616,22 @@ void main() {
       );
       await db.execute('DELETE FROM ps_crud');
 
-      await vault.editUnit(
-        unit.id,
+      await vault.editBatch(
+        batch.id,
         name: 'Assault Intercessors',
         modelCount: 5,
       );
-      await vault.editUnit(unit.id, notes: 'Jump packs');
-      expect(() => vault.editUnit(unit.id, name: ''), throwsArgumentError);
-      expect(() => vault.editUnit(unit.id, modelCount: 0), throwsArgumentError);
-
-      final [unitNow] =
-          (await vault.watchStageGroups(collection).first).first.units;
+      await vault.editBatch(batch.id, notes: 'Jump packs');
+      expect(() => vault.editBatch(batch.id, name: ''), throwsArgumentError);
       expect(
-        (unitNow.name, unitNow.modelCount, unitNow.notes),
+        () => vault.editBatch(batch.id, modelCount: 0),
+        throwsArgumentError,
+      );
+
+      final [batchNow] =
+          (await vault.watchStageGroups(collection).first).first.batches;
+      expect(
+        (batchNow.name, batchNow.modelCount, batchNow.notes),
         ('Assault Intercessors', 5, 'Jump packs'),
       );
       final ops = (await db.getCrudBatch())!.crud;
@@ -642,20 +648,20 @@ void main() {
     });
 
     test('is deleted', () async {
-      final unit = await vault.addUnit(
+      final batch = await vault.addBatch(
         collection,
         name: 'Intercessors',
         modelCount: 10,
         stageId: 's0',
       );
-      await vault.addUnit(
+      await vault.addBatch(
         collection,
         name: 'Hellblasters',
         modelCount: 5,
         stageId: 's0',
       );
 
-      await vault.deleteUnit(unit.id);
+      await vault.deleteBatch(batch.id);
 
       expect((await groups()).first, 'Wishlist (5): Hellblasters');
     });
@@ -664,31 +670,31 @@ void main() {
       'are grouped by Stage in Workflow order, with a model count per Stage',
       () async {
         final other = await vault.createCollection('Kill Team');
-        await vault.addUnit(
+        await vault.addBatch(
           other,
           name: 'Elsewhere',
           modelCount: 3,
           stageId: 's0',
         );
-        await vault.addUnit(
+        await vault.addBatch(
           collection,
           name: 'Terminators',
           modelCount: 5,
           stageId: 's4',
         );
-        await vault.addUnit(
+        await vault.addBatch(
           collection,
           name: 'Intercessors',
           modelCount: 10,
           stageId: 's0',
         );
-        await vault.addUnit(
+        await vault.addBatch(
           collection,
           name: 'Captain',
           modelCount: 1,
           stageId: 's4',
         );
-        await vault.addUnit(
+        await vault.addBatch(
           collection,
           name: 'hellblasters',
           modelCount: 5,
@@ -712,7 +718,7 @@ void main() {
           .watchStageGroups(collection)
           .map((gs) => gs.first.modelCount);
       final expectation = expectLater(counts, emitsThrough(10));
-      await vault.addUnit(
+      await vault.addBatch(
         collection,
         name: 'Intercessors',
         modelCount: 10,
@@ -732,7 +738,7 @@ void main() {
       collection = await vault.createCollection('Space Marines');
     });
 
-    Future<void> add(int modelCount, String stageId) => vault.addUnit(
+    Future<void> add(int modelCount, String stageId) => vault.addBatch(
       collection,
       name: 'Unit at $stageId',
       modelCount: modelCount,
@@ -763,7 +769,7 @@ void main() {
       await add(3, 's4');
       await add(4, 's6');
       final other = await vault.createCollection('Orks');
-      await vault.addUnit(other, name: 'Boyz', modelCount: 20, stageId: 's6');
+      await vault.addBatch(other, name: 'Boyz', modelCount: 20, stageId: 's6');
 
       final totals = await progress();
       expect(totals, p(5, 19, 7));
@@ -775,7 +781,7 @@ void main() {
       await add(5, 's0');
       await add(10, 's1');
       await add(2, 's3');
-      await vault.addUnit(
+      await vault.addBatch(
         collection,
         name: 'Other',
         modelCount: 1,
@@ -813,7 +819,7 @@ void main() {
           ),
         ),
       );
-      await vault.moveUnit((await vault.unitsOf(collection)).single, 's3');
+      await vault.moveBatch((await vault.batchesOf(collection)).single, 's3');
       await moved;
       final recoloured = expectLater(
         totals,
@@ -846,7 +852,7 @@ void main() {
       expect(await progress(), p(0, 5, 0));
     });
 
-    test('is watched: emits again after a Unit change and after the Owned or Finished Stage changes', () async {
+    test('is watched: emits again after a Batch change and after the Owned or Finished Stage changes', () async {
       await add(5, 's0');
       await add(10, 's2');
       final totals = vault.watchProgress(collection).asBroadcastStream();
@@ -881,8 +887,8 @@ void main() {
         await add(5, 's0');
         await add(10, 's1');
         final orks = await vault.createCollection('Orks');
-        await vault.addUnit(orks, name: 'Boyz', modelCount: 20, stageId: 's6');
-        await vault.addUnit(orks, name: 'Grots', modelCount: 3, stageId: 's1');
+        await vault.addBatch(orks, name: 'Boyz', modelCount: 20, stageId: 's6');
+        await vault.addBatch(orks, name: 'Grots', modelCount: 3, stageId: 's1');
 
         expect(await sections(), [
           'Starter: Wishlist 5, Unassembled 13, Assembled 0, Primed 0, Painted 0, Based 0, Done 20',
@@ -903,13 +909,13 @@ void main() {
           'Kommandos',
           workflowId: other.id,
         );
-        await vault.addUnit(
+        await vault.addBatch(
           kt,
           name: 'Kommandos',
           modelCount: 4,
           stageId: other.stages[1].id,
         );
-        await vault.addUnit(
+        await vault.addBatch(
           kt,
           name: 'Nob',
           modelCount: 1,
@@ -947,7 +953,7 @@ void main() {
           ),
         );
         final orks = await vault.createCollection('Orks');
-        await vault.addUnit(orks, name: 'Boyz', modelCount: 2, stageId: 's1');
+        await vault.addBatch(orks, name: 'Boyz', modelCount: 2, stageId: 's1');
         await added;
       });
     });
@@ -955,11 +961,11 @@ void main() {
 
   group('Stage Change', () {
     late Collection collection;
-    late Unit unit;
+    late Batch batch;
     setUp(() async {
       await syncStarterWorkflow();
       collection = await vault.createCollection('Space Marines');
-      unit = await vault.addUnit(
+      batch = await vault.addBatch(
         collection,
         name: 'Intercessors',
         modelCount: 10,
@@ -967,44 +973,44 @@ void main() {
       );
     });
 
-    /// The Unit's history as "from -> to (models)", oldest first.
+    /// The Batch's history as "from -> to (models)", oldest first.
     Future<List<String>> history() async => [
-      for (final c in await vault.watchHistory(unit.id).first)
+      for (final c in await vault.watchHistory(batch.id).first)
         '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
     ];
-    Future<Unit> reload() async =>
+    Future<Batch> reload() async =>
         (await vault.watchStageGroups(collection).first)
-            .expand((g) => g.units)
+            .expand((g) => g.batches)
             .single;
 
-    test('creating a Unit records its starting Stage', () async {
+    test('creating a Batch records its starting Stage', () async {
       expect(await history(), ['null -> s1 (10)']);
     });
 
     test(
       'a move sorts after a synced one stamped ahead of this device\'s clock',
       () async {
-        // Another device, its clock far ahead, moved the Unit to s3; sync delivers it in Postgres's text format.
+        // Another device, its clock far ahead, moved the Batch to s3; sync delivers it in Postgres's text format.
         await db.execute(
           "INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES ('sc-ahead', ?, 's1', 's3', 10, '2099-01-01 00:00:00+00')",
-          [unit.id],
+          [batch.id],
         );
         await db.execute("UPDATE units SET stage_id = 's3' WHERE id = ?", [
-          unit.id,
+          batch.id,
         ]);
 
-        await vault.moveUnit(await reload(), 's5');
+        await vault.moveBatch(await reload(), 's5');
 
-        final latest = (await vault.watchHistory(unit.id).first).last;
+        final latest = (await vault.watchHistory(batch.id).first).last;
         expect(latest.toStageId, 's5');
         expect(latest.happenedAt.isAfter(DateTime.utc(2099)), isTrue);
         expect((await reload()).stageId, 's5');
       },
     );
 
-    test('moves a Unit forward and back, recording each move in order, across restarts', () async {
-      await vault.moveUnit(unit, 's4');
-      await vault.moveUnit(await reload(), 's2');
+    test('moves a Batch forward and back, recording each move in order, across restarts', () async {
+      await vault.moveBatch(batch, 's4');
+      await vault.moveBatch(await reload(), 's2');
       await restart();
 
       expect((await reload()).stageId, 's2');
@@ -1014,25 +1020,28 @@ void main() {
         's4 -> s2 (10)',
       ]);
       final times = [
-        for (final c in await vault.watchHistory(unit.id).first) c.happenedAt,
+        for (final c in await vault.watchHistory(batch.id).first) c.happenedAt,
       ];
       expect(times, orderedEquals([...times]..sort()));
     });
 
     test('moving to the current Stage records nothing', () async {
-      await vault.moveUnit(unit, 's1');
+      await vault.moveBatch(batch, 's1');
       expect(await history(), hasLength(1));
     });
 
     test('a Stage outside the Workflow is rejected', () async {
-      await expectLater(vault.moveUnit(unit, 'elsewhere'), throwsArgumentError);
+      await expectLater(
+        vault.moveBatch(batch, 'elsewhere'),
+        throwsArgumentError,
+      );
       expect((await reload()).stageId, 's1');
       expect(await history(), hasLength(1));
     });
 
     test('a move uploads a Stage Change insert', () async {
       await db.execute('DELETE FROM ps_crud');
-      await vault.moveUnit(unit, 's4');
+      await vault.moveBatch(batch, 's4');
 
       final ops = (await db.getCrudBatch())!.crud;
       expect(ops.map((e) => (e.op, e.table)), [
@@ -1042,29 +1051,29 @@ void main() {
     });
 
     test('history is watched: the stream emits again after a move', () async {
-      final lengths = vault.watchHistory(unit.id).map((h) => h.length);
+      final lengths = vault.watchHistory(batch.id).map((h) => h.length);
       final expectation = expectLater(lengths, emitsThrough(2));
-      await vault.moveUnit(unit, 's3');
+      await vault.moveBatch(batch, 's3');
       await expectation;
     });
   });
 
-  group('Deleting a Stage that holds Units', () {
+  group('Deleting a Stage that holds Batches', () {
     late Workflow w;
     late Collection marines, orks;
-    late Unit a, b;
+    late Batch a, b;
     setUp(() async {
       await syncStarterWorkflow();
       w = await vault.createWorkflow('Shared');
       marines = await vault.createCollection('Marines', workflowId: w.id);
       orks = await vault.createCollection('Orks', workflowId: w.id);
-      a = await vault.addUnit(
+      a = await vault.addBatch(
         marines,
         name: 'A',
         modelCount: 5,
         stageId: w.stages[3].id,
       );
-      b = await vault.addUnit(
+      b = await vault.addBatch(
         orks,
         name: 'B',
         modelCount: 3,
@@ -1077,24 +1086,24 @@ void main() {
           in (await vault.workflows()).firstWhere((x) => x.id == w.id).stages)
         s.name,
     ];
-    Future<List<String>> history(Unit u) async => [
+    Future<List<String>> history(Batch u) async => [
       for (final c in await vault.watchHistory(u.id).first)
         '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
     ];
 
-    test('moves its Units in every Collection to the destination, recording a Stage Change each, then deletes it', () async {
+    test('moves its Batches in every Collection to the destination, recording a Stage Change each, then deletes it', () async {
       final [..., assembled, primed, _, _, _] = w.stages;
       await expectLater(vault.deleteStage(w.id, primed.id), throwsStateError);
 
-      await vault.deleteStage(w.id, primed.id, moveUnitsTo: assembled.id);
+      await vault.deleteStage(w.id, primed.id, moveBatchesTo: assembled.id);
       await restart();
 
       expect(await stageNames(), isNot(contains('Primed')));
       for (final c in [marines, orks]) {
-        final units = (await vault.watchStageGroups(c).first).expand(
-          (g) => g.units,
+        final batches = (await vault.watchStageGroups(c).first).expand(
+          (g) => g.batches,
         );
-        expect(units.single.stageId, assembled.id);
+        expect(batches.single.stageId, assembled.id);
       }
       expect(await history(a), [
         'null -> ${primed.id} (5)',
@@ -1108,14 +1117,14 @@ void main() {
 
     test('uploads as one transaction: moves, then the Owned or Finished change, then the Stage delete', () async {
       final unassembled = w.stages[1];
-      await vault.moveUnit(a, unassembled.id);
-      await vault.moveUnit(b, unassembled.id);
+      await vault.moveBatch(a, unassembled.id);
+      await vault.moveBatch(b, unassembled.id);
       await db.execute('DELETE FROM ps_crud');
 
       await vault.deleteStage(
         w.id,
         unassembled.id,
-        moveUnitsTo: w.stages[0].id,
+        moveBatchesTo: w.stages[0].id,
         ownedStageId: w.stages[2].id,
       );
 
@@ -1134,17 +1143,17 @@ void main() {
 
     test('the Owned or Finished Stage needs a replacement, in order, and nothing changes without one', () async {
       final [wishlist, unassembled, assembled, ..., based, done] = w.stages;
-      await vault.moveUnit(a, done.id);
+      await vault.moveBatch(a, done.id);
 
       await expectLater(
-        vault.deleteStage(w.id, done.id, moveUnitsTo: based.id),
+        vault.deleteStage(w.id, done.id, moveBatchesTo: based.id),
         throwsStateError,
       );
       await expectLater(
         vault.deleteStage(
           w.id,
           done.id,
-          moveUnitsTo: based.id,
+          moveBatchesTo: based.id,
           finishedStageId: done.id,
         ),
         throwsStateError,
@@ -1153,7 +1162,7 @@ void main() {
         vault.deleteStage(
           w.id,
           done.id,
-          moveUnitsTo: based.id,
+          moveBatchesTo: based.id,
           finishedStageId: wishlist.id,
         ),
         throwsArgumentError,
@@ -1163,7 +1172,7 @@ void main() {
       await vault.deleteStage(
         w.id,
         done.id,
-        moveUnitsTo: based.id,
+        moveBatchesTo: based.id,
         finishedStageId: based.id,
       );
       await vault.deleteStage(w.id, unassembled.id, ownedStageId: assembled.id);
@@ -1190,7 +1199,7 @@ void main() {
           'nowhere',
         ]) {
           await expectLater(
-            vault.deleteStage(w.id, primed.id, moveUnitsTo: destination),
+            vault.deleteStage(w.id, primed.id, moveBatchesTo: destination),
             throwsArgumentError,
             reason: destination,
           );
@@ -1204,7 +1213,7 @@ void main() {
   group('Switching a Collection to another Workflow', () {
     late Workflow starter, target;
     late Collection marines;
-    late Unit a, b, c;
+    late Batch a, b, c;
     setUp(() async {
       await syncStarterWorkflow();
       starter = (await vault.starterWorkflow())!;
@@ -1217,11 +1226,26 @@ void main() {
       await vault.renameStage(target.stages[3].id, 'Sprayed');
       target = (await vault.workflows()).firstWhere((w) => w.id == target.id);
       marines = await vault.createCollection('Marines');
-      a = await vault.addUnit(marines, name: 'A', modelCount: 5, stageId: 's0');
-      b = await vault.addUnit(marines, name: 'B', modelCount: 3, stageId: 's3');
-      c = await vault.addUnit(marines, name: 'C', modelCount: 1, stageId: 's3');
-      // A Unit of another Collection on the same Workflow stays where it is.
-      await vault.addUnit(
+      a = await vault.addBatch(
+        marines,
+        name: 'A',
+        modelCount: 5,
+        stageId: 's0',
+      );
+      b = await vault.addBatch(
+        marines,
+        name: 'B',
+        modelCount: 3,
+        stageId: 's3',
+      );
+      c = await vault.addBatch(
+        marines,
+        name: 'C',
+        modelCount: 1,
+        stageId: 's3',
+      );
+      // A Batch of another Collection on the same Workflow stays where it is.
+      await vault.addBatch(
         await vault.createCollection('Orks'),
         name: 'Boyz',
         modelCount: 10,
@@ -1229,12 +1253,12 @@ void main() {
       );
     });
 
-    Future<List<String>> history(Unit u) async => [
+    Future<List<String>> history(Batch u) async => [
       for (final c in await vault.watchHistory(u.id).first)
         '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
     ];
 
-    test('asks only about Stages that hold Units, pre-matching same-name Stages ignoring case and outer spaces', () async {
+    test('asks only about Stages that hold Batches, pre-matching same-name Stages ignoring case and outer spaces', () async {
       final mapping = await vault.stageMapping(marines, target);
 
       expect(
@@ -1243,7 +1267,7 @@ void main() {
       );
     });
 
-    test('moves every Unit to its mapped Stage with a Stage Change, and points the Collection at the new Workflow', () async {
+    test('moves every Batch to its mapped Stage with a Stage Change, and points the Collection at the new Workflow', () async {
       final [wishlist, ..., sprayed, _, _, _] = target.stages;
       await vault.switchWorkflow(marines, target.id, {
         's0': wishlist.id,
@@ -1259,8 +1283,8 @@ void main() {
       expect(
         {
           for (final g in groups)
-            if (g.units.isNotEmpty)
-              g.stage.name: [for (final u in g.units) u.name],
+            if (g.batches.isNotEmpty)
+              g.stage.name: [for (final u in g.batches) u.name],
         },
         {
           '  WISHLIST ': ['A'],
@@ -1324,7 +1348,7 @@ void main() {
     });
 
     test(
-      'a Collection without Units has nothing to map and just switches',
+      'a Collection without Batches has nothing to map and just switches',
       () async {
         final empty = await vault.createCollection('Empty');
         expect(await vault.stageMapping(empty, target), isEmpty);
@@ -1341,11 +1365,11 @@ void main() {
 
   group('Tags', () {
     late Collection collection;
-    late Unit unit;
+    late Batch batch;
     setUp(() async {
       await syncStarterWorkflow();
       collection = await vault.createCollection('Necrons');
-      unit = await vault.addUnit(
+      batch = await vault.addBatch(
         collection,
         name: 'Warriors',
         modelCount: 10,
@@ -1354,17 +1378,17 @@ void main() {
     });
 
     test('are added and removed, and persist across restarts', () async {
-      await vault.addTags(unit.id, [' Warhammer 40k ', 'Necrons', '  ']);
+      await vault.addTags(batch.id, [' Warhammer 40k ', 'Necrons', '  ']);
       await restart();
-      expect(await vault.tagsOf(unit.id), ['Necrons', 'Warhammer 40k']);
+      expect(await vault.tagsOf(batch.id), ['Necrons', 'Warhammer 40k']);
 
-      await vault.removeTag(unit.id, 'NECRONS ');
-      expect(await vault.tagsOf(unit.id), ['Warhammer 40k']);
+      await vault.removeTag(batch.id, 'NECRONS ');
+      expect(await vault.tagsOf(batch.id), ['Warhammer 40k']);
     });
 
     test('are the same Tag ignoring case and outer spaces, keeping the first casing', () async {
-      await vault.addTags(unit.id, ['Necrons', ' necrons', 'NECRONS']);
-      final other = await vault.addUnit(
+      await vault.addTags(batch.id, ['Necrons', ' necrons', 'NECRONS']);
+      final other = await vault.addBatch(
         collection,
         name: 'Immortals',
         modelCount: 5,
@@ -1372,23 +1396,23 @@ void main() {
       );
       await vault.addTags(other.id, ['necrons ']);
 
-      expect(await vault.tagsOf(unit.id), ['Necrons']);
+      expect(await vault.tagsOf(batch.id), ['Necrons']);
       expect(await vault.tagsOf(other.id), ['Necrons']);
-      // The same Unit and Tag give the same row id on every device, so offline adds merge into one row.
-      expect(tagId(unit.id, ' NECRONS'), tagId(unit.id, 'Necrons'));
-      expect(tagId(other.id, 'Necrons'), isNot(tagId(unit.id, 'Necrons')));
+      // The same Batch and Tag give the same row id on every device, so offline adds merge into one row.
+      expect(tagId(batch.id, ' NECRONS'), tagId(batch.id, 'Necrons'));
+      expect(tagId(other.id, 'Necrons'), isNot(tagId(batch.id, 'Necrons')));
     });
 
     test(
       'are suggested by prefix from the Tags already used, once each',
       () async {
-        final other = await vault.addUnit(
+        final other = await vault.addBatch(
           collection,
           name: 'Immortals',
           modelCount: 5,
           stageId: 's0',
         );
-        await vault.addTags(unit.id, [
+        await vault.addTags(batch.id, [
           'Necrons',
           'Warhammer 40k',
           'Nightbringer',
@@ -1402,7 +1426,7 @@ void main() {
     );
 
     test("suggestions are only the user's own: another account's database knows none of them", () async {
-      await vault.addTags(unit.id, ['Necrons']);
+      await vault.addTags(batch.id, ['Necrons']);
       expect(await vault.suggestTags('N'), ['Necrons']);
 
       // A second account signs in on a fresh database; sync only delivers each user their own rows (server/test).
@@ -1413,9 +1437,9 @@ void main() {
       expect(await vault.suggestTags(''), isEmpty);
     });
 
-    test('are deleted with their Unit, uploading the deletes', () async {
-      await vault.addTags(unit.id, ['Necrons', 'Warhammer 40k']);
-      await vault.deleteUnit(unit.id);
+    test('are deleted with their Batch, uploading the deletes', () async {
+      await vault.addTags(batch.id, ['Necrons', 'Warhammer 40k']);
+      await vault.deleteBatch(batch.id);
 
       expect(await db.getAll('SELECT * FROM unit_tags'), isEmpty);
       final uploads = [
@@ -1426,20 +1450,20 @@ void main() {
     });
 
     test('are watched: the stream emits again after a change', () async {
-      final tags = vault.watchTags(unit.id);
+      final tags = vault.watchTags(batch.id);
       final expectation = expectLater(tags, emitsThrough(['Necrons']));
-      await vault.addTags(unit.id, ['Necrons']);
+      await vault.addTags(batch.id, ['Necrons']);
       await expectation;
     });
   });
 
   group('Photos', () {
     late Collection collection;
-    late Unit unit;
+    late Batch batch;
     setUp(() async {
       await syncStarterWorkflow();
       collection = await vault.createCollection('Necrons');
-      unit = await vault.addUnit(
+      batch = await vault.addBatch(
         collection,
         name: 'Warriors',
         modelCount: 10,
@@ -1453,39 +1477,42 @@ void main() {
 
     test('are added and removed, and persist across restarts', () async {
       // The app's path for a new image: the Photo is stored in the transaction that queues its file.
-      final photo = await vault.newPhoto(unit.id);
+      final photo = await vault.newPhoto(batch.id);
       await db.writeTransaction(
         (tx) => SqliteVaultStore.insertPhoto(tx, photo),
       );
-      final [second] = await vault.addPhotos(unit.id, ['f2']);
+      final [second] = await vault.addPhotos(batch.id, ['f2']);
       await restart();
       expect(
-        files(await vault.photosOf(unit.id)),
+        files(await vault.photosOf(batch.id)),
         unorderedEquals([photo.fileId, 'f2']),
       );
 
       await vault.removePhoto(photo.id);
-      expect(await vault.photosOf(unit.id), [
+      expect(await vault.photosOf(batch.id), [
         isA<Photo>().having((p) => p.id, 'id', second.id),
       ]);
     });
 
-    test('are at most ten per Unit', () async {
-      await vault.addPhotos(unit.id, [for (var i = 0; i < 9; i++) 'f$i']);
-      await expectLater(vault.addPhotos(unit.id, ['a', 'b']), throwsStateError);
-      await vault.newPhoto(unit.id);
+    test('are at most ten per Batch', () async {
+      await vault.addPhotos(batch.id, [for (var i = 0; i < 9; i++) 'f$i']);
+      await expectLater(
+        vault.addPhotos(batch.id, ['a', 'b']),
+        throwsStateError,
+      );
+      await vault.newPhoto(batch.id);
       // f0 is already there, so only f9 is added.
-      await vault.addPhotos(unit.id, ['f9', 'f0']);
+      await vault.addPhotos(batch.id, ['f9', 'f0']);
 
-      expect(await vault.photosOf(unit.id), hasLength(Vault.maxPhotos));
-      await expectLater(vault.newPhoto(unit.id), throwsStateError);
-      await expectLater(vault.addPhotos(unit.id, ['f10']), throwsStateError);
+      expect(await vault.photosOf(batch.id), hasLength(Vault.maxPhotos));
+      await expectLater(vault.newPhoto(batch.id), throwsStateError);
+      await expectLater(vault.addPhotos(batch.id, ['f10']), throwsStateError);
     });
 
-    test('are deleted with their Unit, uploading the deletes', () async {
-      await vault.addPhotos(unit.id, ['f1', 'f2']);
+    test('are deleted with their Batch, uploading the deletes', () async {
+      await vault.addPhotos(batch.id, ['f1', 'f2']);
       await (await db.getCrudBatch())!.complete();
-      await vault.deleteUnit(unit.id);
+      await vault.deleteBatch(batch.id);
 
       expect(await db.getAll('SELECT * FROM photos'), isEmpty);
       final uploads = [
@@ -1494,52 +1521,55 @@ void main() {
       expect(uploads, ['photos', 'photos', 'units']);
     });
 
-    test('of one Unit can be attached to another, sharing the files', () async {
-      final other = await vault.addUnit(
-        collection,
-        name: 'Warriors',
-        modelCount: 4,
-        stageId: 's1',
-      );
-      await vault.addPhotos(unit.id, ['f1', 'f2']);
+    test(
+      'of one Batch can be attached to another, sharing the files',
+      () async {
+        final other = await vault.addBatch(
+          collection,
+          name: 'Warriors',
+          modelCount: 4,
+          stageId: 's1',
+        );
+        await vault.addPhotos(batch.id, ['f1', 'f2']);
 
-      await vault.addPhotos(other.id, files(await vault.photosOf(unit.id)));
-      final copies = await vault.photosOf(other.id);
-      expect(files(copies), unorderedEquals(['f1', 'f2']));
+        await vault.addPhotos(other.id, files(await vault.photosOf(batch.id)));
+        final copies = await vault.photosOf(other.id);
+        expect(files(copies), unorderedEquals(['f1', 'f2']));
 
-      // Removing a copy leaves the original's row, and so its file.
-      await vault.removePhoto(copies.firstWhere((p) => p.fileId == 'f1').id);
-      expect(
-        files(await vault.photosOf(unit.id)),
-        unorderedEquals(['f1', 'f2']),
-      );
-      expect(files(await vault.photosOf(other.id)), ['f2']);
-    });
+        // Removing a copy leaves the original's row, and so its file.
+        await vault.removePhoto(copies.firstWhere((p) => p.fileId == 'f1').id);
+        expect(
+          files(await vault.photosOf(batch.id)),
+          unorderedEquals(['f1', 'f2']),
+        );
+        expect(files(await vault.photosOf(other.id)), ['f2']);
+      },
+    );
   });
 
   group('Split and Merge', () {
     late Collection collection;
-    late Unit unit;
+    late Batch batch;
     setUp(() async {
       await syncStarterWorkflow();
       collection = await vault.createCollection('Space Marines');
-      unit = await vault.addUnit(
+      batch = await vault.addBatch(
         collection,
         name: 'Intercessors',
         modelCount: 10,
         notes: 'Blue',
         stageId: 's1',
       );
-      await vault.addTags(unit.id, ['Ultramarines', '40k']);
-      await vault.addPhotos(unit.id, ['f1', 'f2']);
+      await vault.addTags(batch.id, ['Ultramarines', '40k']);
+      await vault.addPhotos(batch.id, ['f1', 'f2']);
     });
 
-    Future<List<Unit>> units() async =>
+    Future<List<Batch>> batches() async =>
         (await vault.watchStageGroups(collection).first)
-            .expand((g) => g.units)
+            .expand((g) => g.batches)
             .toList();
-    Future<Unit> reload(String id) async =>
-        (await units()).firstWhere((u) => u.id == id);
+    Future<Batch> reload(String id) async =>
+        (await batches()).firstWhere((u) => u.id == id);
     Future<List<String>> history(String id) async => [
       for (final c in await vault.watchHistory(id).first)
         '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
@@ -1548,11 +1578,11 @@ void main() {
       for (final p in photos) p.fileId,
     ];
 
-    test('a Split creates a Unit with the moved models, copying name, notes, Tags and Photos; the rest stay', () async {
+    test('a Split creates a Batch with the moved models, copying name, notes, Tags and Photos; the rest stay', () async {
       await db.execute('DELETE FROM ps_crud');
-      final split = await vault.splitUnit(unit, 's3', 4);
+      final split = await vault.splitBatch(batch, 's3', 4);
 
-      expect((await reload(unit.id)).modelCount, 6);
+      expect((await reload(batch.id)).modelCount, 6);
       final created = await reload(split.id);
       expect(
         (created.name, created.notes, created.modelCount, created.stageId),
@@ -1564,9 +1594,9 @@ void main() {
         unorderedEquals(['f1', 'f2']),
       );
       expect(await history(split.id), ['s1 -> s3 (4)']);
-      expect(await history(unit.id), ['null -> s1 (10)']);
+      expect(await history(batch.id), ['null -> s1 (10)']);
 
-      // One batch, the new Unit's rows first; the Split is the delta, and the count PATCH follows it.
+      // One batch, the new Batch's rows first; the Split is the delta, and the count PATCH follows it.
       final transaction = (await db.getNextCrudTransaction())!;
       expect(transaction.crud.map((e) => e.table), [
         'units',
@@ -1579,7 +1609,7 @@ void main() {
         'units',
       ]);
       expect(transaction.crud[6].opData, {
-        'unit_id': unit.id,
+        'unit_id': batch.id,
         'new_unit_id': split.id,
         'model_count': 4,
       });
@@ -1590,53 +1620,56 @@ void main() {
     test('a Split takes at least 1 model and leaves at least 1, to another Stage of the Workflow', () async {
       for (final count in [0, 10, 11]) {
         await expectLater(
-          vault.splitUnit(unit, 's3', count),
+          vault.splitBatch(batch, 's3', count),
           throwsArgumentError,
         );
       }
-      await expectLater(vault.splitUnit(unit, 's1', 4), throwsArgumentError);
-      await expectLater(vault.splitUnit(unit, 'x', 4), throwsArgumentError);
-      expect(await units(), hasLength(1));
-      expect((await reload(unit.id)).modelCount, 10);
+      await expectLater(vault.splitBatch(batch, 's1', 4), throwsArgumentError);
+      await expectLater(vault.splitBatch(batch, 'x', 4), throwsArgumentError);
+      expect(await batches(), hasLength(1));
+      expect((await reload(batch.id)).modelCount, 10);
     });
 
-    test('Merge is offered only for Units in the same Collection, with the same name, at the same Stage', () async {
-      final split = await vault.splitUnit(unit, 's3', 4);
-      final renamed = await vault.addUnit(
+    test('Merge is offered only for Batches in the same Collection, with the same name, at the same Stage', () async {
+      final split = await vault.splitBatch(batch, 's3', 4);
+      final renamed = await vault.addBatch(
         collection,
         name: 'Hellblasters',
         modelCount: 5,
         stageId: 's3',
       );
-      final elsewhere = await vault.addUnit(
+      final elsewhere = await vault.addBatch(
         await vault.createCollection('Other'),
         name: 'Intercessors',
         modelCount: 5,
         stageId: 's3',
       );
-      final all = [...await units(), elsewhere];
+      final all = [...await batches(), elsewhere];
 
-      // At different Stages, nothing; a Unit added at the same Stage (as after moves on two devices), each other only.
-      expect(Vault.mergeCandidates(await reload(unit.id), all), isEmpty);
-      final twin = await vault.addUnit(
+      // At different Stages, nothing; a Batch added at the same Stage (as after moves on two devices), each other only.
+      expect(Vault.mergeCandidates(await reload(batch.id), all), isEmpty);
+      final twin = await vault.addBatch(
         collection,
         name: 'Intercessors',
         modelCount: 2,
         stageId: 's3',
       );
       expect(
-        Vault.mergeCandidates(twin, [...await units(), elsewhere, renamed]),
-        [isA<Unit>().having((u) => u.id, 'id', split.id)],
+        Vault.mergeCandidates(twin, [...await batches(), elsewhere, renamed]),
+        [isA<Batch>().having((u) => u.id, 'id', split.id)],
       );
-      await expectLater(vault.mergeUnits(twin, renamed), throwsArgumentError);
-      await expectLater(vault.mergeUnits(twin, elsewhere), throwsArgumentError);
-      // Units that already share a Stage are Merged only by explicit choice.
-      expect(await units(), hasLength(4));
+      await expectLater(vault.mergeBatches(twin, renamed), throwsArgumentError);
+      await expectLater(
+        vault.mergeBatches(twin, elsewhere),
+        throwsArgumentError,
+      );
+      // Batches that already share a Stage are Merged only by explicit choice.
+      expect(await batches(), hasLength(4));
     });
 
     test('Merge sums the counts, unites the Tags and Photos (up to the cap) and keeps both histories', () async {
-      // A second Unit at the same Stage, as after moves on two devices.
-      final split = await vault.addUnit(
+      // A second Batch at the same Stage, as after moves on two devices.
+      final split = await vault.addBatch(
         collection,
         name: 'Intercessors',
         modelCount: 4,
@@ -1644,25 +1677,25 @@ void main() {
       );
       await vault.addTags(split.id, ['Primaris']);
       // 5 + 8 new files is over the cap of 10.
-      await vault.addPhotos(unit.id, ['g1', 'g2', 'g3']);
+      await vault.addPhotos(batch.id, ['g1', 'g2', 'g3']);
       await vault.addPhotos(split.id, [for (var i = 3; i < 11; i++) 'f$i']);
       await db.execute('DELETE FROM ps_crud');
 
-      await vault.mergeUnits(await reload(unit.id), await reload(split.id));
+      await vault.mergeBatches(await reload(batch.id), await reload(split.id));
 
-      expect(await units(), [
-        isA<Unit>()
-            .having((u) => u.id, 'id', unit.id)
+      expect(await batches(), [
+        isA<Batch>()
+            .having((u) => u.id, 'id', batch.id)
             .having((u) => u.modelCount, 'modelCount', 14)
             .having((u) => u.stageId, 'stageId', 's1'),
       ]);
-      expect(await vault.tagsOf(unit.id), ['40k', 'Primaris', 'Ultramarines']);
-      final photos = files(await vault.photosOf(unit.id));
+      expect(await vault.tagsOf(batch.id), ['40k', 'Primaris', 'Ultramarines']);
+      final photos = files(await vault.photosOf(batch.id));
       expect(photos, hasLength(Vault.maxPhotos));
       expect(photos, containsAll(['f1', 'f2', 'g1', 'g2', 'g3']));
       expect(await vault.tagsOf(split.id), isEmpty);
       expect(await vault.photosOf(split.id), isEmpty);
-      expect(await history(unit.id), ['null -> s1 (10)', 'null -> s1 (4)']);
+      expect(await history(batch.id), ['null -> s1 (10)', 'null -> s1 (4)']);
 
       // One batch, the Merge first so the server checks it before anything else.
       final transaction = (await db.getNextCrudTransaction())!;
@@ -1672,7 +1705,7 @@ void main() {
     });
   });
 
-  group('Squads', () {
+  group('Units', () {
     late Collection collection;
     setUp(() async {
       await syncStarterWorkflow();
@@ -1683,7 +1716,7 @@ void main() {
         ('Captain', 1, 's0'),
         ('Intercessors', 2, 's6'),
       ]) {
-        await vault.addUnit(
+        await vault.addBatch(
           collection,
           name: name,
           modelCount: count,
@@ -1693,22 +1726,22 @@ void main() {
     });
 
     test(
-      'groups Units by name over every Stage, with their progress',
+      'groups Batches by name over every Stage, with their progress',
       () async {
-        final squads = await vault.watchSquads(collection).first;
+        final units = await vault.watchUnits(collection).first;
 
         expect(
-          [for (final s in squads) (s.name, s.modelCount)],
+          [for (final s in units) (s.name, s.modelCount)],
           [('Captain', 1), ('Intercessors', 12)],
         );
-        final intercessors = squads.last;
+        final intercessors = units.last;
         expect(
           [for (final g in intercessors.stages) g.modelCount],
           [
             0, 6, 0, 0, 0, 0, 6, //
           ],
         );
-        expect(intercessors.stages[6].units, hasLength(2));
+        expect(intercessors.stages[6].batches, hasLength(2));
         expect(
           (
             intercessors.progress.wanted,
@@ -1720,41 +1753,41 @@ void main() {
       },
     );
 
-    test('renaming a Squad renames each of its Units', () async {
-      final squad = (await vault.watchSquads(collection).first).last;
+    test('renaming a Unit renames each of its Batches', () async {
+      final unit = (await vault.watchUnits(collection).first).last;
 
-      await vault.renameSquad(squad, ' Assault Intercessors ');
+      await vault.renameUnit(unit, ' Assault Intercessors ');
 
       expect(
         [
-          for (final s in await vault.watchSquads(collection).first)
+          for (final s in await vault.watchUnits(collection).first)
             (s.name, s.modelCount),
         ],
         [('Assault Intercessors', 12), ('Captain', 1)],
       );
-      expect(() => vault.renameSquad(squad, '  '), throwsArgumentError);
+      expect(() => vault.renameUnit(unit, '  '), throwsArgumentError);
     });
   });
 
-  group('Merge on arrival and Squad moves', () {
+  group('Merge on arrival and Unit moves', () {
     late Collection collection;
     setUp(() async {
       await syncStarterWorkflow();
       collection = await vault.createCollection('Space Marines');
     });
 
-    Future<Unit> add(
+    Future<Batch> add(
       int count,
       String stageId, {
       String name = 'Intercessors',
-    }) => vault.addUnit(
+    }) => vault.addBatch(
       collection,
       name: name,
       modelCount: count,
       stageId: stageId,
     );
-    Future<List<(String, String, int)>> squad() async => [
-      for (final u in await vault.unitsOf(collection))
+    Future<List<(String, String, int)>> unit() async => [
+      for (final u in await vault.batchesOf(collection))
         (u.id, u.stageId, u.modelCount),
     ];
     Future<List<String>> history(String id) async => [
@@ -1762,7 +1795,7 @@ void main() {
         '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
     ];
 
-    test('moving a whole Unit onto a Stage with a matching Unit Merges it into that Unit, move recorded', () async {
+    test('moving a whole Batch onto a Stage with a matching Batch Merges it into that Batch, move recorded', () async {
       final there = await add(3, 's3');
       await vault.addTags(there.id, ['Ultramarines']);
       final moving = await add(5, 's1');
@@ -1770,9 +1803,9 @@ void main() {
       await vault.addPhotos(moving.id, ['f1']);
       await db.execute('DELETE FROM ps_crud');
 
-      await vault.moveUnit(moving, 's3');
+      await vault.moveBatch(moving, 's3');
 
-      expect(await squad(), [(there.id, 's3', 8)]);
+      expect(await unit(), [(there.id, 's3', 8)]);
       expect(await vault.tagsOf(there.id), ['40k', 'Ultramarines']);
       expect(
         [for (final p in await vault.photosOf(there.id)) p.fileId],
@@ -1782,7 +1815,7 @@ void main() {
         await history(there.id),
         unorderedEquals(['null -> s3 (3)', 'null -> s1 (5)', 's1 -> s3 (5)']),
       );
-      // The move uploads first, so the write API sees both Units at s3 when it checks the Merge.
+      // The move uploads first, so the write API sees both Batches at s3 when it checks the Merge.
       final move = (await db.getNextCrudTransaction())!;
       expect(move.crud.map((e) => e.table), ['units', 'stage_changes']);
       await move.complete();
@@ -1790,75 +1823,75 @@ void main() {
     });
 
     test(
-      'splitting models onto a Stage with a matching Unit adds them to it',
+      'splitting models onto a Stage with a matching Batch adds them to it',
       () async {
         final there = await add(3, 's3');
         final source = await add(10, 's1');
 
-        final into = await vault.splitUnit(source, 's3', 4);
+        final into = await vault.splitBatch(source, 's3', 4);
 
         expect((into.id, into.stageId, into.modelCount), (there.id, 's3', 7));
         expect(
-          await squad(),
+          await unit(),
           unorderedEquals([(there.id, 's3', 7), (source.id, 's1', 6)]),
         );
         expect(await history(there.id), contains('s1 -> s3 (4)'));
       },
     );
 
-    test('with no matching Unit, a move or Split is unchanged; another name or Collection does not match', () async {
+    test('with no matching Batch, a move or Split is unchanged; another name or Collection does not match', () async {
       await add(2, 's3', name: 'Hellblasters');
-      final elsewhere = await vault.addUnit(
+      final elsewhere = await vault.addBatch(
         await vault.createCollection('Other'),
         name: 'Intercessors',
         modelCount: 2,
         stageId: 's3',
       );
-      final unit = await add(10, 's1');
+      final batch = await add(10, 's1');
 
-      final split = await vault.splitUnit(unit, 's3', 4);
-      expect(split.id, isNot(unit.id));
+      final split = await vault.splitBatch(batch, 's3', 4);
+      expect(split.id, isNot(batch.id));
       expect((split.stageId, split.modelCount), ('s3', 4));
-      await vault.moveUnit((await vault.unitsAt('s1')).single, 's2');
+      await vault.moveBatch((await vault.batchesAt('s1')).single, 's2');
 
       expect([
-        for (final (id, stage, n) in await squad())
+        for (final (id, stage, n) in await unit())
           if (n != 2) (id, stage, n),
-      ], unorderedEquals([(unit.id, 's2', 6), (split.id, 's3', 4)]));
-      expect(await vault.unitsAt('s3'), hasLength(3));
+      ], unorderedEquals([(batch.id, 's2', 6), (split.id, 's3', 4)]));
+      expect(await vault.batchesAt('s3'), hasLength(3));
       expect(
-        (await vault.unitsAt('s3')).map((u) => u.id),
+        (await vault.batchesAt('s3')).map((u) => u.id),
         contains(elsewhere.id),
       );
-      expect(await history(unit.id), ['null -> s1 (10)', 's1 -> s2 (6)']);
+      expect(await history(batch.id), ['null -> s1 (10)', 's1 -> s2 (6)']);
     });
 
-    test('a Squad move takes N models forward and back, one Stage Change each, Merging on arrival', () async {
-      final unit = await add(10, 's1');
+    test('a Unit move takes N models forward and back, one Stage Change each, Merging on arrival', () async {
+      final batch = await add(10, 's1');
 
       await vault.moveModels(collection, 'Intercessors', 's1', 's2', 1);
       await vault.moveModels(collection, 'Intercessors', 's1', 's2', 2);
-      final atS2 = (await vault.unitsAt('s2')).single;
+      final atS2 = (await vault.batchesAt('s2')).single;
       expect(
-        await squad(),
-        unorderedEquals([(unit.id, 's1', 7), (atS2.id, 's2', 3)]),
+        await unit(),
+        unorderedEquals([(batch.id, 's1', 7), (atS2.id, 's2', 3)]),
       );
       expect(
         await history(atS2.id),
         unorderedEquals(['s1 -> s2 (1)', 's1 -> s2 (2)']),
       );
 
-      // Back: into the Unit at s1; then all of s2, so the Unit there moves whole and nothing is left behind.
+      // Back: into the Batch at s1; then all of s2, so the Batch there moves whole and nothing is left behind.
       await vault.moveModels(collection, 'Intercessors', 's2', 's1', 1);
       expect(
-        await squad(),
-        unorderedEquals([(unit.id, 's1', 8), (atS2.id, 's2', 2)]),
+        await unit(),
+        unorderedEquals([(batch.id, 's1', 8), (atS2.id, 's2', 2)]),
       );
       await vault.moveModels(collection, 'Intercessors', 's2', 's1', 2);
-      expect(await squad(), [(unit.id, 's1', 10)]);
-      // Its own creation, the 1-model Split's move, and the whole Unit's history (two moves in, one back) copied.
+      expect(await unit(), [(batch.id, 's1', 10)]);
+      // Its own creation, the 1-model Split's move, and the whole Batch's history (two moves in, one back) copied.
       expect(
-        await history(unit.id),
+        await history(batch.id),
         unorderedEquals([
           'null -> s1 (10)',
           's2 -> s1 (1)',
@@ -1870,29 +1903,29 @@ void main() {
 
       // Any Stages, not just neighbours.
       await vault.moveModels(collection, 'Intercessors', 's1', 's6', 10);
-      expect(await squad(), [(unit.id, 's6', 10)]);
+      expect(await unit(), [(batch.id, 's6', 10)]);
     });
 
-    test('undoing a Squad move, the same move back, puts the models back at their old Stage', () async {
+    test('undoing a Unit move, the same move back, puts the models back at their old Stage', () async {
       // A partial move that starts a new Batch, undone: the new Batch moves back whole and Merges.
-      final unit = await add(10, 's1');
+      final batch = await add(10, 's1');
       await vault.moveModels(collection, 'Intercessors', 's1', 's2', 4);
       await vault.moveModels(collection, 'Intercessors', 's2', 's1', 4);
-      expect(await squad(), [(unit.id, 's1', 10)]);
-      expect(await history(unit.id), contains('s2 -> s1 (4)'));
+      expect(await unit(), [(batch.id, 's1', 10)]);
+      expect(await history(batch.id), contains('s2 -> s1 (4)'));
 
       // A partial move onto a Batch already there, undone: that Batch keeps its own models.
       final there = await add(3, 's3');
       await vault.moveModels(collection, 'Intercessors', 's1', 's3', 4);
       await vault.moveModels(collection, 'Intercessors', 's3', 's1', 4);
       expect([
-        for (final (_, stage, n) in await squad()) (stage, n),
+        for (final (_, stage, n) in await unit()) (stage, n),
       ], unorderedEquals([('s1', 10), ('s3', 3)]));
-      expect((await squad()).firstWhere((u) => u.$2 == 's3').$1, there.id);
+      expect((await unit()).firstWhere((u) => u.$2 == 's3').$1, there.id);
     });
 
-    test('a Squad move rejects N under 1 or above what the source Stage holds, and the same Stage', () async {
-      final unit = await add(4, 's1');
+    test('a Unit move rejects N under 1 or above what the source Stage holds, and the same Stage', () async {
+      final batch = await add(4, 's1');
       await add(3, 's1', name: 'Hellblasters');
       for (final n in [0, -1, 5]) {
         await expectLater(
@@ -1909,14 +1942,14 @@ void main() {
         throwsArgumentError,
       );
       expect(
-        (await vault.unitsAt('s1')).map((u) => u.modelCount),
+        (await vault.batchesAt('s1')).map((u) => u.modelCount),
         unorderedEquals([3, 4]),
       );
-      expect(await history(unit.id), hasLength(1));
+      expect(await history(batch.id), hasLength(1));
     });
 
-    test('a Squad move takes from the oldest Unit at the source Stage first, then the next', () async {
-      // Two Units at s1, as after moves on two devices; the first-created is the oldest.
+    test('a Unit move takes from the oldest Batch at the source Stage first, then the next', () async {
+      // Two Batches at s1, as after moves on two devices; the first-created is the oldest.
       final oldest = await add(3, 's1');
       await Future<void>.delayed(const Duration(milliseconds: 5));
       final younger = await add(4, 's1');
@@ -1924,12 +1957,12 @@ void main() {
       await vault.moveModels(collection, 'Intercessors', 's1', 's2', 5);
 
       expect(
-        await squad(),
+        await unit(),
         unorderedEquals([(oldest.id, 's2', 5), (younger.id, 's1', 2)]),
       );
     });
 
-    test('an Army List import adds Units at one Stage with the Tag, Merging same-name entries and Units there', () async {
+    test('an Army List import adds Batches at one Stage with the Tag, Merging same-name entries and Batches there', () async {
       final there = await add(3, 's2');
       final other = await add(4, 's1');
 
@@ -1939,9 +1972,9 @@ void main() {
         (name: 'Captain', count: 1),
       ], tag: 'Ultramarines');
 
-      final units = await vault.unitsOf(collection);
+      final batches = await vault.batchesOf(collection);
       expect(
-        [for (final u in units) (u.name, u.stageId, u.modelCount)],
+        [for (final u in batches) (u.name, u.stageId, u.modelCount)],
         unorderedEquals([
           ('Intercessors', 's2', 8),
           ('Intercessors', 's1', 4),
@@ -1951,7 +1984,7 @@ void main() {
       expect(await history(there.id), contains('null -> s2 (5)'));
       expect(await vault.tagsOf(there.id), ['Ultramarines']);
       expect(await vault.tagsOf(other.id), isEmpty);
-      final captain = units.firstWhere((u) => u.name == 'Captain');
+      final captain = batches.firstWhere((u) => u.name == 'Captain');
       expect(await vault.tagsOf(captain.id), ['Ultramarines']);
     });
 
@@ -1963,18 +1996,18 @@ void main() {
         ]),
         throwsArgumentError,
       );
-      expect(await vault.unitsOf(collection), isEmpty);
+      expect(await vault.batchesOf(collection), isEmpty);
     });
   });
 
-  group('Recently moved Squads', () {
-    test('are the last 3 Squads moved, across Collections, newest first, each starting where it last moved from', () async {
+  group('Recently moved Units', () {
+    test('are the last 3 Units moved, across Collections, newest first, each starting where it last moved from', () async {
       await syncStarterWorkflow();
       final marines = await vault.createCollection('Space Marines');
       final orks = await vault.createCollection('Orks');
       expect(await vault.watchRecentlyMoved().first, isEmpty);
       Future<void> add(Collection c, String name, int n, String stageId) =>
-          vault.addUnit(c, name: name, modelCount: n, stageId: stageId);
+          vault.addBatch(c, name: name, modelCount: n, stageId: stageId);
       await add(marines, 'Intercessors', 5, 's1');
       await add(marines, 'Captain', 1, 's1');
       await add(orks, 'Boyz', 10, 's3');
@@ -1992,7 +2025,7 @@ void main() {
       expect(
         [
           for (final r in recent)
-            (r.collection.name, r.squad.name, r.from.stage.id),
+            (r.collection.name, r.unit.name, r.from.stage.id),
         ],
         [
           ('Space Marines', 'Intercessors', 's1'),
@@ -2001,7 +2034,7 @@ void main() {
           ('Space Marines', 'Captain', 's4'),
         ],
       );
-      expect(recent.first.squad.modelCount, 5);
+      expect(recent.first.unit.modelCount, 5);
     });
   });
 
@@ -2169,18 +2202,18 @@ void main() {
     });
   });
 
-  group('Squad Paints', () {
+  group('Unit Paints', () {
     late Collection collection;
     late Paint blue;
     late Paint black;
 
-    Future<Squad> squad(String name) async =>
-        (await vault.watchSquads(collection).first).firstWhere(
+    Future<Unit> unit(String name) async =>
+        (await vault.watchUnits(collection).first).firstWhere(
           (s) => s.name == name,
         );
     Future<List<String>> paintsOf(String name, [Collection? c]) async => [
       for (final l
-          in await vault.watchSquadPaints((c ?? collection).id, name).first)
+          in await vault.watchUnitPaints((c ?? collection).id, name).first)
         '${l.paint.name}${l.note.isEmpty ? '' : ': ${l.note}'}${l.paint.owned ? '' : ' (wanted)'}',
     ];
 
@@ -2188,7 +2221,7 @@ void main() {
       await syncStarterWorkflow();
       collection = await vault.createCollection('Space Marines');
       for (final name in ['Intercessors', 'Hellblasters']) {
-        await vault.addUnit(
+        await vault.addBatch(
           collection,
           name: name,
           modelCount: 5,
@@ -2208,15 +2241,15 @@ void main() {
     });
 
     test('are added with a note, edited, removed, used once each, and kept across restarts', () async {
-      await vault.addSquadPaint(
+      await vault.addUnitPaint(
         collection.id,
         'Intercessors',
         blue.id,
         note: ' armour base ',
       );
-      await vault.addSquadPaint(collection.id, 'Intercessors', black.id);
+      await vault.addUnitPaint(collection.id, 'Intercessors', black.id);
       await expectLater(
-        vault.addSquadPaint(collection.id, 'Intercessors', blue.id),
+        vault.addUnitPaint(collection.id, 'Intercessors', blue.id),
         throwsStateError,
       );
       await restart();
@@ -2227,45 +2260,42 @@ void main() {
       expect(await paintsOf('Hellblasters'), isEmpty);
 
       final [first, second] = await vault
-          .watchSquadPaints(collection.id, 'Intercessors')
+          .watchUnitPaints(collection.id, 'Intercessors')
           .first;
-      await vault.setSquadPaintNote(first.id, ' weapons ');
-      await vault.removeSquadPaint(second.id);
+      await vault.setUnitPaintNote(first.id, ' weapons ');
+      await vault.removeUnitPaint(second.id);
       expect(await paintsOf('Intercessors'), ['Abaddon Black: weapons']);
       expect(
         [
-          for (final s in paintedSquads(
-            await vault.watchAllSquadPaints().first,
+          for (final s in paintedUnits(
+            await vault.watchAllUnitPaints().first,
             paintId: black.id,
           ))
-            (s.collection.name, s.squad),
+            (s.collection.name, s.unit),
         ],
         [('Space Marines', 'Intercessors')],
       );
       expect(
-        paintedSquads(
-          await vault.watchAllSquadPaints().first,
-          paintId: blue.id,
-        ),
+        paintedUnits(await vault.watchAllUnitPaints().first, paintId: blue.id),
         isEmpty,
       );
     });
 
     test('undoing a removal, adding the Paint back with its note, restores the link', () async {
-      await vault.addSquadPaint(
+      await vault.addUnitPaint(
         collection.id,
         'Intercessors',
         blue.id,
         note: 'armour base',
       );
       final [link] = await vault
-          .watchSquadPaints(collection.id, 'Intercessors')
+          .watchUnitPaints(collection.id, 'Intercessors')
           .first;
 
-      await vault.removeSquadPaint(link.id);
-      await vault.addSquadPaint(
+      await vault.removeUnitPaint(link.id);
+      await vault.addUnitPaint(
         link.collectionId,
-        link.squad,
+        link.unit,
         link.paint.id,
         note: link.note,
       );
@@ -2274,7 +2304,7 @@ void main() {
     });
 
     test('a Paint created inline is added to the library wanted', () async {
-      await vault.addNewSquadPaint(
+      await vault.addNewUnitPaint(
         collection.id,
         'Intercessors',
         brand: 'Citadel',
@@ -2289,29 +2319,24 @@ void main() {
     });
 
     test(
-      'are copied from another Squad, notes too, skipping Paints already used',
+      'are copied from another Unit, notes too, skipping Paints already used',
       () async {
         final other = await vault.createCollection('Dark Angels');
-        await vault.addSquadPaint(
+        await vault.addUnitPaint(
           collection.id,
           'Intercessors',
           blue.id,
           note: 'armour',
         );
-        await vault.addSquadPaint(
+        await vault.addUnitPaint(
           collection.id,
           'Intercessors',
           black.id,
           note: 'gun',
         );
-        await vault.addSquadPaint(
-          other.id,
-          'Deathwing',
-          black.id,
-          note: 'trim',
-        );
+        await vault.addUnitPaint(other.id, 'Deathwing', black.id, note: 'trim');
 
-        await vault.copySquadPaints(
+        await vault.copyUnitPaints(
           fromCollectionId: collection.id,
           from: 'Intercessors',
           toCollectionId: other.id,
@@ -2329,40 +2354,35 @@ void main() {
       },
     );
 
-    test('renaming a Squad carries its Paints to the new name', () async {
-      await vault.addSquadPaint(
+    test('renaming a Unit carries its Paints to the new name', () async {
+      await vault.addUnitPaint(
         collection.id,
         'Intercessors',
         blue.id,
         note: 'armour',
       );
-      await vault.renameSquad(await squad('Intercessors'), 'Assault Squad');
+      await vault.renameUnit(await unit('Intercessors'), 'Assault Squad');
       expect(await paintsOf('Assault Squad'), ['Macragge Blue: armour']);
       expect(await paintsOf('Intercessors'), isEmpty);
     });
 
-    test('renaming onto an existing Squad unions the Paints; the target note wins unless empty', () async {
+    test('renaming onto an existing Unit unions the Paints; the target note wins unless empty', () async {
       final red = await vault.addPaint(
         brand: 'Citadel',
         range: 'Base',
         name: 'Mephiston Red',
       );
-      for (final (squadName, paint, note) in [
+      for (final (unitName, paint, note) in [
         ('Intercessors', blue, 'armour'),
         ('Intercessors', black, 'gun'),
         ('Intercessors', red, 'eyes'),
         ('Hellblasters', blue, ''),
         ('Hellblasters', black, 'casing'),
       ]) {
-        await vault.addSquadPaint(
-          collection.id,
-          squadName,
-          paint.id,
-          note: note,
-        );
+        await vault.addUnitPaint(collection.id, unitName, paint.id, note: note);
       }
 
-      await vault.renameSquad(await squad('Intercessors'), 'Hellblasters');
+      await vault.renameUnit(await unit('Intercessors'), 'Hellblasters');
 
       expect(await paintsOf('Hellblasters'), [
         'Abaddon Black: casing',
@@ -2372,10 +2392,10 @@ void main() {
       expect(await paintsOf('Intercessors'), isEmpty);
     });
 
-    test('stay with the name of a Squad without Units and reappear when the name is added again', () async {
-      await vault.addSquadPaint(collection.id, 'Intercessors', blue.id);
-      await vault.deleteUnit((await squad('Intercessors')).units.single.id);
-      expect((await vault.watchSquads(collection).first).map((s) => s.name), [
+    test('stay with the name of a Unit without Batches and reappear when the name is added again', () async {
+      await vault.addUnitPaint(collection.id, 'Intercessors', blue.id);
+      await vault.deleteBatch((await unit('Intercessors')).batches.single.id);
+      expect((await vault.watchUnits(collection).first).map((s) => s.name), [
         'Hellblasters',
       ]);
 
@@ -2385,15 +2405,12 @@ void main() {
       expect(await paintsOf('Intercessors'), ['Macragge Blue']);
     });
 
-    test('deleting a Paint removes it from every Squad', () async {
-      await vault.addSquadPaint(collection.id, 'Intercessors', blue.id);
-      await vault.addSquadPaint(collection.id, 'Hellblasters', blue.id);
-      await vault.addSquadPaint(collection.id, 'Hellblasters', black.id);
+    test('deleting a Paint removes it from every Unit', () async {
+      await vault.addUnitPaint(collection.id, 'Intercessors', blue.id);
+      await vault.addUnitPaint(collection.id, 'Hellblasters', blue.id);
+      await vault.addUnitPaint(collection.id, 'Hellblasters', black.id);
       expect(
-        paintedSquads(
-          await vault.watchAllSquadPaints().first,
-          paintId: blue.id,
-        ),
+        paintedUnits(await vault.watchAllUnitPaints().first, paintId: blue.id),
         hasLength(2),
       );
 
@@ -2405,11 +2422,11 @@ void main() {
     });
 
     test(
-      "deleting a Collection removes its Squads' Paint links, not the Paints",
+      "deleting a Collection removes its Units' Paint links, not the Paints",
       () async {
         final other = await vault.createCollection('Dark Angels');
-        await vault.addSquadPaint(collection.id, 'Intercessors', blue.id);
-        await vault.addSquadPaint(other.id, 'Deathwing', blue.id);
+        await vault.addUnitPaint(collection.id, 'Intercessors', blue.id);
+        await vault.addUnitPaint(other.id, 'Deathwing', blue.id);
 
         await vault.deleteCollection(collection.id);
 

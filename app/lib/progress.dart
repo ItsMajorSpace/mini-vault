@@ -3,7 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'theme.dart';
 
-/// A Collection's progress totals ("86 / 140 finished"), kept live as Units and the Workflow change.
+/// A Collection's progress totals ("86 / 140 finished"), kept live as Batches and the Workflow change.
 class ProgressSummary extends StatefulWidget {
   const ProgressSummary({
     super.key,

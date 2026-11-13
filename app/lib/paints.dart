@@ -3,7 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'main.dart';
 import 'photos.dart';
-import 'squad.dart';
+import 'unit.dart';
 import 'theme.dart';
 import 'workflows.dart';
 
@@ -13,7 +13,7 @@ class PaintsScreen extends StatefulWidget {
 
   final Vault vault;
 
-  /// Passed on to a Squad opened from a Paint.
+  /// Passed on to a Unit opened from a Paint.
   final PhotoFiles? photos;
 
   @override
@@ -22,9 +22,9 @@ class PaintsScreen extends StatefulWidget {
 
 class _PaintsScreenState extends State<PaintsScreen> {
   late var _paints = widget.vault.watchPaints();
-  late final _links = widget.vault.watchAllSquadPaints();
+  late final _links = widget.vault.watchAllUnitPaints();
   List<Paint> _known = const [];
-  List<({Collection collection, SquadPaint link})> _usage = const [];
+  List<({Collection collection, UnitPaint link})> _usage = const [];
   bool _wantedOnly = false;
   String _query = '';
 
@@ -37,16 +37,16 @@ class _PaintsScreenState extends State<PaintsScreen> {
         paint: paint,
         usedBy: paint == null
             ? const []
-            : paintedSquads(_usage, paintId: paint.id),
+            : paintedUnits(_usage, paintId: paint.id),
         onDelete: paint == null ? null : () => _delete(paint),
-        onOpenSquad: (collection, squad) => Navigator.push(
+        onOpenUnit: (collection, unit) => Navigator.push(
           context,
           MaterialPageRoute<void>(
-            builder: (_) => SquadScreen(
+            builder: (_) => UnitScreen(
               vault: widget.vault,
               photos: widget.photos,
               collection: collection,
-              name: squad,
+              name: unit,
             ),
           ),
         ),
@@ -76,14 +76,14 @@ class _PaintsScreenState extends State<PaintsScreen> {
   }
 
   Future<void> _delete(Paint paint) async {
-    final squads = paintedSquads(_usage, paintId: paint.id).length;
+    final units = paintedUnits(_usage, paintId: paint.id).length;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Delete ${paint.name}?'),
         content: Text(
           '${paint.brand} ${paint.range} ${paint.name} will be removed from your paints on all your devices.'
-          '${squads == 0 ? '' : ' ${squads == 1 ? '1 Squad uses' : '$squads Squads use'} it; it will be removed from them.'}',
+          '${units == 0 ? '' : ' ${units == 1 ? '1 Squad uses' : '$units Squads use'} it; it will be removed from them.'}',
         ),
         actions: [
           TextButton(
@@ -217,7 +217,7 @@ class PaintDialog extends StatefulWidget {
     this.name = '',
     this.owned = true,
     this.usedBy = const [],
-    this.onOpenSquad,
+    this.onOpenUnit,
     this.onDelete,
   });
 
@@ -233,9 +233,9 @@ class PaintDialog extends StatefulWidget {
   /// Whether a new Paint starts as owned.
   final bool owned;
 
-  /// The Squads that use the Paint; tapping one closes the dialog and calls [onOpenSquad].
-  final List<({Collection collection, String squad})> usedBy;
-  final void Function(Collection collection, String squad)? onOpenSquad;
+  /// The Units that use the Paint; tapping one closes the dialog and calls [onOpenUnit].
+  final List<({Collection collection, String unit})> usedBy;
+  final void Function(Collection collection, String unit)? onOpenUnit;
 
   /// Shown as Delete when set; closes the dialog and calls it, which asks to confirm.
   final VoidCallback? onDelete;
@@ -335,14 +335,14 @@ class _PaintDialogState extends State<PaintDialog> {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
               ),
-              for (final (:collection, :squad) in widget.usedBy)
+              for (final (:collection, :unit) in widget.usedBy)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: Text(squad),
+                  title: Text(unit),
                   subtitle: Text(collection.name),
                   onTap: () {
                     Navigator.pop(context);
-                    widget.onOpenSquad?.call(collection, squad);
+                    widget.onOpenUnit?.call(collection, unit);
                   },
                 ),
             ],

@@ -1,4 +1,4 @@
-/// A Unit's photos: picked from the camera or gallery, resized on the device, and synced as files through
+/// A Batch's photos: picked from the camera or gallery, resized on the device, and synced as files through
 /// PowerSync's attachment queue, whose remote storage is the write API (`/photos/<file id>`).
 library;
 
@@ -65,7 +65,7 @@ class PhotoFiles {
         db: _db,
         remoteStorage: _WriteApiStorage(auth),
         localStorage: IOLocalStorage(dir),
-        // Every photo file any Unit points at; a Split's copies share one.
+        // Every photo file any Batch points at; a Split's copies share one.
         watchAttachments: () => _db
             .watch('SELECT DISTINCT file_id FROM photos')
             .map(
@@ -99,13 +99,13 @@ class PhotoFiles {
   final Directory dir;
   final AttachmentQueue queue;
 
-  /// The Unit's Photos, each with its file on this device (null until downloaded), again whenever they change.
-  Stream<List<(Photo, File?)>> watch(String unitId) => _db
+  /// The Batch's Photos, each with its file on this device (null until downloaded), again whenever they change.
+  Stream<List<(Photo, File?)>> watch(String batchId) => _db
       .watch(
         'SELECT p.id, p.file_id, a.local_uri FROM photos p '
         'LEFT JOIN ${photoQueueTable.name} a ON a.id = p.file_id AND a.state <> ? '
         'WHERE p.unit_id = ? ORDER BY p.id',
-        parameters: [AttachmentState.archived.toInt(), unitId],
+        parameters: [AttachmentState.archived.toInt(), batchId],
         triggerOnTables: ['photos', photoQueueTable.name],
       )
       .map(
@@ -114,7 +114,7 @@ class PhotoFiles {
             (
               Photo(
                 id: r['id'] as String,
-                unitId: unitId,
+                batchId: batchId,
                 fileId: r['file_id'] as String,
               ),
               switch (r['local_uri']) {
@@ -125,17 +125,17 @@ class PhotoFiles {
         ],
       );
 
-  /// The file on this device of the newest Photo among the Squad's Units (null if it has none, or the newest is not
+  /// The file on this device of the newest Photo among the Unit's Batches (null if it has none, or the newest is not
   /// downloaded yet), again whenever it changes. Nothing is downloaded for it.
   // shortcut: Photos have no creation time, so "newest" is the latest attachment queue timestamp (set when the
   // file is saved here, or queued or downloaded on another device); add a created_at to photos if that misleads.
-  Stream<File?> watchNewest(String collectionId, String squadName) => _db
+  Stream<File?> watchNewest(String collectionId, String unitName) => _db
       .watch(
         'SELECT a.local_uri FROM photos p JOIN units u ON u.id = p.unit_id '
         'LEFT JOIN ${photoQueueTable.name} a ON a.id = p.file_id AND a.state <> ? '
         'WHERE u.collection_id = ? AND u.name = ? '
         'ORDER BY a.timestamp DESC, p.id DESC LIMIT 1',
-        parameters: [AttachmentState.archived.toInt(), collectionId, squadName],
+        parameters: [AttachmentState.archived.toInt(), collectionId, unitName],
         triggerOnTables: ['photos', 'units', photoQueueTable.name],
       )
       .map(
@@ -145,10 +145,10 @@ class PhotoFiles {
         },
       );
 
-  /// Picks a photo from [source], resizes it and adds it to the Unit; its file uploads once online.
-  /// Throws a [StateError] if the Unit has no room, before anything is picked.
-  Future<void> add(Vault vault, String unitId, ImageSource source) async {
-    final photo = await vault.newPhoto(unitId);
+  /// Picks a photo from [source], resizes it and adds it to the Batch; its file uploads once online.
+  /// Throws a [StateError] if the Batch has no room, before anything is picked.
+  Future<void> add(Vault vault, String batchId, ImageSource source) async {
+    final photo = await vault.newPhoto(batchId);
     // The picker's own resize is fast and native; resizeForUpload still guarantees the size and JPEG.
     final picked = await ImagePicker().pickImage(
       source: source,
@@ -226,31 +226,31 @@ class _WriteApiStorage implements RemoteStorage {
       _check(await http.delete(_url(a), headers: await _headers()), {204, 404});
 }
 
-/// A Unit's photos in a row, with buttons to add one from the camera or gallery. Tapping a photo opens the viewer.
-class UnitPhotos extends StatefulWidget {
-  const UnitPhotos({
+/// A Batch's photos in a row, with buttons to add one from the camera or gallery. Tapping a photo opens the viewer.
+class BatchPhotos extends StatefulWidget {
+  const BatchPhotos({
     super.key,
     required this.vault,
     required this.files,
-    required this.unitId,
+    required this.batchId,
   });
 
   final Vault vault;
   final PhotoFiles files;
-  final String unitId;
+  final String batchId;
 
   @override
-  State<UnitPhotos> createState() => _UnitPhotosState();
+  State<BatchPhotos> createState() => _BatchPhotosState();
 }
 
-class _UnitPhotosState extends State<UnitPhotos> {
-  late final _photos = widget.files.watch(widget.unitId);
+class _BatchPhotosState extends State<BatchPhotos> {
+  late final _photos = widget.files.watch(widget.batchId);
 
   Future<void> _add(ImageSource source) async {
     try {
       await attempt(
         context,
-        () => widget.files.add(widget.vault, widget.unitId, source),
+        () => widget.files.add(widget.vault, widget.batchId, source),
       );
     } on FormatException {
       if (mounted) {
@@ -413,27 +413,27 @@ class _PhotoViewerState extends State<_PhotoViewer> {
   }
 }
 
-/// A Squad row's leading square: the newest photo of the Squad's Units on this device, or a placeholder.
-class SquadThumbnail extends StatefulWidget {
-  const SquadThumbnail({
+/// A Unit row's leading square: the newest photo of the Unit's Batches on this device, or a placeholder.
+class UnitThumbnail extends StatefulWidget {
+  const UnitThumbnail({
     super.key,
     required this.files,
     required this.collectionId,
-    required this.squadName,
+    required this.unitName,
   });
 
   final PhotoFiles? files;
   final String collectionId;
-  final String squadName;
+  final String unitName;
 
   @override
-  State<SquadThumbnail> createState() => _SquadThumbnailState();
+  State<UnitThumbnail> createState() => _UnitThumbnailState();
 }
 
-class _SquadThumbnailState extends State<SquadThumbnail> {
+class _UnitThumbnailState extends State<UnitThumbnail> {
   late final _newest = widget.files?.watchNewest(
     widget.collectionId,
-    widget.squadName,
+    widget.unitName,
   );
 
   @override

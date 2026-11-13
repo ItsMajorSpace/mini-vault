@@ -10,9 +10,9 @@ import 'workflows.dart';
 
 String modelCountText(int n) => n == 1 ? '1 model' : '$n models';
 
-/// A Squad's ladder: every Stage of the Workflow in order, with the Squad's model count at each.
-class SquadScreen extends StatefulWidget {
-  const SquadScreen({
+/// A Unit's ladder: every Stage of the Workflow in order, with the Unit's model count at each.
+class UnitScreen extends StatefulWidget {
+  const UnitScreen({
     super.key,
     required this.vault,
     this.photos,
@@ -24,31 +24,31 @@ class SquadScreen extends StatefulWidget {
   final PhotoFiles? photos;
   final Collection collection;
 
-  /// The Squad's name when opened; the screen follows it through a rename.
+  /// The Unit's name when opened; the screen follows it through a rename.
   final String name;
 
   @override
-  State<SquadScreen> createState() => _SquadScreenState();
+  State<UnitScreen> createState() => _UnitScreenState();
 }
 
-class _SquadScreenState extends State<SquadScreen> {
-  late var _squads = widget.vault.watchSquads(widget.collection);
+class _UnitScreenState extends State<UnitScreen> {
+  late var _units = widget.vault.watchUnits(widget.collection);
   // Listened to here, above the lazily built list: a list child scrolled out of view is disposed, and building it
   // again would listen to a single-subscription stream a second time.
   late final _library = widget.vault.watchPaints();
-  late final _links = widget.vault.watchAllSquadPaints();
+  late final _links = widget.vault.watchAllUnitPaints();
   late String _name = widget.name;
 
-  // Tags are read once per set of Units, and again on return from a Unit screen, where they are edited.
+  // Tags are read once per set of Batches, and again on return from a Batch screen, where they are edited.
   String? _tagsFor;
   Future<List<String>>? _tags;
 
-  Future<List<String>> _tagsOf(Squad squad) {
-    final ids = squad.units.map((u) => u.id).join(',');
+  Future<List<String>> _tagsOf(Unit unit) {
+    final ids = unit.batches.map((u) => u.id).join(',');
     if (ids != _tagsFor) {
       _tagsFor = ids;
       _tags =
-          Future.wait([for (final u in squad.units) widget.vault.tagsOf(u.id)])
+          Future.wait([for (final u in unit.batches) widget.vault.tagsOf(u.id)])
               .then((lists) {
                 final byKey = <String, String>{};
                 for (final t in lists.expand((l) => l)) {
@@ -61,24 +61,24 @@ class _SquadScreenState extends State<SquadScreen> {
     return _tags!;
   }
 
-  Future<void> _rename(Squad squad) async {
-    final name = await askName(context, 'Rename Squad', squad.name);
+  Future<void> _rename(Unit unit) async {
+    final name = await askName(context, 'Rename Squad', unit.name);
     if (name == null || !mounted) return;
     await attempt(context, () async {
-      await widget.vault.renameSquad(squad, name);
+      await widget.vault.renameUnit(unit, name);
       if (mounted) setState(() => _name = name.trim());
     });
   }
 
-  /// Merges the other Units at one Stage into the first: tapping the Merge chip is the explicit choice.
-  Future<void> _merge(List<Unit> units) => attempt(context, () async {
-    for (final other in units.skip(1)) {
-      await widget.vault.mergeUnits(units.first, other);
+  /// Merges the other Batches at one Stage into the first: tapping the Merge chip is the explicit choice.
+  Future<void> _merge(List<Batch> batches) => attempt(context, () async {
+    for (final other in batches.skip(1)) {
+      await widget.vault.mergeBatches(batches.first, other);
     }
   });
 
-  /// Sets how many of the Squad's models are at one Stage, without moving any: a recount of the Unit there or, once
-  /// confirmed, deleting it when set to 0. Only for a Stage with exactly one Unit.
+  /// Sets how many of the Unit's models are at one Stage, without moving any: a recount of the Batch there or, once
+  /// confirmed, deleting it when set to 0. Only for a Stage with exactly one Batch.
   Future<void> _recount(StageGroup g) async {
     final count = TextEditingController(text: '${g.modelCount}');
     final save = await showDialog<bool>(
@@ -105,48 +105,48 @@ class _SquadScreenState extends State<SquadScreen> {
         ],
       ),
     );
-    // Not disposed: the closing dialog's TextField still uses it (as in the Unit screen's move dialog).
+    // Not disposed: the closing dialog's TextField still uses it (as in the Batch screen's move dialog).
     final n = int.tryParse(count.text);
     if (save != true || n == null || n == g.modelCount || !mounted) return;
-    final unit = g.units.single;
+    final batch = g.batches.single;
     if (n > 0) {
       return attempt(
         context,
-        () => widget.vault.editUnit(unit.id, modelCount: n),
+        () => widget.vault.editBatch(batch.id, modelCount: n),
       );
     }
-    final confirmed = await confirmDeleteUnit(
+    final confirmed = await confirmDeleteBatch(
       context,
       'Delete the Unit at ${g.stage.name}?',
-      unit,
+      batch,
     );
     if (confirmed && mounted) {
-      await attempt(context, () => widget.vault.deleteUnit(unit.id));
+      await attempt(context, () => widget.vault.deleteBatch(batch.id));
     }
   }
 
-  Future<void> _sheet(Squad squad, StageGroup g) => showMoveSheet(
+  Future<void> _sheet(Unit unit, StageGroup g) => showMoveSheet(
     context,
     widget.vault,
     widget.collection,
-    squad.name,
-    [for (final s in squad.stages) s.stage],
+    unit.name,
+    [for (final s in unit.stages) s.stage],
     g,
-    // Several Units here: Merge them first, as before.
-    onRecount: g.units.length > 1 ? null : () => _recount(g),
-    onDetails: () => _details(g.units),
+    // Several Batches here: Merge them first, as before.
+    onRecount: g.batches.length > 1 ? null : () => _recount(g),
+    onDetails: () => _details(g.batches),
   );
 
-  /// Opens the only Unit, or asks which one when there are several.
-  Future<void> _details(List<Unit> units) async {
-    final unit = units.length == 1
-        ? units.single
-        : await showDialog<Unit>(
+  /// Opens the only Batch, or asks which one when there are several.
+  Future<void> _details(List<Batch> batches) async {
+    final batch = batches.length == 1
+        ? batches.single
+        : await showDialog<Batch>(
             context: context,
             builder: (context) => SimpleDialog(
               title: const Text('Which Unit?'),
               children: [
-                for (final u in units)
+                for (final u in batches)
                   ListTile(
                     title: Text(modelCountText(u.modelCount)),
                     subtitle: u.notes.isEmpty ? null : Text(u.notes),
@@ -155,18 +155,18 @@ class _SquadScreenState extends State<SquadScreen> {
               ],
             ),
           );
-    if (unit != null && mounted) await _open(unit);
+    if (batch != null && mounted) await _open(batch);
   }
 
-  Future<void> _open(Unit unit) async {
+  Future<void> _open(Batch batch) async {
     await Navigator.push(
       context,
       MaterialPageRoute<void>(
-        builder: (_) => UnitScreen(
+        builder: (_) => BatchScreen(
           vault: widget.vault,
           photos: widget.photos,
           collection: widget.collection,
-          unitId: unit.id,
+          batchId: batch.id,
         ),
       ),
     );
@@ -185,21 +185,21 @@ class _SquadScreenState extends State<SquadScreen> {
   Widget _build(
     BuildContext context,
     List<Paint>? library,
-    List<({Collection collection, SquadPaint link})>? links,
+    List<({Collection collection, UnitPaint link})>? links,
   ) {
     return StreamBuilder(
-      stream: _squads,
+      stream: _units,
       builder: (context, snapshot) {
-        final squad = snapshot.data?.where((s) => s.name == _name).firstOrNull;
+        final unit = snapshot.data?.where((s) => s.name == _name).firstOrNull;
         return Scaffold(
           appBar: AppBar(
             title: Text(_name),
             actions: [
-              if (squad != null)
+              if (unit != null)
                 IconButton(
                   icon: const Icon(Icons.edit),
                   tooltip: 'Rename Squad',
-                  onPressed: () => _rename(squad),
+                  onPressed: () => _rename(unit),
                 ),
             ],
           ),
@@ -208,20 +208,20 @@ class _SquadScreenState extends State<SquadScreen> {
               what: 'the Squad',
               error: error,
               onRetry: () => setState(
-                () => _squads = widget.vault.watchSquads(widget.collection),
+                () => _units = widget.vault.watchUnits(widget.collection),
               ),
             ),
             AsyncSnapshot(data: null) => const Center(
               child: CircularProgressIndicator(),
             ),
-            _ when squad == null => const Center(
+            _ when unit == null => const Center(
               child: Text('This Squad has no Units left'),
             ),
             _ => ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
                 FutureBuilder(
-                  future: _tagsOf(squad),
+                  future: _tagsOf(unit),
                   builder: (context, tags) => Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Wrap(
@@ -233,7 +233,7 @@ class _SquadScreenState extends State<SquadScreen> {
                     ),
                   ),
                 ),
-                for (final g in squad.stages)
+                for (final g in unit.stages)
                   // Empty Stages stay in Workflow order, dimmed, with nothing to move.
                   Opacity(
                     opacity: g.modelCount == 0 ? 0.38 : 1,
@@ -247,21 +247,22 @@ class _SquadScreenState extends State<SquadScreen> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (g.units.length > 1)
+                          if (g.batches.length > 1)
                             ActionChip(
                               label: const Text('Merge'),
-                              tooltip: 'Merge the ${g.units.length} Units here',
-                              onPressed: () => _merge(g.units),
+                              tooltip:
+                                  'Merge the ${g.batches.length} Units here',
+                              onPressed: () => _merge(g.batches),
                             ),
                           const SizedBox(width: 8),
                           Text(modelCountText(g.modelCount)),
                         ],
                       ),
-                      onTap: g.modelCount == 0 ? null : () => _sheet(squad, g),
+                      onTap: g.modelCount == 0 ? null : () => _sheet(unit, g),
                     ),
                   ),
                 if (library != null && links != null)
-                  _SquadPaints(
+                  _UnitPaints(
                     vault: widget.vault,
                     collection: widget.collection,
                     name: _name,
@@ -274,7 +275,7 @@ class _SquadScreenState extends State<SquadScreen> {
           floatingActionButton: snapshot.data == null
               ? null
               : FloatingActionButton(
-                  onPressed: () => addUnit(
+                  onPressed: () => addBatch(
                     context,
                     widget.vault,
                     widget.collection,
@@ -290,18 +291,18 @@ class _SquadScreenState extends State<SquadScreen> {
   }
 }
 
-/// Asks whether to delete [unit], titled [title]; true only once confirmed.
-Future<bool> confirmDeleteUnit(
+/// Asks whether to delete [batch], titled [title]; true only once confirmed.
+Future<bool> confirmDeleteBatch(
   BuildContext context,
   String title,
-  Unit unit,
+  Batch batch,
 ) async =>
     await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
         content: Text(
-          'Its ${modelCountText(unit.modelCount)}, photos and history will be deleted on all your devices.',
+          'Its ${modelCountText(batch.modelCount)}, photos and history will be deleted on all your devices.',
         ),
         actions: [
           TextButton(
@@ -335,7 +336,7 @@ void showUndo(
   ),
 );
 
-/// The Move sheet for a Stage of the Squad [name] with models, [stages] being its Workflow's: how many to move and
+/// The Move sheet for a Stage of the Unit [name] with models, [stages] being its Workflow's: how many to move and
 /// where, or recount them ([onRecount], null to disable), or open their details ([onDetails], null to disable).
 Future<void> showMoveSheet(
   BuildContext context,
@@ -496,9 +497,9 @@ class _MoveSheetState extends State<_MoveSheet> {
   }
 }
 
-/// The Squad's Paints section, from the paint [library] and every Squad's Paint [links].
-class _SquadPaints extends StatefulWidget {
-  const _SquadPaints({
+/// The Unit's Paints section, from the paint [library] and every Unit's Paint [links].
+class _UnitPaints extends StatefulWidget {
+  const _UnitPaints({
     required this.vault,
     required this.collection,
     required this.name,
@@ -510,30 +511,29 @@ class _SquadPaints extends StatefulWidget {
   final Collection collection;
   final String name;
   final List<Paint> library;
-  final List<({Collection collection, SquadPaint link})> links;
+  final List<({Collection collection, UnitPaint link})> links;
 
   @override
-  State<_SquadPaints> createState() => _SquadPaintsState();
+  State<_UnitPaints> createState() => _UnitPaintsState();
 }
 
-class _SquadPaintsState extends State<_SquadPaints> {
+class _UnitPaintsState extends State<_UnitPaints> {
   @override
   Widget build(BuildContext context) => _paints(widget.library, widget.links);
 
-  /// The Squad's Paints, with their notes and the wanted ones marked, and actions to add, copy, edit and remove them.
+  /// The Unit's Paints, with their notes and the wanted ones marked, and actions to add, copy, edit and remove them.
   Widget _paints(
     List<Paint> library,
-    List<({Collection collection, SquadPaint link})> all,
+    List<({Collection collection, UnitPaint link})> all,
   ) {
     final used = [
       for (final (:collection, :link) in all)
-        if (collection.id == widget.collection.id && link.squad == widget.name)
+        if (collection.id == widget.collection.id && link.unit == widget.name)
           link,
     ];
     final others = [
-      for (final s in paintedSquads(all))
-        if (s.collection.id != widget.collection.id || s.squad != widget.name)
-          s,
+      for (final s in paintedUnits(all))
+        if (s.collection.id != widget.collection.id || s.unit != widget.name) s,
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -576,14 +576,14 @@ class _SquadPaintsState extends State<_SquadPaints> {
               icon: const Icon(Icons.remove_circle_outline),
               tooltip: 'Remove Paint',
               onPressed: () => attempt(context, () async {
-                await widget.vault.removeSquadPaint(l.id);
+                await widget.vault.removeUnitPaint(l.id);
                 if (mounted) {
                   showUndo(
                     context,
                     'Removed ${l.paint.name}',
-                    () => widget.vault.addSquadPaint(
+                    () => widget.vault.addUnitPaint(
                       l.collectionId,
-                      l.squad,
+                      l.unit,
                       l.paint.id,
                       note: l.note,
                     ),
@@ -596,8 +596,8 @@ class _SquadPaintsState extends State<_SquadPaints> {
     );
   }
 
-  /// Picks a Paint from the library that the Squad does not use yet, or creates one, wanted to start with.
-  Future<void> _addPaint(List<Paint> library, List<SquadPaint> used) async {
+  /// Picks a Paint from the library that the Unit does not use yet, or creates one, wanted to start with.
+  Future<void> _addPaint(List<Paint> library, List<UnitPaint> used) async {
     final usedIds = {for (final l in used) l.paint.id};
     final picked = await showDialog<Object>(
       context: context,
@@ -612,7 +612,7 @@ class _SquadPaintsState extends State<_SquadPaints> {
     if (picked is Paint) {
       return attempt(
         context,
-        () => widget.vault.addSquadPaint(
+        () => widget.vault.addUnitPaint(
           widget.collection.id,
           widget.name,
           picked.id,
@@ -628,7 +628,7 @@ class _SquadPaintsState extends State<_SquadPaints> {
     final (:brand, :range, :name, :owned) = fields;
     await attempt(
       context,
-      () => widget.vault.addNewSquadPaint(
+      () => widget.vault.addNewUnitPaint(
         widget.collection.id,
         widget.name,
         brand: brand,
@@ -640,9 +640,9 @@ class _SquadPaintsState extends State<_SquadPaints> {
   }
 
   Future<void> _copyPaints(
-    List<({Collection collection, String squad})> others,
+    List<({Collection collection, String unit})> others,
   ) async {
-    final from = await showDialog<({Collection collection, String squad})>(
+    final from = await showDialog<({Collection collection, String unit})>(
       context: context,
       builder: (context) => SimpleDialog(
         title: const Text('Copy Paints from'),
@@ -650,7 +650,7 @@ class _SquadPaintsState extends State<_SquadPaints> {
           for (final s in others)
             SimpleDialogOption(
               onPressed: () => Navigator.pop(context, s),
-              child: Text('${s.squad} · ${s.collection.name}'),
+              child: Text('${s.unit} · ${s.collection.name}'),
             ),
         ],
       ),
@@ -658,16 +658,16 @@ class _SquadPaintsState extends State<_SquadPaints> {
     if (from == null || !mounted) return;
     await attempt(
       context,
-      () => widget.vault.copySquadPaints(
+      () => widget.vault.copyUnitPaints(
         fromCollectionId: from.collection.id,
-        from: from.squad,
+        from: from.unit,
         toCollectionId: widget.collection.id,
         to: widget.name,
       ),
     );
   }
 
-  Future<void> _editNote(SquadPaint link) async {
+  Future<void> _editNote(UnitPaint link) async {
     final note = await showDialog<String>(
       context: context,
       builder: (_) => NameDialog(
@@ -677,6 +677,6 @@ class _SquadPaintsState extends State<_SquadPaints> {
       ),
     );
     if (note == null || !mounted) return;
-    await attempt(context, () => widget.vault.setSquadPaintNote(link.id, note));
+    await attempt(context, () => widget.vault.setUnitPaintNote(link.id, note));
   }
 }

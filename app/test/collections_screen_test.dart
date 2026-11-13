@@ -103,7 +103,7 @@ void main() {
       );
       final vault = Vault(SqliteVaultStore(db));
       final terrain = await vault.createCollection('Terrain');
-      await vault.addUnit(terrain, name: 'Ruins', modelCount: 2, stageId: 's');
+      await vault.addBatch(terrain, name: 'Ruins', modelCount: 2, stageId: 's');
       await vault.createCollection('Ultramarines', gameSystem: 'Warhammer');
       await vault.createCollection('Party', gameSystem: 'D&D');
       await vault.createCollection('Orks', gameSystem: 'warhammer');
@@ -132,7 +132,7 @@ void main() {
     ];
     final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
     expect(tops, [...tops]..sort(), reason: 'in the order $order');
-    // A Unit, but no move yet.
+    // A Batch, but no move yet.
     expect(find.text('Recently painted'), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
@@ -183,7 +183,7 @@ void main() {
     },
   );
 
-  testWidgets('shows a Collection\'s Squads by name, with model counts', (
+  testWidgets('shows a Collection\'s Units by name, with model counts', (
     tester,
   ) async {
     final (db, vault, collection) = (await tester.runAsync(() async {
@@ -209,7 +209,7 @@ void main() {
         ('Terminators', 5, 's0'),
         ('Intercessors', 5, 's0'),
       ]) {
-        await vault.addUnit(
+        await vault.addBatch(
           collection,
           name: name,
           modelCount: count,
@@ -231,7 +231,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
 
-    // One row per Squad, by name, counting the models of all its Units.
+    // One row per Unit, by name, counting the models of all its Batches.
     final rows = [
       'Captain',
       '1 model',
@@ -242,20 +242,17 @@ void main() {
     ];
     final ys = [for (final text in rows) tester.getTopLeft(find.text(text)).dy];
     expect(ys, orderedEquals([...ys]..sort()));
-    // One per Squad, and the Progress drawer's.
+    // One per Unit, and the Progress drawer's.
     expect(find.byType(StageBar), findsNWidgets(4));
     // Owned and Finished Stage are both Unassembled: Primed counts as finished, Wishlist as wanted.
     expect(
       find.text('3 Squads · 11 owned · 11 finished · 10 wanted'),
       findsOneWidget,
     );
-    // Each Squad's bar: solid owned segments, then wanted ones outlined; together they fill the bar.
-    List<(String, double)> segments(String squad) {
+    // Each Unit's bar: solid owned segments, then wanted ones outlined; together they fill the bar.
+    List<(String, double)> segments(String unit) {
       final bar = find.descendant(
-        of: find.ancestor(
-          of: find.text(squad),
-          matching: find.byType(ListTile),
-        ),
+        of: find.ancestor(of: find.text(unit), matching: find.byType(ListTile)),
         matching: find.byType(StageBar),
       );
       final width = tester.getSize(bar).width;
@@ -311,7 +308,7 @@ void main() {
   });
 
   testWidgets(
-    'Squad rows lead with the newest photo on this device, else a placeholder',
+    'Unit rows lead with the newest photo on this device, else a placeholder',
     (tester) async {
       final (db, vault, collection, files) = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('app_test');
@@ -328,26 +325,26 @@ void main() {
         final vault = Vault(SqliteVaultStore(db));
         final collection = await vault.createCollection('Space Marines');
         final other = await vault.createCollection('Dark Angels');
-        Future<String> unit(Collection c, String name) async =>
-            (await vault.addUnit(
+        Future<String> batch(Collection c, String name) async =>
+            (await vault.addBatch(
               c,
               name: name,
               modelCount: 1,
               stageId: 's',
             )).id;
-        // (Unit, file, queue timestamp, downloaded): the newest file is the one with the latest timestamp.
+        // (Batch, file, queue timestamp, downloaded): the newest file is the one with the latest timestamp.
         final photos = [
-          (await unit(collection, 'Intercessors'), 'old', 1, true),
-          (await unit(collection, 'Intercessors'), 'new', 2, true),
-          (await unit(other, 'Intercessors'), 'other', 9, true),
-          (await unit(collection, 'Captain'), 'here', 1, true),
-          (await unit(collection, 'Captain'), 'incoming', 2, false),
+          (await batch(collection, 'Intercessors'), 'old', 1, true),
+          (await batch(collection, 'Intercessors'), 'new', 2, true),
+          (await batch(other, 'Intercessors'), 'other', 9, true),
+          (await batch(collection, 'Captain'), 'here', 1, true),
+          (await batch(collection, 'Captain'), 'incoming', 2, false),
         ];
-        await unit(collection, 'Terminators');
-        for (final (i, (unitId, file, ts, downloaded)) in photos.indexed) {
+        await batch(collection, 'Terminators');
+        for (final (i, (batchId, file, ts, downloaded)) in photos.indexed) {
           await SqliteVaultStore.insertPhoto(
             db,
-            Photo(id: 'p$i', unitId: unitId, fileId: file),
+            Photo(id: 'p$i', batchId: batchId, fileId: file),
           );
           await db.execute(
             'INSERT INTO ${photoQueueTable.name} (id, filename, local_uri, timestamp, state, has_synced) '
@@ -389,11 +386,8 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
 
-      Finder inRow(String squad, Finder matching) => find.descendant(
-        of: find.ancestor(
-          of: find.text(squad),
-          matching: find.byType(ListTile),
-        ),
+      Finder inRow(String unit, Finder matching) => find.descendant(
+        of: find.ancestor(of: find.text(unit), matching: find.byType(ListTile)),
         matching: matching,
       );
       final image = tester.widget<Image>(
@@ -405,14 +399,14 @@ void main() {
         '${files.dir.path}/new.jpg',
       );
       // The newest is not downloaded yet: placeholder, not an older photo.
-      for (final squad in ['Captain', 'Terminators']) {
-        expect(inRow(squad, find.byType(Image)), findsNothing);
-        expect(inRow(squad, find.byIcon(Icons.image_outlined)), findsOneWidget);
+      for (final unit in ['Captain', 'Terminators']) {
+        expect(inRow(unit, find.byType(Image)), findsNothing);
+        expect(inRow(unit, find.byIcon(Icons.image_outlined)), findsOneWidget);
       }
       // Every row's leading square is the same size.
-      for (final squad in ['Intercessors', 'Captain', 'Terminators']) {
+      for (final unit in ['Intercessors', 'Captain', 'Terminators']) {
         expect(
-          tester.getSize(inRow(squad, find.byType(SquadThumbnail))),
+          tester.getSize(inRow(unit, find.byType(UnitThumbnail))),
           const Size.square(48),
         );
       }
@@ -422,7 +416,7 @@ void main() {
   );
 
   testWidgets(
-    'Recently painted lists the last 3 moved Squads, newest first; tapping one opens its Move sheet',
+    'Recently painted lists the last 3 moved Units, newest first; tapping one opens its Move sheet',
     (tester) async {
       final (db, vault) = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('app_test');
@@ -448,7 +442,7 @@ void main() {
           (orks, 'Boyz'),
           (orks, 'Nobz'),
         ]) {
-          await vault.addUnit(c, name: name, modelCount: 5, stageId: 's1');
+          await vault.addBatch(c, name: name, modelCount: 5, stageId: 's1');
         }
         for (final (c, name) in [
           (marines, 'Intercessors'),
@@ -529,7 +523,7 @@ void main() {
           'Space Marines',
           workflowId: 'w',
         );
-        await vault.addUnit(c, name: 'Captain', modelCount: 1, stageId: 'sw');
+        await vault.addBatch(c, name: 'Captain', modelCount: 1, stageId: 'sw');
         return (db, vault);
       }))!;
       Future<void> settle() async {
@@ -692,7 +686,7 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
-      // An empty Collection: what a Unit is, a New Unit button, and the FAB still there.
+      // An empty Collection: what a Batch is, a New Batch button, and the FAB still there.
       await tester.runAsync(() => vault.createCollection('Space Marines'));
       await settle();
       expect(bigButton('New Collection'), findsNothing);

@@ -80,9 +80,9 @@ void main() {
       finishedStageId: '$id${stages.length - 1}',
     );
     WorkflowProgress progress(Workflow w, Map<int, int> modelsAt) {
-      final units = [
+      final batches = [
         for (final MapEntry(key: i, value: n) in modelsAt.entries)
-          Unit(
+          Batch(
             id: '${w.id}u$i',
             collectionId: 'c',
             stageId: w.stages[i].id,
@@ -91,7 +91,11 @@ void main() {
             notes: '',
           ),
       ];
-      return WorkflowProgress(w, groupByStage(w, units), progressOf(w, units));
+      return WorkflowProgress(
+        w,
+        groupByStage(w, batches),
+        progressOf(w, batches),
+      );
     }
 
     final starter = workflow('a', 'Starter', [

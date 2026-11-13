@@ -74,7 +74,7 @@ Necron Warriors (200 points)
         }
         final vault = Vault(SqliteVaultStore(db));
         final collection = await vault.createCollection('Dynasty');
-        await vault.addUnit(
+        await vault.addBatch(
           collection,
           name: 'Necron Warriors',
           modelCount: 3,
@@ -112,11 +112,13 @@ Necron Warriors (200 points)
 
       // Back in the Collection.
       expect(find.text('Import army list'), findsNothing);
-      final units = (await tester.runAsync(() => vault.unitsOf(collection)))!;
+      final batches = (await tester.runAsync(
+        () => vault.batchesOf(collection),
+      ))!;
       expect([
-        for (final u in units) (u.name, u.stageId, u.modelCount),
+        for (final u in batches) (u.name, u.stageId, u.modelCount),
       ], unorderedEquals([('Szeras', 's0', 1), ('Necron Warriors', 's0', 13)]));
-      for (final u in units) {
+      for (final u in batches) {
         expect(await tester.runAsync(() => vault.tagsOf(u.id)), ['Necrons']);
       }
     },

@@ -46,7 +46,7 @@ class SqliteVaultStore implements VaultStore {
       Column.integer('model_count'),
       Column.text('happened_at'),
     ]),
-    // One row per Tag on a Unit; its id is [tagId], so the same Tag added on two devices is one row.
+    // One row per Tag on a Batch; its id is [tagId], so the same Tag added on two devices is one row.
     Table('unit_tags', [Column.text('unit_id'), Column.text('name')]),
     // file_id is the image file's PowerSync attachment id; a Split's copy of a Photo shares it.
     Table('photos', [Column.text('unit_id'), Column.text('file_id')]),
@@ -65,7 +65,7 @@ class SqliteVaultStore implements VaultStore {
       Column.text('name'),
       Column.integer('owned'),
     ]),
-    // A Paint a Squad uses, keyed by the Squad's Collection and name (squad_name), not by its Units.
+    // A Paint a Unit uses, keyed by the Unit's Collection and name (squad_name), not by its Batches.
     Table('squad_paints', [
       Column.text('collection_id'),
       Column.text('squad_name'),
@@ -234,7 +234,7 @@ class SqliteVaultStore implements VaultStore {
   });
 
   @override
-  Future<List<Unit>> unitsAt(String stageId) async => _toUnits(
+  Future<List<Batch>> batchesAt(String stageId) async => _toBatches(
     await _db.getAll('SELECT * FROM units WHERE stage_id = ?', [stageId]),
   );
 
@@ -282,33 +282,34 @@ class SqliteVaultStore implements VaultStore {
     [gameSystem, id],
   );
 
-  // As deleteUnit, for every Unit: Stage Changes are left to the server, and children go first. The server also
-  // deletes Units this device hasn't seen yet when the Collection's delete arrives.
+  // As deleteBatch, for every Batch: Stage Changes are left to the server, and children go first. The server also
+  // deletes Batches this device hasn't seen yet when the Collection's delete arrives.
   @override
   Future<void> deleteCollection(String id) => _db.writeTransaction((tx) async {
-    const units = 'SELECT id FROM units WHERE collection_id = ?';
-    await tx.execute('DELETE FROM unit_tags WHERE unit_id IN ($units)', [id]);
-    await tx.execute('DELETE FROM photos WHERE unit_id IN ($units)', [id]);
+    const batches = 'SELECT id FROM units WHERE collection_id = ?';
+    await tx.execute('DELETE FROM unit_tags WHERE unit_id IN ($batches)', [id]);
+    await tx.execute('DELETE FROM photos WHERE unit_id IN ($batches)', [id]);
     await tx.execute('DELETE FROM units WHERE collection_id = ?', [id]);
     await tx.execute('DELETE FROM squad_paints WHERE collection_id = ?', [id]);
     await tx.execute('DELETE FROM collections WHERE id = ?', [id]);
   });
 
   @override
-  Stream<List<Unit>> watchUnits(String collectionId) => _db
+  Stream<List<Batch>> watchBatches(String collectionId) => _db
       .watch(
         'SELECT * FROM units WHERE collection_id = ? ORDER BY name COLLATE NOCASE',
         parameters: [collectionId],
       )
-      .map(_toUnits);
+      .map(_toBatches);
 
   @override
-  Stream<List<Unit>> watchAllUnits() =>
-      _db.watch('SELECT * FROM units').map(_toUnits);
+  Stream<List<Batch>> watchAllBatches() =>
+      _db.watch('SELECT * FROM units').map(_toBatches);
 
-  static List<Unit> _toUnits(Iterable<Map<String, Object?>> rows) => [
+  // Table `units` holds Batches (ADR 0008).
+  static List<Batch> _toBatches(Iterable<Map<String, Object?>> rows) => [
     for (final u in rows)
-      Unit(
+      Batch(
         id: u['id'] as String,
         collectionId: u['collection_id'] as String,
         stageId: u['stage_id'] as String,
@@ -319,17 +320,17 @@ class SqliteVaultStore implements VaultStore {
   ];
 
   @override
-  Future<void> insertUnit(Unit unit, StageChange initial) =>
+  Future<void> insertBatch(Batch batch, StageChange initial) =>
       _db.writeTransaction((tx) async {
         await tx.execute(
           'INSERT INTO units (id, collection_id, stage_id, name, model_count, notes) VALUES (?, ?, ?, ?, ?, ?)',
           [
-            unit.id,
-            unit.collectionId,
-            unit.stageId,
-            unit.name,
-            unit.modelCount,
-            unit.notes,
+            batch.id,
+            batch.collectionId,
+            batch.stageId,
+            batch.name,
+            batch.modelCount,
+            batch.notes,
           ],
         );
         await _insertStageChange(tx, initial);
@@ -343,12 +344,12 @@ class SqliteVaultStore implements VaultStore {
   static Future<void> _move(SqliteWriteContext tx, StageChange change) async {
     await tx.execute('UPDATE units SET stage_id = ? WHERE id = ?', [
       change.toStageId,
-      change.unitId,
+      change.batchId,
     ]);
     await _insertStageChange(tx, change);
   }
 
-  // A new Stage Change must sort after every one this device knows for the Unit, or a device whose clock runs
+  // A new Stage Change must sort after every one this device knows for the Batch, or a device whose clock runs
   // behind another's could never move it: so it is stamped at least 1 ms after the latest known one.
   static Future<void> _insertStageChange(
     SqliteWriteContext tx,
@@ -357,7 +358,7 @@ class SqliteVaultStore implements VaultStore {
     var at = c.happenedAt.toUtc();
     for (final row in await tx.getAll(
       'SELECT happened_at FROM stage_changes WHERE unit_id = ?',
-      [c.unitId],
+      [c.batchId],
     )) {
       final known = DateTime.parse(row['happened_at'] as String).toUtc();
       if (!at.isAfter(known)) at = known.add(const Duration(milliseconds: 1));
@@ -366,7 +367,7 @@ class SqliteVaultStore implements VaultStore {
       'INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES (?, ?, ?, ?, ?, ?)',
       [
         c.id,
-        c.unitId,
+        c.batchId,
         c.fromStageId,
         c.toStageId,
         c.modelCount,
@@ -376,10 +377,10 @@ class SqliteVaultStore implements VaultStore {
   }
 
   @override
-  Stream<List<StageChange>> watchStageChanges(String unitId) => _db
+  Stream<List<StageChange>> watchStageChanges(String batchId) => _db
       .watch(
         'SELECT * FROM stage_changes WHERE unit_id = ?',
-        parameters: [unitId],
+        parameters: [batchId],
       )
       .map(_toStageChanges);
 
@@ -399,7 +400,7 @@ class SqliteVaultStore implements VaultStore {
         for (final c in rows)
           StageChange(
             id: c['id'] as String,
-            unitId: c['unit_id'] as String,
+            batchId: c['unit_id'] as String,
             fromStageId: c['from_stage_id'] as String?,
             toStageId: c['to_stage_id'] as String,
             modelCount: c['model_count'] as int,
@@ -414,7 +415,7 @@ class SqliteVaultStore implements VaultStore {
 
   // Only the given columns, so sync uploads a PATCH of just those fields.
   @override
-  Future<void> updateUnit(
+  Future<void> updateBatch(
     String id, {
     String? name,
     int? modelCount,
@@ -432,21 +433,21 @@ class SqliteVaultStore implements VaultStore {
     );
   }
 
-  // Its Stage Changes are append-only, so they are not deleted here: the server deletes them with the Unit,
+  // Its Stage Changes are append-only, so they are not deleted here: the server deletes them with the Batch,
   // and sync then removes them from this device.
-  // Tags and Photos first, so their deletes upload too and nothing points at the deleted Unit.
+  // Tags and Photos first, so their deletes upload too and nothing points at the deleted Batch.
   @override
-  Future<void> deleteUnit(String id) => _db.writeTransaction((tx) async {
+  Future<void> deleteBatch(String id) => _db.writeTransaction((tx) async {
     await tx.execute('DELETE FROM unit_tags WHERE unit_id = ?', [id]);
     await tx.execute('DELETE FROM photos WHERE unit_id = ?', [id]);
     await tx.execute('DELETE FROM units WHERE id = ?', [id]);
   });
 
   @override
-  Stream<List<String>> watchTags(String unitId) => _db
+  Stream<List<String>> watchTags(String batchId) => _db
       .watch(
         'SELECT name FROM unit_tags WHERE unit_id = ? ORDER BY name COLLATE NOCASE',
-        parameters: [unitId],
+        parameters: [batchId],
       )
       .map((rows) => [for (final r in rows) r['name'] as String]);
 
@@ -461,13 +462,13 @@ class SqliteVaultStore implements VaultStore {
   ];
 
   @override
-  Future<void> insertTags(String unitId, Map<String, String> namesById) =>
+  Future<void> insertTags(String batchId, Map<String, String> namesById) =>
       _db.writeTransaction((tx) async {
         for (final MapEntry(key: id, value: name) in namesById.entries) {
           await tx.execute(
             'INSERT INTO unit_tags (id, unit_id, name) SELECT ?, ?, ? '
             'WHERE NOT EXISTS (SELECT 1 FROM unit_tags WHERE id = ?)',
-            [id, unitId, name, id],
+            [id, batchId, name, id],
           );
         }
       });
@@ -477,17 +478,17 @@ class SqliteVaultStore implements VaultStore {
       _db.execute('DELETE FROM unit_tags WHERE id = ?', [id]);
 
   @override
-  Stream<List<Photo>> watchPhotos(String unitId) => _db
+  Stream<List<Photo>> watchPhotos(String batchId) => _db
       .watch(
         'SELECT id, unit_id, file_id FROM photos WHERE unit_id = ? ORDER BY id',
-        parameters: [unitId],
+        parameters: [batchId],
       )
       .map(
         (rows) => [
           for (final r in rows)
             Photo(
               id: r['id'] as String,
-              unitId: r['unit_id'] as String,
+              batchId: r['unit_id'] as String,
               fileId: r['file_id'] as String,
             ),
         ],
@@ -505,7 +506,7 @@ class SqliteVaultStore implements VaultStore {
   static Future<void> insertPhoto(SqliteWriteContext tx, Photo photo) =>
       tx.execute('INSERT INTO photos (id, unit_id, file_id) VALUES (?, ?, ?)', [
         photo.id,
-        photo.unitId,
+        photo.batchId,
         photo.fileId,
       ]);
 
@@ -513,13 +514,13 @@ class SqliteVaultStore implements VaultStore {
   Future<void> deletePhoto(String id) =>
       _db.execute('DELETE FROM photos WHERE id = ?', [id]);
 
-  // The new Unit's rows come first, so the Split's reference to it resolves on the server. The count changes
+  // The new Batch's rows come first, so the Split's reference to it resolves on the server. The count changes
   // relatively here too; their uploaded absolute values are ignored by the write API, which applies the delta.
   @override
   Future<void> insertSplit(
     String id,
     String sourceId,
-    Unit created,
+    Batch created,
     StageChange move,
     Map<String, String> tagsById,
     List<Photo> photos,
@@ -547,12 +548,12 @@ class SqliteVaultStore implements VaultStore {
     );
   });
 
-  // The Merge comes first, so the write API checks it against the Units as they were before anything else in it.
+  // The Merge comes first, so the write API checks it against the Batches as they were before anything else in it.
   // The copied Stage Changes keep their timestamps (no clock-skew bump): they are history, not new moves.
   @override
   Future<void> insertMerge(
     String id,
-    String unitId,
+    String batchId,
     String otherId,
     List<StageChange> history,
     Map<String, String> tagsById,
@@ -560,14 +561,14 @@ class SqliteVaultStore implements VaultStore {
   ) => _db.writeTransaction((tx) async {
     await tx.execute(
       'INSERT INTO merges (id, unit_id, merged_unit_id) VALUES (?, ?, ?)',
-      [id, unitId, otherId],
+      [id, batchId, otherId],
     );
     for (final c in history) {
       await tx.execute(
         'INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES (?, ?, ?, ?, ?, ?)',
         [
           c.id,
-          c.unitId,
+          c.batchId,
           c.fromStageId,
           c.toStageId,
           c.modelCount,
@@ -575,10 +576,10 @@ class SqliteVaultStore implements VaultStore {
         ],
       );
     }
-    await _copy(tx, unitId, tagsById, photos);
+    await _copy(tx, batchId, tagsById, photos);
     await tx.execute(
       'UPDATE units SET model_count = model_count + (SELECT model_count FROM units WHERE id = ?) WHERE id = ?',
-      [otherId, unitId],
+      [otherId, batchId],
     );
     await tx.execute('DELETE FROM unit_tags WHERE unit_id = ?', [otherId]);
     await tx.execute('DELETE FROM photos WHERE unit_id = ?', [otherId]);
@@ -587,7 +588,7 @@ class SqliteVaultStore implements VaultStore {
 
   static Future<void> _copy(
     SqliteWriteContext tx,
-    String unitId,
+    String batchId,
     Map<String, String> tagsById,
     List<Photo> photos,
   ) async {
@@ -595,7 +596,7 @@ class SqliteVaultStore implements VaultStore {
       await tx.execute(
         'INSERT INTO unit_tags (id, unit_id, name) SELECT ?, ?, ? '
         'WHERE NOT EXISTS (SELECT 1 FROM unit_tags WHERE id = ?)',
-        [id, unitId, name, id],
+        [id, batchId, name, id],
       );
     }
     for (final p in photos) {
@@ -647,7 +648,8 @@ class SqliteVaultStore implements VaultStore {
   });
 
   @override
-  Stream<List<SquadPaint>> watchSquadPaints() => _db
+  // Table `squad_paints` holds Unit Paints, keyed by Unit name in `squad_name` (ADR 0008).
+  Stream<List<UnitPaint>> watchUnitPaints() => _db
       .watch(
         'SELECT l.id, l.collection_id, l.squad_name, l.note, p.id AS paint_id, p.brand, p.range, p.name, p.owned '
         'FROM squad_paints l JOIN paints p ON p.id = l.paint_id '
@@ -656,10 +658,10 @@ class SqliteVaultStore implements VaultStore {
       .map(
         (rows) => [
           for (final r in rows)
-            SquadPaint(
+            UnitPaint(
               id: r['id'] as String,
               collectionId: r['collection_id'] as String,
-              squad: r['squad_name'] as String,
+              unit: r['squad_name'] as String,
               note: r['note'] as String? ?? '',
               paint: Paint(
                 id: r['paint_id'] as String,
@@ -673,24 +675,20 @@ class SqliteVaultStore implements VaultStore {
       );
 
   @override
-  Future<void> insertSquadPaints(List<SquadPaint> links) =>
+  Future<void> insertUnitPaints(List<UnitPaint> links) =>
       _db.writeTransaction((tx) async {
         for (final l in links) {
           await tx.execute(
             'INSERT INTO squad_paints (id, collection_id, squad_name, paint_id, note) VALUES (?, ?, ?, ?, ?)',
-            [l.id, l.collectionId, l.squad, l.paint.id, l.note],
+            [l.id, l.collectionId, l.unit, l.paint.id, l.note],
           );
         }
       });
 
   // Only the given columns, so a rename and a note edit on two devices merge per field.
   @override
-  Future<void> updateSquadPaint(
-    String id, {
-    String? squad,
-    String? note,
-  }) async {
-    final changes = {'squad_name': ?squad, 'note': ?note};
+  Future<void> updateUnitPaint(String id, {String? unit, String? note}) async {
+    final changes = {'squad_name': ?unit, 'note': ?note};
     if (changes.isEmpty) return;
     await _db.execute(
       'UPDATE squad_paints SET ${changes.keys.map((c) => '$c = ?').join(', ')} WHERE id = ?',
@@ -699,6 +697,6 @@ class SqliteVaultStore implements VaultStore {
   }
 
   @override
-  Future<void> deleteSquadPaint(String id) =>
+  Future<void> deleteUnitPaint(String id) =>
       _db.execute('DELETE FROM squad_paints WHERE id = ?', [id]);
 }

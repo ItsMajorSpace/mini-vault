@@ -26,6 +26,7 @@ const _writable = {
     'colour': 'text',
   },
   'collections': {'name': 'text', 'workflow_id': 'uuid', 'game_system': 'text'},
+  // Table names predate ADR 0008: `units` holds Batches, `squad_paints` Unit Paints.
   'units': {
     'collection_id': 'uuid',
     'stage_id': 'uuid',
@@ -227,13 +228,13 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 
 /// `POST /upload` with `{"operations": [CrudEntry.toJson(), ...]}` and the user's GoTrue access token.
 /// Applies the operations in one transaction. Answers 401 for a bad token, 403 if any operation touches
-/// or points at another user's row, 409 for deleting a Workflow a Collection uses or a Stage that holds Units,
-/// a Split that would leave its Unit under 1 model, or a Merge of Units that no longer match, 422 for an invalid
+/// or points at another user's row, 409 for deleting a Workflow a Collection uses or a Stage that holds Batches,
+/// a Split that would leave its Batch under 1 model, or a Merge of Batches that no longer match, 422 for an invalid
 /// operation (including a reference to a missing row, or a PATCH or DELETE of an append-only Stage Change) or a batch
-/// that leaves a Workflow invalid or a Unit at a Stage outside its Collection's Workflow
+/// that leaves a Workflow invalid or a Batch at a Stage outside its Collection's Workflow
 /// (nothing is written in those cases), and 204 on success.
 /// Conflicts are the latest write wins per field, and deletes win: a PATCH to a deleted row is ignored.
-/// Deleting a Collection deletes all its Units, including ones the client never saw.
+/// Deleting a Collection deletes all its Batches, including ones the client never saw.
 ///
 /// `/photos/<file id>` stores and serves the user's photo files, kept in [dir]; see [photoRequest].
 ///
@@ -331,7 +332,7 @@ Handler writeApi(
         await _apply(tx, owner, op, touched, unlinked, counted);
       }
       await _checkWorkflows(tx, touched.workflows);
-      await _checkUnitStages(tx, touched);
+      await _checkBatchStages(tx, touched);
     });
     await deleteUnreferencedPhotos(db, dir, owner, unlinked);
     return Response(204);
@@ -351,13 +352,13 @@ Handler writeApi(
 class _Touched {
   final workflows = <String>{};
   final collections = <String>{};
-  final units = <String>{};
+  final batches = <String>{};
   final stageChanges = <String>{};
 }
 
 /// Applies [op], adding what it may have changed to [touched].
 /// Adds the photo files of the Photo rows it deletes to [unlinked], to delete once no row points at them.
-/// [counted] holds the Units whose count a Split or Merge earlier in the batch changed by a delta: the absolute
+/// [counted] holds the Batches whose count a Split or Merge earlier in the batch changed by a delta: the absolute
 /// model_count the app uploads for them in the same batch (its local view) is ignored.
 Future<void> _apply(
   TxSession tx,
@@ -424,10 +425,10 @@ Future<void> _apply(
   }
   if (table == 'splits' || table == 'merges') {
     if (op['op'] != 'PUT') throw _Rejected(422, '$table are append-only');
-    if (data['unit_id'] case final String unitId) counted.add(unitId);
+    if (data['unit_id'] case final String batchId) counted.add(batchId);
     // A retry: the delta was applied when it was first stored.
     if (existing.isNotEmpty) return;
-    // Locks both Units in id order before anything reads them, so concurrent Splits and Merges of a Unit apply
+    // Locks both Batches in id order before anything reads them, so concurrent Splits and Merges of a Batch apply
     // one after the other, each to the count the previous one left, without deadlocking.
     await tx.execute(
       r'SELECT FROM units WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE',
@@ -443,7 +444,7 @@ Future<void> _apply(
   // Skipped for a PATCH to a deleted row, which is ignored anyway (deletes win).
   // FOR SHARE holds off a concurrent delete of the referenced row until this batch commits.
   if (existing.isNotEmpty || op['op'] == 'PUT') {
-    // A null reference (a Unit's initial Stage Change has no from-Stage) points at nothing; NOT NULL columns reject it.
+    // A null reference (a Batch's initial Stage Change has no from-Stage) points at nothing; NOT NULL columns reject it.
     for (final column in data.keys.where(
       (c) => _references.containsKey(c) && data[c] != null,
     )) {
@@ -459,7 +460,7 @@ Future<void> _apply(
       }
     }
   }
-  // A Stage holding Units can't be deleted or moved to another Workflow: its Units would lose their place.
+  // A Stage holding Batches can't be deleted or moved to another Workflow: its Batches would lose their place.
   if (table == 'stages' &&
       (op['op'] == 'DELETE' || data.containsKey('workflow_id'))) {
     final held = await tx.execute(
@@ -485,10 +486,10 @@ Future<void> _apply(
         row.first as String,
     ]);
   }
-  // Deleting a Collection deletes its Units (their Photos first, to collect the files; Stage Changes and Tags go by
+  // Deleting a Collection deletes its Batches (their Photos first, to collect the files; Stage Changes and Tags go by
   // foreign-key cascade), including any
   // the client didn't know of: another device may have added one meanwhile, and deletes win. The FOR UPDATE above
-  // waits for such a batch, which holds the Collection FOR SHARE, so its Unit is seen here; one arriving later is
+  // waits for such a batch, which holds the Collection FOR SHARE, so its Batch is seen here; one arriving later is
   // rejected, as its Collection no longer exists.
   if (op['op'] == 'DELETE' && table == 'collections') {
     unlinked.addAll([
@@ -557,7 +558,7 @@ Future<void> _apply(
   if (table == 'merges') await _merge(tx, owner, data, unlinked);
 
   if (table == 'photos' && op['op'] == 'PUT') {
-    // FOR UPDATE on the Unit makes concurrent batches adding Photos to it count one after the other.
+    // FOR UPDATE on the Batch makes concurrent batches adding Photos to it count one after the other.
     await tx.execute(
       'SELECT FROM units WHERE id = \$1::uuid FOR UPDATE',
       parameters: [data['unit_id']],
@@ -571,31 +572,31 @@ Future<void> _apply(
     }
   }
 
-  // units.stage_id is re-derived from the latest Stage Change (device timestamp, then id) after every write to a Unit or its Stage Changes, so upload order and a client's stale stage_id never decide it.
-  final unitId = switch (table) {
+  // batches.stage_id is re-derived from the latest Stage Change (device timestamp, then id) after every write to a Batch or its Stage Changes, so upload order and a client's stale stage_id never decide it.
+  final batchId = switch (table) {
     'units' => id,
     'stage_changes' => data['unit_id'],
     _ => null,
   };
-  if (unitId is String) {
+  if (batchId is String) {
     await tx.execute(
       r'''UPDATE units u SET stage_id = latest.to_stage_id
         FROM (SELECT to_stage_id FROM stage_changes WHERE unit_id = $1::uuid
           ORDER BY happened_at DESC, id DESC LIMIT 1) latest
         WHERE u.id = $1::uuid AND u.stage_id <> latest.to_stage_id''',
-      parameters: [unitId],
+      parameters: [batchId],
     );
-    touched.units.add(unitId);
+    touched.batches.add(batchId);
   }
   if (table == 'stage_changes') touched.stageChanges.add(id);
 }
 
-/// Rejects the batch if it leaves a Unit at a Stage outside its Collection's Workflow, or appended a Stage Change to
+/// Rejects the batch if it leaves a Batch at a Stage outside its Collection's Workflow, or appended a Stage Change to
 /// such a Stage. Checked after the whole batch, not per operation: switching a Collection to another Workflow changes
-/// the Collection and moves its Units, and no order of those writes is valid in between. It also covers a Unit the
+/// the Collection and moves its Batches, and no order of those writes is valid in between. It also covers a Batch the
 /// batch doesn't mention, such as one another device added to the Collection meanwhile.
-Future<void> _checkUnitStages(TxSession tx, _Touched touched) async {
-  if (touched.units.isEmpty &&
+Future<void> _checkBatchStages(TxSession tx, _Touched touched) async {
+  if (touched.batches.isEmpty &&
       touched.collections.isEmpty &&
       touched.stageChanges.isEmpty) {
     return;
@@ -612,7 +613,7 @@ Future<void> _checkUnitStages(TxSession tx, _Touched touched) async {
       LIMIT 1''',
     parameters: [
       for (final ids in [
-        touched.units,
+        touched.batches,
         touched.collections,
         touched.stageChanges,
       ])
@@ -627,7 +628,7 @@ Future<void> _checkUnitStages(TxSession tx, _Touched touched) async {
   }
 }
 
-/// Applies a newly stored Split as a delta: its models come off its Unit's count as it is now, so concurrent Splits
+/// Applies a newly stored Split as a delta: its models come off its Batch's count as it is now, so concurrent Splits
 /// add up (10 − 4 − 3 leaves 3). Rejected (409) if that would leave fewer than 1 model: a Split never takes all.
 Future<void> _split(TxSession tx, Map<String, Object?> data) async {
   final rows = await tx.execute(
@@ -651,10 +652,10 @@ Future<void> _split(TxSession tx, Map<String, Object?> data) async {
   );
 }
 
-/// Applies a newly stored Merge: adds the merged Unit's count as it is now to the Unit and deletes the merged Unit
+/// Applies a newly stored Merge: adds the merged Batch's count as it is now to the Batch and deletes the merged Batch
 /// (its Stage Changes, Tags and Photos go with it; the app's batch copies them over). Rejected (409) unless both
-/// still share Collection, name and Stage, e.g. after a concurrent move; a second Merge of a Unit already merged
-/// away is rejected because the Unit no longer exists (422).
+/// still share Collection, name and Stage, e.g. after a concurrent move; a second Merge of a Batch already merged
+/// away is rejected because the Batch no longer exists (422).
 Future<void> _merge(
   TxSession tx,
   String owner,
@@ -690,13 +691,13 @@ Future<void> _merge(
   );
 }
 
-/// A Tag is never edited, only added and removed, and its id must be [tagId] of its Unit and name.
+/// A Tag is never edited, only added and removed, and its id must be [tagId] of its Batch and name.
 void _checkTag(Object? op, String id, Map<String, Object?> data) {
   if (op == 'PATCH') throw _Rejected(422, 'Tags cannot be edited');
   if (op != 'PUT') return;
-  if (data case {'unit_id': final String unitId, 'name': final String name}) {
+  if (data case {'unit_id': final String batchId, 'name': final String name}) {
     try {
-      if (tagId(unitId, name) == id) return;
+      if (tagId(batchId, name) == id) return;
     } on FormatException {
       // Falls through to the rejection.
     }
