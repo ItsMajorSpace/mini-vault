@@ -214,6 +214,8 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 ///
 /// A token of a deleted account is rejected (401) by all of these, though it has not expired.
 ///
+/// `GET /health` answers 200 if Postgres answers `SELECT 1`, otherwise 503 (the deploy polls it).
+///
 /// `GET /email/recovery` answers [recoveryEmail], GoTrue's password reset email template (it only loads templates
 /// over HTTP).
 Handler writeApi(
@@ -225,6 +227,14 @@ Handler writeApi(
     ['photos', final id] => id,
     _ => null,
   };
+  if (request.url.path == 'health' && request.method == 'GET') {
+    try {
+      await db.execute('SELECT 1').timeout(const Duration(seconds: 5));
+      return Response.ok(null);
+    } catch (_) {
+      return Response(503);
+    }
+  }
   if (request.url.path == 'email/recovery' && request.method == 'GET') {
     return Response.ok(recoveryEmail, headers: {'content-type': 'text/html'});
   }
