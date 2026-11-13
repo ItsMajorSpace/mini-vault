@@ -165,10 +165,10 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     }
   }
 
-  /// Deletes the Stage, first asking where its Units go and which Stage replaces it as Owned or Finished, if needed.
+  /// Deletes the Stage, first asking where its Batches go and which Stage replaces it as Owned or Finished, if needed.
   Future<void> _deleteStage(Stage stage) async {
     final workflow = (await vault.workflows()).firstWhere((w) => w.id == id);
-    final held = (await vault.unitsAt(stage.id)).length;
+    final held = (await vault.batchesAt(stage.id)).length;
     final owned = stage.id == workflow.ownedStage.id;
     final finished = stage.id == workflow.finishedStage.id;
     final others = [...workflow.stages]..removeWhere((s) => s.id == stage.id);
@@ -192,7 +192,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
       () => vault.deleteStage(
         id,
         stage.id,
-        moveUnitsTo: choice.destination,
+        moveBatchesTo: choice.destination,
         ownedStageId: choice.owned,
         finishedStageId: choice.finished,
       ),
@@ -298,7 +298,7 @@ typedef _DeleteChoice = ({
   String? finished,
 });
 
-/// Asks where a deleted Stage's Units go, and which Stage replaces it as Owned or Finished, as needed.
+/// Asks where a deleted Stage's Batches go, and which Stage replaces it as Owned or Finished, as needed.
 class _DeleteStageDialog extends StatefulWidget {
   const _DeleteStageDialog({
     required this.stage,
@@ -376,7 +376,7 @@ class _DeleteStageDialogState extends State<_DeleteStageDialog> {
   }
 }
 
-/// Switches [collection] to another Workflow: asks which one, then where the Units at each held Stage go.
+/// Switches [collection] to another Workflow: asks which one, then where the Batches at each held Stage go.
 Future<void> switchWorkflow(
   BuildContext context,
   Vault vault,
@@ -420,7 +420,7 @@ Future<void> switchWorkflow(
   );
 }
 
-/// One target Stage picker per old Stage that holds Units, pre-set to the same-name Stage or else the first.
+/// One target Stage picker per old Stage that holds Batches, pre-set to the same-name Stage or else the first.
 class _MapStagesDialog extends StatefulWidget {
   const _MapStagesDialog({required this.target, required this.mapping});
 

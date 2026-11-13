@@ -56,7 +56,7 @@ class Workflow {
   );
 }
 
-/// A named set of Units owned by one person, all progressing through the same Workflow.
+/// A named set of Batches owned by one person, all progressing through the same Workflow.
 class Collection {
   const Collection({
     required this.id,
@@ -136,13 +136,13 @@ bool paintMatches(Paint paint, String query) {
   return query.toLowerCase().split(RegExp(r'\s+')).every(text.contains);
 }
 
-/// A Paint a Squad uses, with a note on where or how. Keyed by the Squad's Collection and exact name (as [squadsOf]
-/// groups Units), not by its Units, so it stays with the name while no Unit has it.
-class SquadPaint {
-  const SquadPaint({
+/// A Paint a Unit uses, with a note on where or how. Keyed by the Unit's Collection and exact name (as [unitsOf]
+/// groups Batches), not by its Batches, so it stays with the name while no Batch has it.
+class UnitPaint {
+  const UnitPaint({
     required this.id,
     required this.collectionId,
-    required this.squad,
+    required this.unit,
     required this.paint,
     this.note = '',
   });
@@ -150,32 +150,32 @@ class SquadPaint {
   final String id;
   final String collectionId;
 
-  /// The Squad's name.
-  final String squad;
+  /// The Unit's name.
+  final String unit;
   final Paint paint;
   final String note;
 }
 
-/// The Squads in [links] (only those using Paint [paintId], if given), once each, by Collection then Squad name,
+/// The Units in [links] (only those using Paint [paintId], if given), once each, by Collection then Unit name,
 /// ignoring case.
-List<({Collection collection, String squad})> paintedSquads(
-  Iterable<({Collection collection, SquadPaint link})> links, {
+List<({Collection collection, String unit})> paintedUnits(
+  Iterable<({Collection collection, UnitPaint link})> links, {
   String? paintId,
 }) {
   final seen = <(String, String)>{};
-  String key(({Collection collection, String squad}) s) =>
-      '${s.collection.name.toLowerCase()}\n${s.squad.toLowerCase()}';
+  String key(({Collection collection, String unit}) s) =>
+      '${s.collection.name.toLowerCase()}\n${s.unit.toLowerCase()}';
   return [
     for (final (:collection, :link) in links)
       if ((paintId == null || link.paint.id == paintId) &&
-          seen.add((collection.id, link.squad)))
-        (collection: collection, squad: link.squad),
+          seen.add((collection.id, link.unit)))
+        (collection: collection, unit: link.unit),
   ]..sort((a, b) => key(a).compareTo(key(b)));
 }
 
 /// A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection.
-class Unit {
-  const Unit({
+class Batch {
+  const Batch({
     required this.id,
     required this.collectionId,
     required this.stageId,
@@ -192,12 +192,12 @@ class Unit {
   final String notes;
 }
 
-/// A record that a Unit moved from one Stage to another, and when. A Unit's Stage Changes form its history.
-/// Append-only: never edited or deleted on its own (deleting the Unit removes them).
+/// A record that a Batch moved from one Stage to another, and when. A Batch's Stage Changes form its history.
+/// Append-only: never edited or deleted on its own (deleting the Batch removes them).
 class StageChange {
   const StageChange({
     required this.id,
-    required this.unitId,
+    required this.batchId,
     required this.fromStageId,
     required this.toStageId,
     required this.modelCount,
@@ -205,85 +205,85 @@ class StageChange {
   });
 
   final String id;
-  final String unitId;
+  final String batchId;
 
-  /// Null for the Stage Change that records where the Unit was created.
+  /// Null for the Stage Change that records where the Batch was created.
   final String? fromStageId;
   final String toStageId;
 
   /// The number of models moved.
   final int modelCount;
 
-  /// The device's clock when it happened. Used only to order Stage Changes: the latest sets the Unit's Stage.
+  /// The device's clock when it happened. Used only to order Stage Changes: the latest sets the Batch's Stage.
   final DateTime happenedAt;
 }
 
-/// A photo of a Unit. Its image file is stored once, under [fileId]: a Split's copy of a photo is a second row
+/// A photo of a Batch. Its image file is stored once, under [fileId]: a Split's copy of a photo is a second row
 /// pointing at the same file, and the file is only deleted once no row points at it.
 class Photo {
-  const Photo({required this.id, required this.unitId, required this.fileId});
+  const Photo({required this.id, required this.batchId, required this.fileId});
 
   final String id;
-  final String unitId;
+  final String batchId;
 
   /// The image file's id, which is also its PowerSync attachment id.
   final String fileId;
 }
 
-/// One Stage of a Collection's Workflow, with the Collection's Units at it.
+/// One Stage of a Collection's Workflow, with the Collection's Batches at it.
 class StageGroup {
-  const StageGroup(this.stage, this.units);
+  const StageGroup(this.stage, this.batches);
 
   final Stage stage;
-  final List<Unit> units;
+  final List<Batch> batches;
 
-  int get modelCount => units.fold(0, (sum, u) => sum + u.modelCount);
+  int get modelCount => batches.fold(0, (sum, u) => sum + u.modelCount);
 }
 
-/// Groups [units] by Stage: one group per Stage of [workflow], in Workflow order, including Stages without Units.
-// shortcut: Units at a Stage outside the Workflow are left out (the write API rejects them); revisit if Stages can be deleted (#11).
-List<StageGroup> groupByStage(Workflow workflow, Iterable<Unit> units) => [
+/// Groups [batches] by Stage: one group per Stage of [workflow], in Workflow order, including Stages without Batches.
+// shortcut: Batches at a Stage outside the Workflow are left out (the write API rejects them); revisit if Stages can be deleted (#11).
+List<StageGroup> groupByStage(Workflow workflow, Iterable<Batch> batches) => [
   for (final stage in workflow.stages)
     StageGroup(stage, [
-      for (final u in units)
+      for (final u in batches)
         if (u.stageId == stage.id) u,
     ]),
 ];
 
-/// All Units in a Collection sharing a name, laid out over every Stage of the Workflow.
-class Squad {
-  const Squad(this.name, this.stages, this.progress);
+/// All Batches in a Collection sharing a name, laid out over every Stage of the Workflow.
+class Unit {
+  const Unit(this.name, this.stages, this.progress);
 
   final String name;
 
-  /// One group per Stage of the Workflow, in Workflow order, including Stages without Units.
+  /// One group per Stage of the Workflow, in Workflow order, including Stages without Batches.
   final List<StageGroup> stages;
   final Progress progress;
 
-  Iterable<Unit> get units => stages.expand((g) => g.units);
+  Iterable<Batch> get batches => stages.expand((g) => g.batches);
   int get modelCount => stages.fold(0, (sum, g) => sum + g.modelCount);
 }
 
-/// Groups [units] into Squads by exact name (as [Vault.mergeCandidates] matches), in the order names first appear.
-List<Squad> squadsOf(Workflow workflow, Iterable<Unit> units) {
-  final byName = <String, List<Unit>>{};
-  for (final u in units) {
+/// Groups [batches] into Units by exact name (as [Vault.mergeCandidates] matches), in the order names first appear.
+List<Unit> unitsOf(Workflow workflow, Iterable<Batch> batches) {
+  final byName = <String, List<Batch>>{};
+  for (final u in batches) {
     (byName[u.name] ??= []).add(u);
   }
   return [
     for (final MapEntry(key: name, value: us) in byName.entries)
-      Squad(name, groupByStage(workflow, us), progressOf(workflow, us)),
+      Unit(name, groupByStage(workflow, us), progressOf(workflow, us)),
   ];
 }
 
-/// A Squad whose models moved recently, with its Collection and the Stage a move from it starts at: its latest
+/// A Unit whose models moved recently, with its Collection and the Stage a move from it starts at: its latest
 /// move's from-Stage while that still has models, otherwise its earliest Stage with models from the Owned Stage on,
 /// otherwise its earliest with any.
-class RecentSquad {
-  const RecentSquad(this.collection, this.squad, this.from);
+class RecentUnit {
+  const RecentUnit(this.collection, this.unit, this.from);
 
   final Collection collection;
-  final Squad squad;
+  final Unit unit;
   final StageGroup from;
 }
 
@@ -341,20 +341,20 @@ class WorkflowProgress {
 
   final Workflow workflow;
 
-  /// One group per Stage of the Workflow, in Workflow order, including Stages without Units and before the Owned Stage.
+  /// One group per Stage of the Workflow, in Workflow order, including Stages without Batches and before the Owned Stage.
   final List<StageGroup> stages;
   final Progress progress;
 }
 
-/// Counts [units]' models against [workflow]'s Owned and Finished Stage, in Workflow order.
-// Units at a Stage outside the Workflow are left out, as in [groupByStage].
-Progress progressOf(Workflow workflow, Iterable<Unit> units) {
+/// Counts [batches]' models against [workflow]'s Owned and Finished Stage, in Workflow order.
+// Batches at a Stage outside the Workflow are left out, as in [groupByStage].
+Progress progressOf(Workflow workflow, Iterable<Batch> batches) {
   final index = {for (final (i, s) in workflow.stages.indexed) s.id: i};
   final owned = index[workflow.ownedStage.id]!;
   final finished = index[workflow.finishedStage.id]!;
   var (w, o, f) = (0, 0, 0);
   final perStage = List.filled(workflow.stages.length, 0);
-  for (final u in units) {
+  for (final u in batches) {
     final i = index[u.stageId];
     if (i == null) continue;
     if (i < owned) w += u.modelCount;
@@ -400,7 +400,7 @@ abstract interface class VaultStore {
   Future<void> reorderStages(List<String> order);
 
   /// In one transaction, so it uploads as one batch in an order the write API accepts: appends [moves] and sets
-  /// each Unit's Stage, then sets the Workflow's Owned and Finished Stage if given, then deletes the Stage.
+  /// each Batch's Stage, then sets the Workflow's Owned and Finished Stage if given, then deletes the Stage.
   Future<void> deleteStage(
     String workflowId,
     String id, {
@@ -409,11 +409,11 @@ abstract interface class VaultStore {
     String? finishedStageId,
   });
 
-  /// The Units at the Stage, in every Collection.
-  Future<List<Unit>> unitsAt(String stageId);
+  /// The Batches at the Stage, in every Collection.
+  Future<List<Batch>> batchesAt(String stageId);
 
-  /// In one transaction, so it uploads as one batch: appends [moves] and sets each Unit's Stage, then points the
-  /// Collection at the Workflow. The write API checks Units against their Collection's Workflow after the whole batch.
+  /// In one transaction, so it uploads as one batch: appends [moves] and sets each Batch's Stage, then points the
+  /// Collection at the Workflow. The write API checks Batches against their Collection's Workflow after the whole batch.
   Future<void> switchWorkflow(
     String collectionId,
     String workflowId,
@@ -428,38 +428,38 @@ abstract interface class VaultStore {
   Future<void> renameCollection(String id, String name);
   Future<void> setGameSystem(String id, String? gameSystem);
 
-  /// Deletes the Collection and its Units, with their Tags and Photos, and its [SquadPaint]s, in one transaction.
+  /// Deletes the Collection and its Batches, with their Tags and Photos, and its [UnitPaint]s, in one transaction.
   Future<void> deleteCollection(String id);
 
-  /// Emits every Collection's Units now and again whenever they change.
-  Stream<List<Unit>> watchAllUnits();
+  /// Emits every Collection's Batches now and again whenever they change.
+  Stream<List<Batch>> watchAllBatches();
 
-  /// Emits the Collection's Units, by name, now and again whenever they change.
-  Stream<List<Unit>> watchUnits(String collectionId);
+  /// Emits the Collection's Batches, by name, now and again whenever they change.
+  Stream<List<Batch>> watchBatches(String collectionId);
 
-  /// Inserts the Unit and the Stage Change that records its starting Stage, in one transaction.
-  Future<void> insertUnit(Unit unit, StageChange initial);
+  /// Inserts the Batch and the Stage Change that records its starting Stage, in one transaction.
+  Future<void> insertBatch(Batch batch, StageChange initial);
 
-  /// Appends [change] and sets its Unit's Stage to its to-Stage, in one transaction.
+  /// Appends [change] and sets its Batch's Stage to its to-Stage, in one transaction.
   Future<void> insertStageChange(StageChange change);
 
-  /// Emits the Unit's Stage Changes, oldest first, now and again whenever they change.
-  Stream<List<StageChange>> watchStageChanges(String unitId);
+  /// Emits the Batch's Stage Changes, oldest first, now and again whenever they change.
+  Stream<List<StageChange>> watchStageChanges(String batchId);
 
-  /// Emits every Unit's Stage Changes from a move (those with a from-Stage), newest first, now and again whenever
+  /// Emits every Batch's Stage Changes from a move (those with a from-Stage), newest first, now and again whenever
   /// they change.
   Stream<List<StageChange>> watchMoves();
 
   /// Updates only the given fields, so concurrent edits of other fields on other devices are kept.
-  Future<void> updateUnit(
+  Future<void> updateBatch(
     String id, {
     String? name,
     int? modelCount,
     String? notes,
   });
 
-  /// Deletes the Unit, its Tags and its Photos.
-  Future<void> deleteUnit(String id);
+  /// Deletes the Batch, its Tags and its Photos.
+  Future<void> deleteBatch(String id);
 
   /// Emits the paint library now and again whenever it changes.
   Stream<List<Paint>> watchPaints();
@@ -467,49 +467,49 @@ abstract interface class VaultStore {
   Future<void> updatePaint(Paint paint);
   Future<void> setPaintOwned(String id, bool owned);
 
-  /// Deletes the Paint and its [SquadPaint]s, in one transaction.
+  /// Deletes the Paint and its [UnitPaint]s, in one transaction.
   Future<void> deletePaint(String id);
 
-  /// Emits every [SquadPaint] whose Paint has synced, by brand, range and name, now and again whenever they change.
-  Stream<List<SquadPaint>> watchSquadPaints();
-  Future<void> insertSquadPaints(List<SquadPaint> links);
+  /// Emits every [UnitPaint] whose Paint has synced, by brand, range and name, now and again whenever they change.
+  Stream<List<UnitPaint>> watchUnitPaints();
+  Future<void> insertUnitPaints(List<UnitPaint> links);
 
   /// Updates only the given fields.
-  Future<void> updateSquadPaint(String id, {String? squad, String? note});
-  Future<void> deleteSquadPaint(String id);
+  Future<void> updateUnitPaint(String id, {String? unit, String? note});
+  Future<void> deleteUnitPaint(String id);
 
-  /// Emits the Unit's Tags, by name, now and again whenever they change.
-  Stream<List<String>> watchTags(String unitId);
+  /// Emits the Batch's Tags, by name, now and again whenever they change.
+  Stream<List<String>> watchTags(String batchId);
 
-  /// Every Tag name on any of the user's Units.
+  /// Every Tag name on any of the user's Batches.
   Future<List<String>> allTagNames();
 
-  /// Adds Tags to a Unit, keyed by their [tagId]; a Tag whose id is already there is left as it is.
-  Future<void> insertTags(String unitId, Map<String, String> namesById);
+  /// Adds Tags to a Batch, keyed by their [tagId]; a Tag whose id is already there is left as it is.
+  Future<void> insertTags(String batchId, Map<String, String> namesById);
   Future<void> deleteTag(String id);
 
-  /// Emits the Unit's Photos, in the same order on every device, now and again whenever they change.
-  Stream<List<Photo>> watchPhotos(String unitId);
+  /// Emits the Batch's Photos, in the same order on every device, now and again whenever they change.
+  Stream<List<Photo>> watchPhotos(String batchId);
   Future<void> insertPhotos(List<Photo> photos);
   Future<void> deletePhoto(String id);
 
   /// In one transaction, so it uploads as one batch the write API applies whole or not at all: inserts [created]
   /// with [move] (its first Stage Change), its Tags ([tagsById]) and [photos], then records Split [id] of
-  /// [created]'s models off Unit [sourceId] and takes them off that Unit's count.
+  /// [created]'s models off Batch [sourceId] and takes them off that Batch's count.
   Future<void> insertSplit(
     String id,
     String sourceId,
-    Unit created,
+    Batch created,
     StageChange move,
     Map<String, String> tagsById,
     List<Photo> photos,
   );
 
-  /// In one transaction: records Merge [id] of Unit [otherId] into Unit [unitId], then copies [history], Tags
-  /// ([tagsById]) and [photos] onto [unitId], adds the other Unit's models to its count and deletes the other Unit.
+  /// In one transaction: records Merge [id] of Batch [otherId] into Batch [batchId], then copies [history], Tags
+  /// ([tagsById]) and [photos] onto [batchId], adds the other Batch's models to its count and deletes the other Batch.
   Future<void> insertMerge(
     String id,
-    String unitId,
+    String batchId,
     String otherId,
     List<StageChange> history,
     Map<String, String> tagsById,
@@ -637,18 +637,18 @@ class Vault {
     await _store.reorderStages([for (final s in order) s.id]);
   }
 
-  /// The Units at the Stage, in every Collection using its Workflow.
-  Future<List<Unit>> unitsAt(String stageId) => _store.unitsAt(stageId);
+  /// The Batches at the Stage, in every Collection using its Workflow.
+  Future<List<Batch>> batchesAt(String stageId) => _store.batchesAt(stageId);
 
-  /// Deletes a Stage in one transaction. If it holds Units, in any Collection, they all move to [moveUnitsTo] first,
+  /// Deletes a Stage in one transaction. If it holds Batches, in any Collection, they all move to [moveBatchesTo] first,
   /// each recording a Stage Change. If it is the Owned or Finished Stage, [ownedStageId] or [finishedStageId] replaces it.
-  /// Throws a [StateError] if it is the Workflow's only Stage, or holds Units or is the Owned or Finished Stage without
+  /// Throws a [StateError] if it is the Workflow's only Stage, or holds Batches or is the Owned or Finished Stage without
   /// the replacement; an [ArgumentError] if a replacement is not another Stage of the Workflow, or Owned would come
   /// after Finished.
   Future<void> deleteStage(
     String workflowId,
     String stageId, {
-    String? moveUnitsTo,
+    String? moveBatchesTo,
     String? ownedStageId,
     String? finishedStageId,
   }) async {
@@ -666,13 +666,13 @@ class Vault {
     }
     final rest = [...w.stages]..removeWhere((s) => s.id == stageId);
     _checkOrder(rest, owned: owned, finished: finished);
-    final units = await _store.unitsAt(stageId);
-    if (units.isNotEmpty && moveUnitsTo == null) {
+    final batches = await _store.batchesAt(stageId);
+    if (batches.isNotEmpty && moveBatchesTo == null) {
       throw StateError('This Stage holds Units');
     }
-    if (units.isNotEmpty && !rest.any((s) => s.id == moveUnitsTo)) {
+    if (batches.isNotEmpty && !rest.any((s) => s.id == moveBatchesTo)) {
       throw ArgumentError.value(
-        moveUnitsTo,
+        moveBatchesTo,
         'moveUnitsTo',
         'must be another Stage of this Workflow',
       );
@@ -680,7 +680,9 @@ class Vault {
     await _store.deleteStage(
       workflowId,
       stageId,
-      moves: [for (final u in units) _stageChange(u, stageId, moveUnitsTo!)],
+      moves: [
+        for (final u in batches) _stageChange(u, stageId, moveBatchesTo!),
+      ],
       ownedStageId: ownedStageId,
       finishedStageId: finishedStageId,
     );
@@ -762,25 +764,25 @@ class Vault {
         valid;
   }
 
-  /// The Collection's Units, by name: what deleting it would delete.
-  Future<List<Unit>> unitsOf(Collection collection) =>
-      _store.watchUnits(collection.id).first;
+  /// The Collection's Batches, by name: what deleting it would delete.
+  Future<List<Batch>> batchesOf(Collection collection) =>
+      _store.watchBatches(collection.id).first;
 
-  /// Deletes the Collection, its Units and their history, Tags and Photos, and its Squads' Paint links (not the Paints). The server deletes the history with the
-  /// Units, and any Unit another device added meanwhile, and each photo file once no Photo points at it.
+  /// Deletes the Collection, its Batches and their history, Tags and Photos, and its Units' Paint links (not the Paints). The server deletes the history with the
+  /// Batches, and any Batch another device added meanwhile, and each photo file once no Photo points at it.
   Future<void> deleteCollection(String id) => _store.deleteCollection(id);
 
-  /// What switching [collection] to [target] has to map: each Stage of its Workflow that holds its Units, in Workflow
+  /// What switching [collection] to [target] has to map: each Stage of its Workflow that holds its Batches, in Workflow
   /// order, with the Stage of [target] that has the same name (ignoring case and outer spaces), or null.
   Future<List<({Stage from, Stage? to})>> stageMapping(
     Collection collection,
     Workflow target,
   ) async {
     String key(Stage s) => s.name.trim().toLowerCase();
-    final units = await _store.watchUnits(collection.id).first;
+    final batches = await _store.watchBatches(collection.id).first;
     return [
-      for (final g in groupByStage(await workflowOf(collection), units))
-        if (g.units.isNotEmpty)
+      for (final g in groupByStage(await workflowOf(collection), batches))
+        if (g.batches.isNotEmpty)
           (
             from: g.stage,
             to: target.stages.where((s) => key(s) == key(g.stage)).firstOrNull,
@@ -788,9 +790,9 @@ class Vault {
     ];
   }
 
-  /// Switches [collection] to Workflow [workflowId] in one transaction: each of its Units moves to the Stage that
+  /// Switches [collection] to Workflow [workflowId] in one transaction: each of its Batches moves to the Stage that
   /// [moveTo] maps its current Stage to (see [stageMapping]), recording a Stage Change. Does nothing if the Collection
-  /// already uses the Workflow. Throws an [ArgumentError] if there is no such Workflow, or a Unit's Stage is not
+  /// already uses the Workflow. Throws an [ArgumentError] if there is no such Workflow, or a Batch's Stage is not
   /// mapped to a Stage of it.
   Future<void> switchWorkflow(
     Collection collection,
@@ -800,7 +802,7 @@ class Vault {
     final target = await _workflow(workflowId);
     if (target.id == collection.workflowId) return;
     final moves = [
-      for (final u in await _store.watchUnits(collection.id).first)
+      for (final u in await _store.watchBatches(collection.id).first)
         if (moveTo[u.stageId] case final to?
             when target.stages.any((s) => s.id == to))
           _stageChange(u, u.stageId, to)
@@ -821,33 +823,35 @@ class Vault {
         orElse: () => throw StateError('The Workflow has not synced yet'),
       );
 
-  /// The Collection's Units grouped by Stage in Workflow order, emitted again whenever they change.
+  /// The Collection's Batches grouped by Stage in Workflow order, emitted again whenever they change.
   Stream<List<StageGroup>> watchStageGroups(Collection collection) => _store
-      .watchUnits(collection.id)
+      .watchBatches(collection.id)
       .asyncMap(
-        (units) async => groupByStage(await workflowOf(collection), units),
+        (batches) async => groupByStage(await workflowOf(collection), batches),
       );
 
-  /// The Collection's Squads, by name, emitted again whenever its Units change.
-  Stream<List<Squad>> watchSquads(Collection collection) => _store
-      .watchUnits(collection.id)
-      .asyncMap((units) async => squadsOf(await workflowOf(collection), units));
+  /// The Collection's Units, by name, emitted again whenever its Batches change.
+  Stream<List<Unit>> watchUnits(Collection collection) => _store
+      .watchBatches(collection.id)
+      .asyncMap(
+        (batches) async => unitsOf(await workflowOf(collection), batches),
+      );
 
-  /// The Collection's [Progress], emitted again whenever its Units or its Workflow (Stages, Owned or Finished Stage) change.
+  /// The Collection's [Progress], emitted again whenever its Batches or its Workflow (Stages, Owned or Finished Stage) change.
   Stream<Progress> watchProgress(Collection collection) => _combineLatest(
-    [_store.watchWorkflows(), _store.watchUnits(collection.id)],
+    [_store.watchWorkflows(), _store.watchBatches(collection.id)],
     (latest) {
-      final [workflows as List<Workflow>, units as List<Unit>] = latest;
+      final [workflows as List<Workflow>, batches as List<Batch>] = latest;
       final workflow = workflows
           .where((w) => w.id == collection.workflowId)
           .firstOrNull;
       if (workflow == null) throw StateError('The Workflow has not synced yet');
-      return progressOf(workflow, units);
+      return progressOf(workflow, batches);
     },
   ).distinct();
 
   /// The [Progress] of every Collection, or only of [collection], per Workflow: one [WorkflowProgress] per Workflow
-  /// that at least one of them uses, in [workflows] order. Emitted again whenever the Collections, their Units or the
+  /// that at least one of them uses, in [workflows] order. Emitted again whenever the Collections, their Batches or the
   /// Workflows change. Collections whose Workflow has not synced are left out.
   Stream<List<WorkflowProgress>> watchProgressByWorkflow([
     Collection? collection,
@@ -856,14 +860,14 @@ class Vault {
       _store.watchWorkflows(),
       _store.watchCollections(),
       collection == null
-          ? _store.watchAllUnits()
-          : _store.watchUnits(collection.id),
+          ? _store.watchAllBatches()
+          : _store.watchBatches(collection.id),
     ],
     (latest) {
       final [
         workflows as List<Workflow>,
         collections as List<Collection>,
-        units as List<Unit>,
+        batches as List<Batch>,
       ] = latest;
       final workflowOf = {
         for (final c in collections)
@@ -871,7 +875,7 @@ class Vault {
       };
       WorkflowProgress of(Workflow w) {
         final us = [
-          for (final u in units)
+          for (final u in batches)
             if (workflowOf[u.collectionId] == w.id) u,
         ];
         return WorkflowProgress(w, groupByStage(w, us), progressOf(w, us));
@@ -884,54 +888,54 @@ class Vault {
     },
   );
 
-  /// The [limit] Squads, across all Collections, whose models moved most recently, newest first by their latest Stage
-  /// Change from a move. Emitted again whenever the moves, Units, Collections or Workflows change.
-  Stream<List<RecentSquad>> watchRecentlyMoved({
+  /// The [limit] Units, across all Collections, whose models moved most recently, newest first by their latest Stage
+  /// Change from a move. Emitted again whenever the moves, Batches, Collections or Workflows change.
+  Stream<List<RecentUnit>> watchRecentlyMoved({
     int limit = 3,
   }) => _combineLatest(
     [
       _store.watchWorkflows(),
       _store.watchCollections(),
-      _store.watchAllUnits(),
+      _store.watchAllBatches(),
       _store.watchMoves(),
     ],
     (latest) {
       final [
         workflows as List<Workflow>,
         collections as List<Collection>,
-        units as List<Unit>,
+        batches as List<Batch>,
         moves as List<StageChange>,
       ] = latest;
-      final unitById = {for (final u in units) u.id: u};
-      final recent = <RecentSquad>[];
+      final batchById = {for (final u in batches) u.id: u};
+      final recent = <RecentUnit>[];
       final seen = <(String, String)>{};
       for (final m in moves) {
         if (recent.length == limit) break;
-        final unit = unitById[m.unitId];
+        final batch = batchById[m.batchId];
         final collection = collections
-            .where((c) => c.id == unit?.collectionId)
+            .where((c) => c.id == batch?.collectionId)
             .firstOrNull;
         final workflow = workflows
             .where((w) => w.id == collection?.workflowId)
             .firstOrNull;
-        if (unit == null || workflow == null) continue;
-        if (!seen.add((unit.collectionId, unit.name))) continue;
-        final squad = squadsOf(workflow, [
-          for (final u in units)
-            if (u.collectionId == unit.collectionId && u.name == unit.name) u,
+        if (batch == null || workflow == null) continue;
+        if (!seen.add((batch.collectionId, batch.name))) continue;
+        final unit = unitsOf(workflow, [
+          for (final u in batches)
+            if (u.collectionId == batch.collectionId && u.name == batch.name) u,
         ]).single;
         final owned = workflow.stages.indexOf(workflow.ownedStage);
         final withModels = [
-          for (final g in squad.stages)
+          for (final g in unit.stages)
             if (g.modelCount > 0) g,
         ];
         final from =
             withModels.where((g) => g.stage.id == m.fromStageId).firstOrNull ??
             withModels
-                .where((g) => squad.stages.indexOf(g) >= owned)
+                .where((g) => unit.stages.indexOf(g) >= owned)
                 .firstOrNull ??
             withModels.first;
-        recent.add(RecentSquad(collection!, squad, from));
+        recent.add(RecentUnit(collection!, unit, from));
       }
       return recent;
     },
@@ -964,8 +968,8 @@ class Vault {
     return controller.stream;
   }
 
-  /// Adds a Unit at [stageId], which must be a Stage of the Collection's Workflow.
-  Future<Unit> addUnit(
+  /// Adds a Batch at [stageId], which must be a Stage of the Collection's Workflow.
+  Future<Batch> addBatch(
     Collection collection, {
     required String name,
     required int modelCount,
@@ -980,7 +984,7 @@ class Vault {
         "is not a Stage of the Collection's Workflow",
       );
     }
-    final unit = Unit(
+    final batch = Batch(
       id: _newId(),
       collectionId: collection.id,
       stageId: stageId,
@@ -988,13 +992,13 @@ class Vault {
       modelCount: validModelCount(modelCount),
       notes: notes.trim(),
     );
-    await _store.insertUnit(unit, _stageChange(unit, null, stageId));
-    return unit;
+    await _store.insertBatch(batch, _stageChange(batch, null, stageId));
+    return batch;
   }
 
-  /// Imports an Army List's [entries] into [collection]: one Unit each at [stageId], with the Tag [tag] unless it is
-  /// blank, Merged on arrival (ADR 0004) with a Unit already there under its name, earlier entries included. Never
-  /// changes other Units. Checks every entry first, so a bad one adds nothing.
+  /// Imports an Army List's [entries] into [collection]: one Batch each at [stageId], with the Tag [tag] unless it is
+  /// blank, Merged on arrival (ADR 0004) with a Batch already there under its name, earlier entries included. Never
+  /// changes other Batches. Checks every entry first, so a bad one adds nothing.
   Future<void> importArmyList(
     Collection collection,
     String stageId,
@@ -1006,23 +1010,23 @@ class Vault {
       validModelCount(e.count);
     }
     for (final e in entries) {
-      final unit = await addUnit(
+      final batch = await addBatch(
         collection,
         name: e.name,
         modelCount: e.count,
         stageId: stageId,
       );
-      await addTags(unit.id, [?tag]);
-      await _mergeOnArrival(collection, unit);
+      await addTags(batch.id, [?tag]);
+      await _mergeOnArrival(collection, batch);
     }
   }
 
-  /// Moves the whole Unit to [stageId], any Stage of its Collection's Workflow, forward or back, and Merges it into
-  /// the Unit already there with its name, if any (ADR 0004): that Unit survives, with this move in its history.
+  /// Moves the whole Batch to [stageId], any Stage of its Collection's Workflow, forward or back, and Merges it into
+  /// the Batch already there with its name, if any (ADR 0004): that Batch survives, with this move in its history.
   /// Does nothing if it is already there.
-  Future<void> moveUnit(Unit unit, String stageId) async {
+  Future<void> moveBatch(Batch batch, String stageId) async {
     final collection = (await _store.collections()).firstWhere(
-      (c) => c.id == unit.collectionId,
+      (c) => c.id == batch.collectionId,
       orElse: () => throw StateError('The Collection has not synced yet'),
     );
     if (!(await workflowOf(collection)).stages.any((s) => s.id == stageId)) {
@@ -1032,17 +1036,17 @@ class Vault {
         "is not a Stage of the Collection's Workflow",
       );
     }
-    if (stageId == unit.stageId) return;
-    await _store.insertStageChange(_stageChange(unit, unit.stageId, stageId));
-    await _mergeOnArrival(collection, _at(unit, stageId));
+    if (stageId == batch.stageId) return;
+    await _store.insertStageChange(_stageChange(batch, batch.stageId, stageId));
+    await _mergeOnArrival(collection, _at(batch, stageId));
   }
 
-  /// Merges [arrived], just moved to its Stage, into a Unit already there with its name; returns the Unit now
+  /// Merges [arrived], just moved to its Stage, into a Batch already there with its name; returns the Batch now
   /// holding its models. Two uploads (move, then Merge): if the write API rejects the Merge, the move still stands.
-  Future<Unit> _mergeOnArrival(Collection collection, Unit arrived) async {
-    final there = mergeCandidates(arrived, await unitsOf(collection));
+  Future<Batch> _mergeOnArrival(Collection collection, Batch arrived) async {
+    final there = mergeCandidates(arrived, await batchesOf(collection));
     if (there.isEmpty) return arrived;
-    await mergeUnits(there.first, arrived);
+    await mergeBatches(there.first, arrived);
     return _at(
       there.first,
       there.first.stageId,
@@ -1050,7 +1054,7 @@ class Vault {
     );
   }
 
-  static Unit _at(Unit u, String stageId, [int? modelCount]) => Unit(
+  static Batch _at(Batch u, String stageId, [int? modelCount]) => Batch(
     id: u.id,
     collectionId: u.collectionId,
     stageId: stageId,
@@ -1059,11 +1063,11 @@ class Vault {
     notes: u.notes,
   );
 
-  /// Moves [modelCount] models of the Squad [name] in [collection] from [fromStageId] to [toStageId], forward or
-  /// back, Merging them into the Squad's Unit there (see [moveUnit], [splitUnit]). When several of its Units are at
+  /// Moves [modelCount] models of the Unit [name] in [collection] from [fromStageId] to [toStageId], forward or
+  /// back, Merging them into the Unit's Batch there (see [moveBatch], [splitBatch]). When several of its Batches are at
   /// [fromStageId] (after concurrent moves on two devices), it takes from the oldest first: the one whose earliest
   /// Stage Change is earliest, ties broken by id. Throws an [ArgumentError] unless [modelCount] is at least 1 and at
-  /// most what the Squad has at [fromStageId], or if the two Stages are the same.
+  /// most what the Unit has at [fromStageId], or if the two Stages are the same.
   Future<void> moveModels(
     Collection collection,
     String name,
@@ -1079,7 +1083,7 @@ class Vault {
       );
     }
     final at = [
-      for (final u in await unitsOf(collection))
+      for (final u in await batchesOf(collection))
         if (u.name == name && u.stageId == fromStageId)
           (u, (await _store.watchStageChanges(u.id).first).first.happenedAt),
     ];
@@ -1096,26 +1100,26 @@ class Vault {
       );
     }
     var left = modelCount;
-    for (final (unit, _) in at) {
+    for (final (batch, _) in at) {
       if (left == 0) break;
-      if (left >= unit.modelCount) {
-        await moveUnit(unit, toStageId);
-        left -= unit.modelCount;
+      if (left >= batch.modelCount) {
+        await moveBatch(batch, toStageId);
+        left -= batch.modelCount;
       } else {
-        await splitUnit(unit, toStageId, left);
+        await splitBatch(batch, toStageId, left);
         left = 0;
       }
     }
   }
 
-  /// Splits [unit]: moves [modelCount] of its models, at least 1 and fewer than all (all is [moveUnit]), to another
-  /// Stage of its Collection's Workflow. The new Unit holding them copies the name, notes, Tags and Photos, and its
-  /// history starts with this move. The Split uploads as a delta (N models off [unit]), never as [unit]'s new count,
-  /// so Splits made on other devices add up; the write API rejects one that would leave [unit] under 1 model.
-  /// If a Unit with its name is already at [stageId], the new Unit is then Merged into it (ADR 0004), and that Unit,
+  /// Splits [batch]: moves [modelCount] of its models, at least 1 and fewer than all (all is [moveBatch]), to another
+  /// Stage of its Collection's Workflow. The new Batch holding them copies the name, notes, Tags and Photos, and its
+  /// history starts with this move. The Split uploads as a delta (N models off [batch]), never as [batch]'s new count,
+  /// so Splits made on other devices add up; the write API rejects one that would leave [batch] under 1 model.
+  /// If a Batch with its name is already at [stageId], the new Batch is then Merged into it (ADR 0004), and that Batch,
   /// with its new count, is returned instead.
-  Future<Unit> splitUnit(Unit unit, String stageId, int modelCount) async {
-    if (modelCount < 1 || modelCount >= unit.modelCount) {
+  Future<Batch> splitBatch(Batch batch, String stageId, int modelCount) async {
+    if (modelCount < 1 || modelCount >= batch.modelCount) {
       throw ArgumentError.value(
         modelCount,
         'modelCount',
@@ -1123,10 +1127,10 @@ class Vault {
       );
     }
     final collection = (await _store.collections()).firstWhere(
-      (c) => c.id == unit.collectionId,
+      (c) => c.id == batch.collectionId,
       orElse: () => throw StateError('The Collection has not synced yet'),
     );
-    if (stageId == unit.stageId ||
+    if (stageId == batch.stageId ||
         !(await workflowOf(collection)).stages.any((s) => s.id == stageId)) {
       throw ArgumentError.value(
         stageId,
@@ -1134,62 +1138,62 @@ class Vault {
         "is not another Stage of the Collection's Workflow",
       );
     }
-    final created = Unit(
+    final created = Batch(
       id: _newId(),
-      collectionId: unit.collectionId,
+      collectionId: batch.collectionId,
       stageId: stageId,
-      name: unit.name,
+      name: batch.name,
       modelCount: modelCount,
-      notes: unit.notes,
+      notes: batch.notes,
     );
     await _store.insertSplit(
       _newId(),
-      unit.id,
+      batch.id,
       created,
-      _stageChange(created, unit.stageId, stageId),
-      {for (final t in await tagsOf(unit.id)) tagId(created.id, t): t},
+      _stageChange(created, batch.stageId, stageId),
+      {for (final t in await tagsOf(batch.id)) tagId(created.id, t): t},
       [
-        for (final p in await photosOf(unit.id))
-          Photo(id: _newId(), unitId: created.id, fileId: p.fileId),
+        for (final p in await photosOf(batch.id))
+          Photo(id: _newId(), batchId: created.id, fileId: p.fileId),
       ],
     );
     return _mergeOnArrival(collection, created);
   }
 
-  /// The Units [unit] may be Merged with: the others in [units] in its Collection, with its name, at its Stage.
-  static List<Unit> mergeCandidates(Unit unit, Iterable<Unit> units) => [
-    for (final u in units)
-      if (u.id != unit.id &&
-          u.collectionId == unit.collectionId &&
-          u.name == unit.name &&
-          u.stageId == unit.stageId)
+  /// The Batches [batch] may be Merged with: the others in [batches] in its Collection, with its name, at its Stage.
+  static List<Batch> mergeCandidates(Batch batch, Iterable<Batch> batches) => [
+    for (final u in batches)
+      if (u.id != batch.id &&
+          u.collectionId == batch.collectionId &&
+          u.name == batch.name &&
+          u.stageId == batch.stageId)
         u,
   ];
 
-  /// Merges [other] into [unit]. [unit] gets both counts, the union of their Tags,
+  /// Merges [other] into [batch]. [batch] gets both counts, the union of their Tags,
   /// [other]'s Photos up to [maxPhotos], and a copy of [other]'s Stage Changes in its history (Stage Changes are
   /// append-only, so they are copied, not moved); [other] is deleted. The write API adds [other]'s count as it is
-  /// on the server, and rejects the Merge if either Unit is gone or they no longer share Collection, name and Stage.
+  /// on the server, and rejects the Merge if either Batch is gone or they no longer share Collection, name and Stage.
   /// Throws an [ArgumentError] unless [other] is one of [mergeCandidates].
-  Future<void> mergeUnits(Unit unit, Unit other) async {
-    if (mergeCandidates(unit, [other]).isEmpty) {
+  Future<void> mergeBatches(Batch batch, Batch other) async {
+    if (mergeCandidates(batch, [other]).isEmpty) {
       throw ArgumentError.value(
         other.id,
         'other',
         'must be another Unit in the same Collection, with the same name, at the same Stage',
       );
     }
-    final tags = {for (final t in await tagsOf(unit.id)) tagKey(t)};
-    final files = {for (final p in await photosOf(unit.id)) p.fileId};
+    final tags = {for (final t in await tagsOf(batch.id)) tagKey(t)};
+    final files = {for (final p in await photosOf(batch.id)) p.fileId};
     await _store.insertMerge(
       _newId(),
-      unit.id,
+      batch.id,
       other.id,
       [
         for (final c in await _store.watchStageChanges(other.id).first)
           StageChange(
             id: _newId(),
-            unitId: unit.id,
+            batchId: batch.id,
             fromStageId: c.fromStageId,
             toStageId: c.toStageId,
             modelCount: c.modelCount,
@@ -1198,94 +1202,95 @@ class Vault {
       ],
       {
         for (final t in await tagsOf(other.id))
-          if (!tags.contains(tagKey(t))) tagId(unit.id, t): t,
+          if (!tags.contains(tagKey(t))) tagId(batch.id, t): t,
       },
       [
         for (final f in {
           for (final p in await photosOf(other.id)) p.fileId,
         }.difference(files).take(max(0, maxPhotos - files.length)))
-          Photo(id: _newId(), unitId: unit.id, fileId: f),
+          Photo(id: _newId(), batchId: batch.id, fileId: f),
       ],
     );
   }
 
-  /// The Unit's history, oldest first, emitted again whenever it changes.
-  Stream<List<StageChange>> watchHistory(String unitId) =>
-      _store.watchStageChanges(unitId);
+  /// The Batch's history, oldest first, emitted again whenever it changes.
+  Stream<List<StageChange>> watchHistory(String batchId) =>
+      _store.watchStageChanges(batchId);
 
-  static StageChange _stageChange(Unit unit, String? from, String to) =>
+  static StageChange _stageChange(Batch batch, String? from, String to) =>
       StageChange(
         id: _newId(),
-        unitId: unit.id,
+        batchId: batch.id,
         fromStageId: from,
         toStageId: to,
-        modelCount: unit.modelCount,
+        modelCount: batch.modelCount,
         happenedAt: DateTime.now().toUtc(),
       );
 
-  /// Changes only the given fields of a Unit. A new [modelCount] is a recount: it sets the absolute count, and the
+  /// Changes only the given fields of a Batch. A new [modelCount] is a recount: it sets the absolute count, and the
   /// latest write wins, unlike a Split or Merge (deltas). A Split uploaded after it still takes its models off.
-  Future<void> editUnit(
+  Future<void> editBatch(
     String id, {
     String? name,
     int? modelCount,
     String? notes,
-  }) => _store.updateUnit(
+  }) => _store.updateBatch(
     id,
     name: name == null ? null : validName(name),
     modelCount: modelCount == null ? null : validModelCount(modelCount),
     notes: notes?.trim(),
   );
 
-  /// Renames every Unit in [squad], one field edit each, so other fields edited elsewhere are kept, and carries its
-  /// Paints to the new name. Onto an existing Squad the Paints are unioned: for a Paint both use, the target's note
+  /// Renames every Batch in [unit], one field edit each, so other fields edited elsewhere are kept, and carries its
+  /// Paints to the new name. Onto an existing Unit the Paints are unioned: for a Paint both use, the target's note
   /// wins unless it is empty.
-  Future<void> renameSquad(Squad squad, String name) async {
+  Future<void> renameUnit(Unit unit, String name) async {
     final valid = validName(
       name,
     ); // Before any write, so a bad name renames none.
-    for (final u in squad.units) {
-      await editUnit(u.id, name: valid);
+    for (final u in unit.batches) {
+      await editBatch(u.id, name: valid);
     }
-    if (valid == squad.name || squad.units.isEmpty) return;
-    final collectionId = squad.units.first.collectionId;
+    if (valid == unit.name || unit.batches.isEmpty) return;
+    final collectionId = unit.batches.first.collectionId;
     final target = {
-      for (final l in await _squadPaints(collectionId, valid)) l.paint.id: l,
+      for (final l in await _unitPaints(collectionId, valid)) l.paint.id: l,
     };
-    for (final l in await _squadPaints(collectionId, squad.name)) {
+    for (final l in await _unitPaints(collectionId, unit.name)) {
       if (target[l.paint.id] case final t?) {
         if (t.note.isEmpty && l.note.isNotEmpty) {
-          await _store.updateSquadPaint(t.id, note: l.note);
+          await _store.updateUnitPaint(t.id, note: l.note);
         }
-        await _store.deleteSquadPaint(l.id);
+        await _store.deleteUnitPaint(l.id);
       } else {
-        await _store.updateSquadPaint(l.id, squad: valid);
+        await _store.updateUnitPaint(l.id, unit: valid);
       }
     }
   }
 
-  Future<void> deleteUnit(String id) => _store.deleteUnit(id);
+  Future<void> deleteBatch(String id) => _store.deleteBatch(id);
 
-  /// The Unit's Tags, by name, emitted again whenever they change.
-  Stream<List<String>> watchTags(String unitId) => _store.watchTags(unitId);
+  /// The Batch's Tags, by name, emitted again whenever they change.
+  Stream<List<String>> watchTags(String batchId) => _store.watchTags(batchId);
 
-  /// The Unit's Tags, by name. With [addTags], what a Split needs to copy them to the new Unit.
-  Future<List<String>> tagsOf(String unitId) => _store.watchTags(unitId).first;
+  /// The Batch's Tags, by name. With [addTags], what a Split needs to copy them to the new Batch.
+  Future<List<String>> tagsOf(String batchId) =>
+      _store.watchTags(batchId).first;
 
-  /// Adds Tags to a Unit, skipping blank names and ones it already has (ignoring case and outer spaces).
+  /// Adds Tags to a Batch, skipping blank names and ones it already has (ignoring case and outer spaces).
   /// A Tag the user has used before keeps the casing it was first entered with.
-  Future<void> addTags(String unitId, Iterable<String> names) async {
+  Future<void> addTags(String batchId, Iterable<String> names) async {
     final known = _byKey(await _store.allTagNames());
     final namesById = <String, String>{};
     for (final name in names.map((n) => n.trim()).where((n) => n.isNotEmpty)) {
       final display = known[tagKey(name)] ?? name;
-      namesById.putIfAbsent(tagId(unitId, display), () => display);
+      namesById.putIfAbsent(tagId(batchId, display), () => display);
     }
-    if (namesById.isNotEmpty) await _store.insertTags(unitId, namesById);
+    if (namesById.isNotEmpty) await _store.insertTags(batchId, namesById);
   }
 
-  Future<void> removeTag(String unitId, String name) =>
-      _store.deleteTag(tagId(unitId, name));
+  Future<void> removeTag(String batchId, String name) =>
+      _store.deleteTag(tagId(batchId, name));
 
   /// The user's Tags that start with [prefix] (ignoring case and outer spaces), by name.
   Future<List<String>> suggestTags(String prefix) async {
@@ -1323,31 +1328,29 @@ class Vault {
   Future<void> setPaintOwned(String id, bool owned) =>
       _store.setPaintOwned(id, owned);
 
-  /// Deletes the Paint and removes it from every Squad that uses it.
+  /// Deletes the Paint and removes it from every Unit that uses it.
   Future<void> deletePaint(String id) => _store.deletePaint(id);
 
-  /// The Paints Squad [squad] of Collection [collectionId] uses, by brand, range and name, emitted again whenever
+  /// The Paints Unit [unit] of Collection [collectionId] uses, by brand, range and name, emitted again whenever
   /// they change.
-  Stream<List<SquadPaint>> watchSquadPaints(
-    String collectionId,
-    String squad,
-  ) => _store.watchSquadPaints().map(
-    (links) => [
-      for (final l in links)
-        if (l.collectionId == collectionId && l.squad == squad) l,
-    ],
-  );
+  Stream<List<UnitPaint>> watchUnitPaints(String collectionId, String unit) =>
+      _store.watchUnitPaints().map(
+        (links) => [
+          for (final l in links)
+            if (l.collectionId == collectionId && l.unit == unit) l,
+        ],
+      );
 
-  Future<List<SquadPaint>> _squadPaints(String collectionId, String squad) =>
-      watchSquadPaints(collectionId, squad).first;
+  Future<List<UnitPaint>> _unitPaints(String collectionId, String unit) =>
+      watchUnitPaints(collectionId, unit).first;
 
-  /// Every Squad's Paints with the Squad's Collection, emitted again whenever they or the Collections change; see
-  /// [paintedSquads]. Links whose Collection has not synced are left out.
-  Stream<List<({Collection collection, SquadPaint link})>>
-  watchAllSquadPaints() => _combineLatest(
-    [_store.watchSquadPaints(), _store.watchCollections()],
+  /// Every Unit's Paints with the Unit's Collection, emitted again whenever they or the Collections change; see
+  /// [paintedUnits]. Links whose Collection has not synced are left out.
+  Stream<List<({Collection collection, UnitPaint link})>>
+  watchAllUnitPaints() => _combineLatest(
+    [_store.watchUnitPaints(), _store.watchCollections()],
     (latest) {
-      final [links as List<SquadPaint>, collections as List<Collection>] =
+      final [links as List<UnitPaint>, collections as List<Collection>] =
           latest;
       final byId = {for (final c in collections) c.id: c};
       return [
@@ -1357,10 +1360,10 @@ class Vault {
     },
   );
 
-  /// Adds Paint [paintId] to the Squad with [note] (trimmed). Throws a [StateError] if the Squad already uses it.
-  Future<void> addSquadPaint(
+  /// Adds Paint [paintId] to the Unit with [note] (trimmed). Throws a [StateError] if the Unit already uses it.
+  Future<void> addUnitPaint(
     String collectionId,
-    String squad,
+    String unit,
     String paintId, {
     String note = '',
   }) async {
@@ -1368,27 +1371,27 @@ class Vault {
       (p) => p.id == paintId,
       orElse: () => throw StateError('That Paint is not in your paints'),
     );
-    if ((await _squadPaints(
+    if ((await _unitPaints(
       collectionId,
-      squad,
+      unit,
     )).any((l) => l.paint.id == paintId)) {
-      throw StateError('$squad already uses ${paint.name}');
+      throw StateError('$unit already uses ${paint.name}');
     }
-    await _store.insertSquadPaints([
-      SquadPaint(
+    await _store.insertUnitPaints([
+      UnitPaint(
         id: _newId(),
         collectionId: collectionId,
-        squad: squad,
+        unit: unit,
         paint: paint,
         note: note.trim(),
       ),
     ]);
   }
 
-  /// Adds a new Paint to the library, checked as [addPaint] checks it, and to the Squad. It starts as wanted.
-  Future<Paint> addNewSquadPaint(
+  /// Adds a new Paint to the library, checked as [addPaint] checks it, and to the Unit. It starts as wanted.
+  Future<Paint> addNewUnitPaint(
     String collectionId,
-    String squad, {
+    String unit, {
     required String brand,
     required String range,
     required String name,
@@ -1400,33 +1403,33 @@ class Vault {
       name: name,
       owned: owned,
     );
-    await addSquadPaint(collectionId, squad, paint.id);
+    await addUnitPaint(collectionId, unit, paint.id);
     return paint;
   }
 
-  Future<void> setSquadPaintNote(String id, String note) =>
-      _store.updateSquadPaint(id, note: note.trim());
+  Future<void> setUnitPaintNote(String id, String note) =>
+      _store.updateUnitPaint(id, note: note.trim());
 
-  Future<void> removeSquadPaint(String id) => _store.deleteSquadPaint(id);
+  Future<void> removeUnitPaint(String id) => _store.deleteUnitPaint(id);
 
-  /// Copies the Paints and notes of Squad [from] in Collection [fromCollectionId] to Squad [to] in Collection
+  /// Copies the Paints and notes of Unit [from] in Collection [fromCollectionId] to Unit [to] in Collection
   /// [toCollectionId], skipping Paints it already uses.
-  Future<void> copySquadPaints({
+  Future<void> copyUnitPaints({
     required String fromCollectionId,
     required String from,
     required String toCollectionId,
     required String to,
   }) async {
     final used = {
-      for (final l in await _squadPaints(toCollectionId, to)) l.paint.id,
+      for (final l in await _unitPaints(toCollectionId, to)) l.paint.id,
     };
-    await _store.insertSquadPaints([
-      for (final l in await _squadPaints(fromCollectionId, from))
+    await _store.insertUnitPaints([
+      for (final l in await _unitPaints(fromCollectionId, from))
         if (!used.contains(l.paint.id))
-          SquadPaint(
+          UnitPaint(
             id: _newId(),
             collectionId: toCollectionId,
-            squad: to,
+            unit: to,
             paint: l.paint,
             note: l.note,
           ),
@@ -1458,32 +1461,36 @@ class Vault {
     );
   }
 
-  /// The most Photos a Unit may have. The write API enforces the same limit.
+  /// The most Photos a Batch may have. The write API enforces the same limit.
   static const maxPhotos = 10;
 
-  /// The Unit's Photos, in the same order on every device, emitted again whenever they change.
-  Stream<List<Photo>> watchPhotos(String unitId) => _store.watchPhotos(unitId);
+  /// The Batch's Photos, in the same order on every device, emitted again whenever they change.
+  Stream<List<Photo>> watchPhotos(String batchId) =>
+      _store.watchPhotos(batchId);
 
-  /// The Unit's Photos. With [addPhotos], what a Split needs to copy them to the new Unit.
-  Future<List<Photo>> photosOf(String unitId) =>
-      _store.watchPhotos(unitId).first;
+  /// The Batch's Photos. With [addPhotos], what a Split needs to copy them to the new Batch.
+  Future<List<Photo>> photosOf(String batchId) =>
+      _store.watchPhotos(batchId).first;
 
-  /// A Photo for a new image file on the Unit, not yet stored: the app stores it in the same transaction that
-  /// queues its file for upload. Throws a [StateError] if the Unit already has [maxPhotos].
-  Future<Photo> newPhoto(String unitId) async {
-    await _checkRoom(unitId, 1);
-    return Photo(id: _newId(), unitId: unitId, fileId: _newId());
+  /// A Photo for a new image file on the Batch, not yet stored: the app stores it in the same transaction that
+  /// queues its file for upload. Throws a [StateError] if the Batch already has [maxPhotos].
+  Future<Photo> newPhoto(String batchId) async {
+    await _checkRoom(batchId, 1);
+    return Photo(id: _newId(), batchId: batchId, fileId: _newId());
   }
 
-  /// Attaches already stored image files to the Unit, e.g. a Split's copies of its source's Photos.
-  /// A file the Unit already has is skipped. Throws a [StateError] if the Unit would get more than [maxPhotos].
-  Future<List<Photo>> addPhotos(String unitId, Iterable<String> fileIds) async {
-    final has = {for (final p in await photosOf(unitId)) p.fileId};
+  /// Attaches already stored image files to the Batch, e.g. a Split's copies of its source's Photos.
+  /// A file the Batch already has is skipped. Throws a [StateError] if the Batch would get more than [maxPhotos].
+  Future<List<Photo>> addPhotos(
+    String batchId,
+    Iterable<String> fileIds,
+  ) async {
+    final has = {for (final p in await photosOf(batchId)) p.fileId};
     final photos = [
       for (final fileId in {...fileIds}.difference(has))
-        Photo(id: _newId(), unitId: unitId, fileId: fileId),
+        Photo(id: _newId(), batchId: batchId, fileId: fileId),
     ];
-    await _checkRoom(unitId, photos.length);
+    await _checkRoom(batchId, photos.length);
     if (photos.isNotEmpty) await _store.insertPhotos(photos);
     return photos;
   }
@@ -1491,8 +1498,8 @@ class Vault {
   /// Removes the Photo. The server deletes its file once no Photo points at it.
   Future<void> removePhoto(String id) => _store.deletePhoto(id);
 
-  Future<void> _checkRoom(String unitId, int adding) async {
-    if ((await photosOf(unitId)).length + adding > maxPhotos) {
+  Future<void> _checkRoom(String batchId, int adding) async {
+    if ((await photosOf(batchId)).length + adding > maxPhotos) {
       throw StateError('A Unit can have at most $maxPhotos photos');
     }
   }
@@ -1509,12 +1516,12 @@ class Vault {
 /// What makes two Tag names the same Tag: case and outer spaces are ignored.
 String tagKey(String name) => name.trim().toLowerCase();
 
-/// The id of [name] as a Tag on Unit [unitId]: the same on every device, so two devices adding the same Tag
-/// to the same Unit offline write the same row instead of a duplicate. The write API checks it.
-String tagId(String unitId, String name) =>
-    const Uuid().v5(unitId, tagKey(name));
+/// The id of [name] as a Tag on Batch [batchId]: the same on every device, so two devices adding the same Tag
+/// to the same Batch offline write the same row instead of a duplicate. The write API checks it.
+String tagId(String batchId, String name) =>
+    const Uuid().v5(batchId, tagKey(name));
 
-/// Throws an [ArgumentError] unless a Unit has at least one model. The server's database enforces the same rule.
+/// Throws an [ArgumentError] unless a Batch has at least one model. The server's database enforces the same rule.
 int validModelCount(int count) => count >= 1
     ? count
     : throw ArgumentError.value(count, 'modelCount', 'must be at least 1');

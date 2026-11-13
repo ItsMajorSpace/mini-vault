@@ -9,7 +9,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/paints.dart';
 import 'package:mini_vault/photos.dart';
-import 'package:mini_vault/squad.dart';
+import 'package:mini_vault/unit.dart';
 import 'package:powersync/powersync.dart';
 
 // The paint library against real SQLite. Paints are added through the Vault, not the dialog, and toggling owned is
@@ -170,7 +170,7 @@ void main() {
   );
 
   testWidgets(
-    'a Paint lists the Squads that use it and opens one; deleting it from its dialog says how many Squads use it',
+    'a Paint lists the Units that use it and opens one; deleting it from its dialog says how many Units use it',
     (tester) async {
       final (vault, dir) = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('app_test');
@@ -190,13 +190,13 @@ void main() {
           range: 'Base',
           name: 'Macragge Blue',
         );
-        for (final (collection, squad) in [
+        for (final (collection, unit) in [
           ('Space Marines', 'Intercessors'),
           ('Dark Angels', 'Deathwing'),
         ]) {
           final c = await vault.createCollection(collection);
-          await vault.addUnit(c, name: squad, modelCount: 5, stageId: 's0');
-          await vault.addSquadPaint(c.id, squad, blue.id);
+          await vault.addBatch(c, name: unit, modelCount: 5, stageId: 's0');
+          await vault.addUnitPaint(c.id, unit, blue.id);
         }
         return (vault, dir);
       }))!;
@@ -214,13 +214,13 @@ void main() {
 
       await tester.tap(find.text('Macragge Blue'));
       await tester.pumpAndSettle();
-      final squads = ['Deathwing', 'Intercessors'];
-      final tops = [for (final s in squads) tester.getTopLeft(find.text(s)).dy];
-      expect(tops, [...tops]..sort(), reason: 'by Collection: $squads');
+      final units = ['Deathwing', 'Intercessors'];
+      final tops = [for (final s in units) tester.getTopLeft(find.text(s)).dy];
+      expect(tops, [...tops]..sort(), reason: 'by Collection: $units');
       expect(find.text('Dark Angels'), findsOneWidget);
       await tester.tap(find.text('Intercessors'));
       await settle(tester);
-      expect(find.byType(SquadScreen), findsOneWidget);
+      expect(find.byType(UnitScreen), findsOneWidget);
       expect(find.text('Citadel / Base'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());

@@ -94,7 +94,7 @@ void main() {
     return id;
   }
 
-  Map<String, Object?> putUnit(
+  Map<String, Object?> putBatch(
     String id, {
     required String collectionId,
     required String stageId,
@@ -112,15 +112,15 @@ void main() {
     },
   };
 
-  /// Puts Tag [name] on Unit [unitId], with the id the app gives it.
-  Map<String, Object?> putTag(String unitId, String name) => {
+  /// Puts Tag [name] on Batch [batchId], with the id the app gives it.
+  Map<String, Object?> putTag(String batchId, String name) => {
     'op': 'PUT',
     'type': 'unit_tags',
-    'id': tagId(unitId, name),
-    'data': {'unit_id': unitId, 'name': name},
+    'id': tagId(batchId, name),
+    'data': {'unit_id': batchId, 'name': name},
   };
 
-  Future<List<List<Object?>>> unit(String id) async => [
+  Future<List<List<Object?>>> batch(String id) async => [
     for (final row in await db.execute(
       r'''SELECT u.owner_id::text, u.name, u.model_count, u.notes, s.name
         FROM units u JOIN stages s ON s.id = u.stage_id WHERE u.id = $1::uuid''',
@@ -313,7 +313,7 @@ void main() {
     expect(await paint(), isEmpty);
   });
 
-  test("a Squad's Paint is stored by Collection and name, only on the user's own rows, and goes with its Collection or Paint", () async {
+  test("a Unit's Paint is stored by Collection and name, only on the user's own rows, and goes with its Collection or Paint", () async {
     final alice = await signUp();
     final bob = await signUp();
     Future<String> putPaint(({String token, String id}) user) async {
@@ -471,20 +471,20 @@ void main() {
     },
   );
 
-  test('a Unit is created at a Stage, edited per field and deleted', () async {
+  test('a Batch is created at a Stage, edited per field and deleted', () async {
     final user = await signUp();
     final collectionId = await createCollection(user);
     final id = await newId();
 
     final created = await upload(user.token, [
-      putUnit(
+      putBatch(
         id,
         collectionId: collectionId,
         stageId: await stageOf(user.id, 'Primed'),
       ),
     ]);
     expect(created.statusCode, 204, reason: created.body);
-    expect(await unit(id), [
+    expect(await batch(id), [
       [user.id, 'Intercessors', 10, '', 'Primed'],
     ]);
 
@@ -497,7 +497,7 @@ void main() {
       },
     ]);
     expect(edited.statusCode, 204, reason: edited.body);
-    expect(await unit(id), [
+    expect(await batch(id), [
       [user.id, 'Intercessors', 5, 'Jump packs', 'Primed'],
     ]);
 
@@ -505,45 +505,48 @@ void main() {
       {'op': 'DELETE', 'type': 'units', 'id': id},
     ]);
     expect(deleted.statusCode, 204, reason: deleted.body);
-    expect(await unit(id), isEmpty);
+    expect(await batch(id), isEmpty);
   });
 
-  test('a Stage holding Units cannot be deleted until they are gone', () async {
-    final user = await signUp();
-    final collectionId = await createCollection(user);
-    final primed = await stageOf(user.id, 'Primed');
-    final id = await newId();
-    expect(
-      (await upload(user.token, [
-        putUnit(id, collectionId: collectionId, stageId: primed),
-      ])).statusCode,
-      204,
-    );
+  test(
+    'a Stage holding Batches cannot be deleted until they are gone',
+    () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final primed = await stageOf(user.id, 'Primed');
+      final id = await newId();
+      expect(
+        (await upload(user.token, [
+          putBatch(id, collectionId: collectionId, stageId: primed),
+        ])).statusCode,
+        204,
+      );
 
-    final blocked = await upload(user.token, [
-      {'op': 'DELETE', 'type': 'stages', 'id': primed},
-    ]);
-    expect(blocked.statusCode, 409, reason: blocked.body);
-    expect(await unit(id), isNotEmpty);
+      final blocked = await upload(user.token, [
+        {'op': 'DELETE', 'type': 'stages', 'id': primed},
+      ]);
+      expect(blocked.statusCode, 409, reason: blocked.body);
+      expect(await batch(id), isNotEmpty);
 
-    final deleted = await upload(user.token, [
-      {'op': 'DELETE', 'type': 'units', 'id': id},
-      {'op': 'DELETE', 'type': 'stages', 'id': primed},
-    ]);
-    expect(deleted.statusCode, 204, reason: deleted.body);
-  });
+      final deleted = await upload(user.token, [
+        {'op': 'DELETE', 'type': 'units', 'id': id},
+        {'op': 'DELETE', 'type': 'stages', 'id': primed},
+      ]);
+      expect(deleted.statusCode, 204, reason: deleted.body);
+    },
+  );
 
-  test('a Unit must have at least one model', () async {
+  test('a Batch must have at least one model', () async {
     final user = await signUp();
     final collectionId = await createCollection(user);
     final stageId = await stageOf(user.id, 'Wishlist');
     final id = await newId();
     await upload(user.token, [
-      putUnit(id, collectionId: collectionId, stageId: stageId),
+      putBatch(id, collectionId: collectionId, stageId: stageId),
     ]);
 
     final created = await upload(user.token, [
-      putUnit(
+      putBatch(
         await newId(),
         collectionId: collectionId,
         stageId: stageId,
@@ -561,7 +564,7 @@ void main() {
 
     expect(created.statusCode, 422);
     expect(edited.statusCode, 422);
-    expect((await unit(id)).single[2], 10);
+    expect((await batch(id)).single[2], 10);
   });
 
   test(
@@ -577,7 +580,7 @@ void main() {
       final cases = {
         "a Unit in another user's Collection": (
           403,
-          putUnit(
+          putBatch(
             await newId(),
             collectionId: aliceCollection,
             stageId: bobStage,
@@ -585,7 +588,7 @@ void main() {
         ),
         "a Unit at another user's Stage": (
           403,
-          putUnit(
+          putBatch(
             await newId(),
             collectionId: bobCollection,
             stageId: aliceStage,
@@ -605,7 +608,7 @@ void main() {
         ),
         'a Unit in a missing Collection': (
           422,
-          putUnit(
+          putBatch(
             await newId(),
             collectionId: await newId(),
             stageId: bobStage,
@@ -626,15 +629,15 @@ void main() {
         expect(response.statusCode, status, reason: reason);
       }
 
-      final units = await db.execute(
+      final batches = await db.execute(
         r'SELECT count(*) FROM units WHERE owner_id IN ($1::uuid, $2::uuid)',
         parameters: [alice.id, bob.id],
       );
-      expect(units.single.first, 0);
+      expect(batches.single.first, 0);
     },
   );
 
-  test("a Unit's Stage must be in its Collection's Workflow", () async {
+  test("a Batch's Stage must be in its Collection's Workflow", () async {
     final user = await signUp();
     final collectionId = await createCollection(user);
     // A second Workflow of the same user, with one Stage.
@@ -653,10 +656,10 @@ void main() {
     final id = await newId();
 
     final created = await upload(user.token, [
-      putUnit(await newId(), collectionId: collectionId, stageId: otherStage),
+      putBatch(await newId(), collectionId: collectionId, stageId: otherStage),
     ]);
     await upload(user.token, [
-      putUnit(
+      putBatch(
         id,
         collectionId: collectionId,
         stageId: await stageOf(user.id, 'Wishlist'),
@@ -673,7 +676,7 @@ void main() {
 
     expect(created.statusCode, 422);
     expect(moved.statusCode, 422);
-    expect((await unit(id)).single.last, 'Wishlist');
+    expect((await batch(id)).single.last, 'Wishlist');
   });
 
   test('the owner cannot be set from the payload', () async {
@@ -752,11 +755,11 @@ void main() {
   });
 
   group('Tags', () {
-    /// Creates a Unit for [user] through the API and returns its id.
-    Future<String> createUnit(({String token, String id}) user) async {
+    /// Creates a Batch for [user] through the API and returns its id.
+    Future<String> createBatch(({String token, String id}) user) async {
       final id = await newId();
       final response = await upload(user.token, [
-        putUnit(
+        putBatch(
           id,
           collectionId: await createCollection(user),
           stageId: await stageOf(user.id, 'Primed'),
@@ -766,101 +769,101 @@ void main() {
       return id;
     }
 
-    Future<List<List<Object?>>> tagsOf(String unitId) async => [
+    Future<List<List<Object?>>> tagsOf(String batchId) async => [
       for (final row in await db.execute(
         r'SELECT owner_id::text, name FROM unit_tags WHERE unit_id = $1::uuid ORDER BY name',
-        parameters: [unitId],
+        parameters: [batchId],
       ))
         row.toList(),
     ];
 
-    test('are added and removed, and deleted with their Unit', () async {
+    test('are added and removed, and deleted with their Batch', () async {
       final user = await signUp();
-      final unitId = await createUnit(user);
+      final batchId = await createBatch(user);
 
       final added = await upload(user.token, [
-        putTag(unitId, ' Necrons '),
-        putTag(unitId, 'Warhammer 40k'),
+        putTag(batchId, ' Necrons '),
+        putTag(batchId, 'Warhammer 40k'),
       ]);
       expect(added.statusCode, 204, reason: added.body);
-      expect(await tagsOf(unitId), [
+      expect(await tagsOf(batchId), [
         [user.id, 'Necrons'],
         [user.id, 'Warhammer 40k'],
       ]);
 
       final removed = await upload(user.token, [
-        {'op': 'DELETE', 'type': 'unit_tags', 'id': tagId(unitId, 'necrons')},
+        {'op': 'DELETE', 'type': 'unit_tags', 'id': tagId(batchId, 'necrons')},
       ]);
       expect(removed.statusCode, 204, reason: removed.body);
-      expect(await tagsOf(unitId), [
+      expect(await tagsOf(batchId), [
         [user.id, 'Warhammer 40k'],
       ]);
 
-      // An older app could delete the Unit without its Tags: the server deletes them anyway.
+      // An older app could delete the Batch without its Tags: the server deletes them anyway.
       final deleted = await upload(user.token, [
-        {'op': 'DELETE', 'type': 'units', 'id': unitId},
+        {'op': 'DELETE', 'type': 'units', 'id': batchId},
       ]);
       expect(deleted.statusCode, 204, reason: deleted.body);
-      expect(await tagsOf(unitId), isEmpty);
+      expect(await tagsOf(batchId), isEmpty);
     });
 
-    test("cannot be put on another user's Unit", () async {
+    test("cannot be put on another user's Batch", () async {
       final alice = await signUp();
       final bob = await signUp();
-      final unitId = await createUnit(alice);
+      final batchId = await createBatch(alice);
 
-      final response = await upload(bob.token, [putTag(unitId, 'Necrons')]);
+      final response = await upload(bob.token, [putTag(batchId, 'Necrons')]);
       expect(response.statusCode, 403, reason: response.body);
-      expect(await tagsOf(unitId), isEmpty);
+      expect(await tagsOf(batchId), isEmpty);
     });
 
     test('added again from a second device keeps one row and its first casing, and the batch goes through', () async {
       final user = await signUp();
-      final unitId = await createUnit(user);
+      final batchId = await createBatch(user);
       expect(
-        (await upload(user.token, [putTag(unitId, 'Necrons')])).statusCode,
+        (await upload(user.token, [putTag(batchId, 'Necrons')])).statusCode,
         204,
       );
 
-      // The second device tagged the same Unit offline, in the same batch as an edit.
+      // The second device tagged the same Batch offline, in the same batch as an edit.
       final second = await upload(user.token, [
-        putTag(unitId, 'necrons'),
+        putTag(batchId, 'necrons'),
         {
           'op': 'PATCH',
           'type': 'units',
-          'id': unitId,
+          'id': batchId,
           'data': {'notes': 'Dynasty colours'},
         },
       ]);
       expect(second.statusCode, 204, reason: second.body);
-      expect(await tagsOf(unitId), [
+      expect(await tagsOf(batchId), [
         [user.id, 'Necrons'],
       ]);
-      expect((await unit(unitId)).single[3], 'Dynasty colours');
+      expect((await batch(batchId)).single[3], 'Dynasty colours');
     });
 
     test(
-      'must have the id of their Unit and name, and are never edited',
+      'must have the id of their Batch and name, and are never edited',
       () async {
         final user = await signUp();
-        final unitId = await createUnit(user);
-        final wrongId = {...putTag(unitId, 'Necrons'), 'id': await newId()};
+        final batchId = await createBatch(user);
+        final wrongId = {...putTag(batchId, 'Necrons'), 'id': await newId()};
 
         expect((await upload(user.token, [wrongId])).statusCode, 422);
         expect(
-          (await upload(user.token, [putTag(unitId, 'Necrons')])).statusCode,
+          (await upload(user.token, [putTag(batchId, 'Necrons')])).statusCode,
           204,
         );
         final edit = await upload(user.token, [
           {
             'op': 'PATCH',
             'type': 'unit_tags',
-            'id': tagId(unitId, 'Necrons'),
+            'id': tagId(batchId, 'Necrons'),
             'data': {'name': 'Orks'},
           },
         ]);
         expect(edit.statusCode, 422);
-        expect(await tagsOf(unitId), [
+        expect(await tagsOf(batchId), [
           [user.id, 'Necrons'],
         ]);
       },
@@ -871,21 +874,21 @@ void main() {
     final alice = await signUp();
     final bob = await signUp();
     final id = await createCollection(alice);
-    final unitId = await newId();
+    final batchId = await newId();
     final stageChangeId = await newId();
     final wishlist = await stageOf(alice.id, 'Wishlist');
-    final tag = putTag(unitId, 'Necrons');
+    final tag = putTag(batchId, 'Necrons');
     final photoId = await newId();
     final paintId = await newId();
-    final squadPaintId = await newId();
+    final unitPaintId = await newId();
     final uploaded = await upload(alice.token, [
-      putUnit(unitId, collectionId: id, stageId: wishlist),
+      putBatch(batchId, collectionId: id, stageId: wishlist),
       {
         'op': 'PUT',
         'type': 'stage_changes',
         'id': stageChangeId,
         'data': {
-          'unit_id': unitId,
+          'unit_id': batchId,
           'to_stage_id': wishlist,
           'model_count': 10,
           'happened_at': '2026-11-13T09:00:00.000Z',
@@ -896,7 +899,7 @@ void main() {
         'op': 'PUT',
         'type': 'photos',
         'id': photoId,
-        'data': {'unit_id': unitId, 'file_id': await newId()},
+        'data': {'unit_id': batchId, 'file_id': await newId()},
       },
       {
         'op': 'PUT',
@@ -912,7 +915,7 @@ void main() {
       {
         'op': 'PUT',
         'type': 'squad_paints',
-        'id': squadPaintId,
+        'id': unitPaintId,
         'data': {
           'collection_id': id,
           'squad_name': 'Intercessors',
@@ -967,12 +970,12 @@ void main() {
       aliceIds,
       containsAll([
         id,
-        unitId,
+        batchId,
         stageChangeId,
         tag['id'],
         photoId,
         paintId,
-        squadPaintId,
+        unitPaintId,
       ]),
     );
     expect(aliceIds, contains(await workflowOf(alice.id)));
@@ -1282,7 +1285,7 @@ void main() {
   group('Stage Changes', () {
     Map<String, Object?> putStageChange(
       String id, {
-      required String unitId,
+      required String batchId,
       String? fromStageId,
       required String toStageId,
       required String happenedAt,
@@ -1291,7 +1294,7 @@ void main() {
       'type': 'stage_changes',
       'id': id,
       'data': {
-        'unit_id': unitId,
+        'unit_id': batchId,
         'from_stage_id': fromStageId,
         'to_stage_id': toStageId,
         'model_count': 10,
@@ -1299,37 +1302,37 @@ void main() {
       },
     };
 
-    /// The Unit's history as to-Stage names, oldest first.
-    Future<List<Object?>> history(String unitId) async => [
+    /// The Batch's history as to-Stage names, oldest first.
+    Future<List<Object?>> history(String batchId) async => [
       for (final row in await db.execute(
         r'''SELECT s.name FROM stage_changes sc JOIN stages s ON s.id = sc.to_stage_id
           WHERE sc.unit_id = $1::uuid ORDER BY sc.happened_at, sc.id''',
-        parameters: [unitId],
+        parameters: [batchId],
       ))
         row.first,
     ];
 
-    /// A user with a Unit created at Wishlist, as the app uploads it: the Unit, then its initial Stage Change.
-    Future<({String token, String id, String unitId})> userWithUnit() async {
+    /// A user with a Batch created at Wishlist, as the app uploads it: the Batch, then its initial Stage Change.
+    Future<({String token, String id, String batchId})> userWithBatch() async {
       final user = await signUp();
       final collectionId = await createCollection(user);
       final wishlist = await stageOf(user.id, 'Wishlist');
-      final unitId = await newId();
+      final batchId = await newId();
       final created = await upload(user.token, [
-        putUnit(unitId, collectionId: collectionId, stageId: wishlist),
+        putBatch(batchId, collectionId: collectionId, stageId: wishlist),
         putStageChange(
           await newId(),
-          unitId: unitId,
+          batchId: batchId,
           toStageId: wishlist,
           happenedAt: '2026-11-13T09:00:00.000Z',
         ),
       ]);
       expect(created.statusCode, 204, reason: created.body);
-      return (token: user.token, id: user.id, unitId: unitId);
+      return (token: user.token, id: user.id, batchId: batchId);
     }
 
     test('two offline moves uploaded out of order are both kept, and the later one by device timestamp is current', () async {
-      final user = await userWithUnit();
+      final user = await userWithBatch();
       final wishlist = await stageOf(user.id, 'Wishlist');
       final primed = await stageOf(user.id, 'Primed');
       final painted = await stageOf(user.id, 'Painted');
@@ -1343,12 +1346,12 @@ void main() {
           {
             'op': 'PATCH',
             'type': 'units',
-            'id': user.unitId,
+            'id': user.batchId,
             'data': {'stage_id': stageId},
           },
           putStageChange(
             await newId(),
-            unitId: user.unitId,
+            batchId: user.batchId,
             fromStageId: wishlist,
             toStageId: stageId,
             happenedAt: at,
@@ -1357,19 +1360,19 @@ void main() {
         expect(response.statusCode, 204, reason: response.body);
       }
 
-      expect(await history(user.unitId), ['Wishlist', 'Primed', 'Painted']);
-      expect((await unit(user.unitId)).single.last, 'Painted');
+      expect(await history(user.batchId), ['Wishlist', 'Primed', 'Painted']);
+      expect((await batch(user.batchId)).single.last, 'Painted');
     });
 
     test(
-      'cannot be edited or deleted; deleting the Unit removes them',
+      'cannot be edited or deleted; deleting the Batch removes them',
       () async {
-        final user = await userWithUnit();
+        final user = await userWithBatch();
         final id = await newId();
         final primed = await stageOf(user.id, 'Primed');
         final move = putStageChange(
           id,
-          unitId: user.unitId,
+          batchId: user.batchId,
           toStageId: primed,
           happenedAt: '2026-11-13T10:00:00.000Z',
         );
@@ -1391,26 +1394,26 @@ void main() {
         final retried = await upload(user.token, [
           putStageChange(
             id,
-            unitId: user.unitId,
+            batchId: user.batchId,
             toStageId: await stageOf(user.id, 'Done'),
             happenedAt: '2026-11-14T10:00:00.000Z',
           ),
         ]);
         expect(retried.statusCode, 204, reason: retried.body);
-        expect(await history(user.unitId), ['Wishlist', 'Primed']);
-        expect((await unit(user.unitId)).single.last, 'Primed');
+        expect(await history(user.batchId), ['Wishlist', 'Primed']);
+        expect((await batch(user.batchId)).single.last, 'Primed');
 
         final deleted = await upload(user.token, [
-          {'op': 'DELETE', 'type': 'units', 'id': user.unitId},
+          {'op': 'DELETE', 'type': 'units', 'id': user.batchId},
         ]);
         expect(deleted.statusCode, 204, reason: deleted.body);
-        expect(await history(user.unitId), isEmpty);
+        expect(await history(user.batchId), isEmpty);
       },
     );
 
-    test("cannot point at another user's Unit or Stage", () async {
-      final alice = await userWithUnit();
-      final bob = await userWithUnit();
+    test("cannot point at another user's Batch or Stage", () async {
+      final alice = await userWithBatch();
+      final bob = await userWithBatch();
       final aliceStage = await stageOf(alice.id, 'Primed');
       final bobStage = await stageOf(bob.id, 'Primed');
 
@@ -1419,7 +1422,7 @@ void main() {
           "another user's Unit",
           putStageChange(
             await newId(),
-            unitId: alice.unitId,
+            batchId: alice.batchId,
             toStageId: bobStage,
             happenedAt: '2026-11-13T10:00:00.000Z',
           ),
@@ -1428,7 +1431,7 @@ void main() {
           "another user's to-Stage",
           putStageChange(
             await newId(),
-            unitId: bob.unitId,
+            batchId: bob.batchId,
             toStageId: aliceStage,
             happenedAt: '2026-11-13T10:00:00.000Z',
           ),
@@ -1437,7 +1440,7 @@ void main() {
           "another user's from-Stage",
           putStageChange(
             await newId(),
-            unitId: bob.unitId,
+            batchId: bob.batchId,
             fromStageId: aliceStage,
             toStageId: bobStage,
             happenedAt: '2026-11-13T10:00:00.000Z',
@@ -1448,63 +1451,63 @@ void main() {
         expect(response.statusCode, 403, reason: reason);
       }
 
-      expect(await history(alice.unitId), ['Wishlist']);
-      expect(await history(bob.unitId), ['Wishlist']);
-      expect((await unit(alice.unitId)).single.last, 'Wishlist');
+      expect(await history(alice.batchId), ['Wishlist']);
+      expect(await history(bob.batchId), ['Wishlist']);
+      expect((await batch(alice.batchId)).single.last, 'Wishlist');
     });
 
-    /// A Unit created at [stageId] in [collectionId], as the app uploads it.
-    Future<String> createUnitAt(
+    /// A Batch created at [stageId] in [collectionId], as the app uploads it.
+    Future<String> createBatchAt(
       ({String token, String id}) user,
       String collectionId,
       String stageId,
     ) async {
-      final unitId = await newId();
+      final batchId = await newId();
       final created = await upload(user.token, [
-        putUnit(unitId, collectionId: collectionId, stageId: stageId),
+        putBatch(batchId, collectionId: collectionId, stageId: stageId),
         putStageChange(
           await newId(),
-          unitId: unitId,
+          batchId: batchId,
           toStageId: stageId,
           happenedAt: '2026-11-13T09:00:00.000Z',
         ),
       ]);
       expect(created.statusCode, 204, reason: created.body);
-      return unitId;
+      return batchId;
     }
 
-    /// One Unit move as the app uploads it: the Unit's stage_id, then the Stage Change.
+    /// One Batch move as the app uploads it: the Batch's stage_id, then the Stage Change.
     Future<List<Map<String, Object?>>> move(
-      String unitId,
+      String batchId,
       String from,
       String to,
     ) async => [
       {
         'op': 'PATCH',
         'type': 'units',
-        'id': unitId,
+        'id': batchId,
         'data': {'stage_id': to},
       },
       putStageChange(
         await newId(),
-        unitId: unitId,
+        batchId: batchId,
         fromStageId: from,
         toStageId: to,
         happenedAt: '2026-11-13T10:00:00.000Z',
       ),
     ];
 
-    test('deleting a Stage that holds Units: the app\'s batch of moves, new Owned Stage and delete is accepted', () async {
+    test('deleting a Stage that holds Batches: the app\'s batch of moves, new Owned Stage and delete is accepted', () async {
       final user = await signUp();
       final unassembled = await stageOf(user.id, 'Unassembled');
       final assembled = await stageOf(user.id, 'Assembled');
-      final units = [
-        await createUnitAt(user, await createCollection(user), unassembled),
-        await createUnitAt(user, await createCollection(user), unassembled),
+      final batches = [
+        await createBatchAt(user, await createCollection(user), unassembled),
+        await createBatchAt(user, await createCollection(user), unassembled),
       ];
 
       final response = await upload(user.token, [
-        for (final u in units) ...await move(u, unassembled, assembled),
+        for (final u in batches) ...await move(u, unassembled, assembled),
         {
           'op': 'PATCH',
           'type': 'workflows',
@@ -1515,8 +1518,8 @@ void main() {
       ]);
 
       expect(response.statusCode, 204, reason: response.body);
-      for (final u in units) {
-        expect((await unit(u)).single.last, 'Assembled');
+      for (final u in batches) {
+        expect((await batch(u)).single.last, 'Assembled');
         expect(await history(u), [
           'Assembled',
         ]); // The initial Stage Change's Stage is gone, so the join drops it.
@@ -1533,16 +1536,16 @@ void main() {
       expect(stages, isEmpty);
     });
 
-    test('deleting a Stage is still refused (409) when another device moved a Unit into it meanwhile', () async {
+    test('deleting a Stage is still refused (409) when another device moved a Batch into it meanwhile', () async {
       final user = await signUp();
       final collectionId = await createCollection(user);
       final wishlist = await stageOf(user.id, 'Wishlist');
       final primed = await stageOf(user.id, 'Primed');
       final assembled = await stageOf(user.id, 'Assembled');
-      final known = await createUnitAt(user, collectionId, primed);
-      final other = await createUnitAt(user, collectionId, wishlist);
+      final known = await createBatchAt(user, collectionId, primed);
+      final other = await createBatchAt(user, collectionId, wishlist);
 
-      // Device B moves the other Unit into Primed while device A is offline, deleting Primed and moving the Unit it knows.
+      // Device B moves the other Batch into Primed while device A is offline, deleting Primed and moving the Batch it knows.
       final moved = await upload(
         user.token,
         await move(other, wishlist, primed),
@@ -1554,14 +1557,14 @@ void main() {
       ]);
 
       expect(response.statusCode, 409, reason: response.body);
-      expect((await unit(known)).single.last, 'Primed');
-      expect((await unit(other)).single.last, 'Primed');
+      expect((await batch(known)).single.last, 'Primed');
+      expect((await batch(other)).single.last, 'Primed');
     });
 
     test(
       "a move to a Stage outside the Collection's Workflow is rejected",
       () async {
-        final user = await userWithUnit();
+        final user = await userWithBatch();
         final otherWorkflow = await newId();
         final otherStages = [await newId(), await newId()];
         expect(
@@ -1575,15 +1578,15 @@ void main() {
         final response = await upload(user.token, [
           putStageChange(
             await newId(),
-            unitId: user.unitId,
+            batchId: user.batchId,
             toStageId: otherStages.first,
             happenedAt: '2026-11-13T10:00:00.000Z',
           ),
         ]);
 
         expect(response.statusCode, 422, reason: response.body);
-        expect(await history(user.unitId), ['Wishlist']);
-        expect((await unit(user.unitId)).single.last, 'Wishlist');
+        expect(await history(user.batchId), ['Wishlist']);
+        expect((await batch(user.batchId)).single.last, 'Wishlist');
       },
     );
 
@@ -1601,17 +1604,17 @@ void main() {
               )).first.first
               as String?;
 
-      /// A user with a Collection holding a Unit at Wishlist and one at Primed, and a second Workflow.
+      /// A user with a Collection holding a Batch at Wishlist and one at Primed, and a second Workflow.
       Future<_Switch> setUpSwitch() async {
         final user = await signUp();
         final collectionId = await createCollection(user);
-        final units = [
-          await createUnitAt(
+        final batches = [
+          await createBatchAt(
             user,
             collectionId,
             await stageOf(user.id, 'Wishlist'),
           ),
-          await createUnitAt(
+          await createBatchAt(
             user,
             collectionId,
             await stageOf(user.id, 'Primed'),
@@ -1627,37 +1630,37 @@ void main() {
         return (
           user: user,
           collectionId: collectionId,
-          units: units,
+          batches: batches,
           workflowId: workflowId,
           stages: stages,
         );
       }
 
-      /// The app's batch: each Unit's move (Unit stage_id, then Stage Change), then the Collection's workflow_id.
+      /// The app's batch: each Batch's move (Batch stage_id, then Stage Change), then the Collection's workflow_id.
       Future<List<Map<String, Object?>>> appBatch(_Switch s) async => [
         ...await move(
-          s.units[0],
+          s.batches[0],
           await stageOf(s.user.id, 'Wishlist'),
           s.stages[0],
         ),
         ...await move(
-          s.units[1],
+          s.batches[1],
           await stageOf(s.user.id, 'Primed'),
           s.stages[2],
         ),
         switchTo(s.collectionId, s.workflowId),
       ];
 
-      test("the app's batch is accepted and leaves every Unit at a Stage of the new Workflow", () async {
+      test("the app's batch is accepted and leaves every Batch at a Stage of the new Workflow", () async {
         final s = await setUpSwitch();
 
         final response = await upload(s.user.token, await appBatch(s));
 
         expect(response.statusCode, 204, reason: response.body);
         expect(await workflowOfCollection(s.collectionId), s.workflowId);
-        expect((await unit(s.units[0])).single.last, 'Stage 0');
-        expect((await unit(s.units[1])).single.last, 'Stage 2');
-        expect(await history(s.units[1]), ['Primed', 'Stage 2']);
+        expect((await batch(s.batches[0])).single.last, 'Stage 0');
+        expect((await batch(s.batches[1])).single.last, 'Stage 2');
+        expect(await history(s.batches[1]), ['Primed', 'Stage 2']);
       });
 
       test("switching to another user's Workflow is rejected", () async {
@@ -1675,11 +1678,11 @@ void main() {
         );
       });
 
-      test('switching without moving every Unit is rejected', () async {
+      test('switching without moving every Batch is rejected', () async {
         final s = await setUpSwitch();
 
         final response = await upload(s.user.token, [
-          ...(await appBatch(s)).skip(2), // The first Unit's move left out.
+          ...(await appBatch(s)).skip(2), // The first Batch's move left out.
         ]);
 
         expect(response.statusCode, 422, reason: response.body);
@@ -1687,37 +1690,37 @@ void main() {
           await workflowOfCollection(s.collectionId),
           await workflowOf(s.user.id),
         );
-        expect((await unit(s.units[1])).single.last, 'Primed');
+        expect((await batch(s.batches[1])).single.last, 'Primed');
       });
 
-      test('the batch is rejected as a whole when another device added a Unit to the Collection meanwhile', () async {
+      test('the batch is rejected as a whole when another device added a Batch to the Collection meanwhile', () async {
         final s = await setUpSwitch();
-        final batch = await appBatch(s); // Made offline, before the add.
-        final added = await createUnitAt(
+        final ops = await appBatch(s); // Made offline, before the add.
+        final added = await createBatchAt(
           s.user,
           s.collectionId,
           await stageOf(s.user.id, 'Painted'),
         );
 
-        final response = await upload(s.user.token, batch);
+        final response = await upload(s.user.token, ops);
 
         expect(response.statusCode, 422, reason: response.body);
         expect(
           await workflowOfCollection(s.collectionId),
           await workflowOf(s.user.id),
         );
-        expect((await unit(s.units[0])).single.last, 'Wishlist');
-        expect((await unit(added)).single.last, 'Painted');
-        expect(await history(s.units[0]), ['Wishlist']);
+        expect((await batch(s.batches[0])).single.last, 'Wishlist');
+        expect((await batch(added)).single.last, 'Painted');
+        expect(await history(s.batches[0]), ['Wishlist']);
       });
 
-      test('the batch is rejected as a whole when another device moved a Unit later than the switch', () async {
+      test('the batch is rejected as a whole when another device moved a Batch later than the switch', () async {
         final s = await setUpSwitch();
-        final batch = await appBatch(s); // Its moves are stamped 10:00.
+        final ops = await appBatch(s); // Its moves are stamped 10:00.
         final moved = await upload(s.user.token, [
           putStageChange(
             await newId(),
-            unitId: s.units[1],
+            batchId: s.batches[1],
             fromStageId: await stageOf(s.user.id, 'Primed'),
             toStageId: await stageOf(s.user.id, 'Done'),
             happenedAt: '2026-11-13T11:00:00.000Z',
@@ -1725,15 +1728,15 @@ void main() {
         ]);
         expect(moved.statusCode, 204, reason: moved.body);
 
-        final response = await upload(s.user.token, batch);
+        final response = await upload(s.user.token, ops);
 
         expect(response.statusCode, 422, reason: response.body);
         expect(
           await workflowOfCollection(s.collectionId),
           await workflowOf(s.user.id),
         );
-        expect((await unit(s.units[1])).single.last, 'Done');
-        expect(await history(s.units[1]), ['Primed', 'Done']);
+        expect((await batch(s.batches[1])).single.last, 'Done');
+        expect(await history(s.batches[1]), ['Primed', 'Done']);
       });
 
       test(
@@ -1748,14 +1751,14 @@ void main() {
           final response = await upload(
             s.user.token,
             await move(
-              s.units[0],
+              s.batches[0],
               await stageOf(s.user.id, 'Wishlist'),
               await stageOf(s.user.id, 'Done'),
             ),
           );
 
           expect(response.statusCode, 422, reason: response.body);
-          expect((await unit(s.units[0])).single.last, 'Stage 0');
+          expect((await batch(s.batches[0])).single.last, 'Stage 0');
         },
       );
     });
@@ -1771,10 +1774,10 @@ void main() {
     'content-type': type,
   };
 
-  Future<String> addUnit(({String token, String id}) user) async {
+  Future<String> addBatch(({String token, String id}) user) async {
     final id = await newId();
     final response = await upload(user.token, [
-      putUnit(
+      putBatch(
         id,
         collectionId: await createCollection(user),
         stageId: await stageOf(user.id, 'Wishlist'),
@@ -1784,21 +1787,21 @@ void main() {
     return id;
   }
 
-  Map<String, Object?> putPhoto(String id, String unitId, String fileId) => {
+  Map<String, Object?> putPhoto(String id, String batchId, String fileId) => {
     'op': 'PUT',
     'type': 'photos',
     'id': id,
-    'data': {'unit_id': unitId, 'file_id': fileId},
+    'data': {'unit_id': batchId, 'file_id': fileId},
   };
 
-  /// Adds a Photo row on [unitId] for a new file and uploads [jpeg] as that file; returns the file id.
+  /// Adds a Photo row on [batchId] for a new file and uploads [jpeg] as that file; returns the file id.
   Future<String> addPhoto(
     ({String token, String id}) user,
-    String unitId,
+    String batchId,
   ) async {
     final fileId = await newId();
     final row = await upload(user.token, [
-      putPhoto(await newId(), unitId, fileId),
+      putPhoto(await newId(), batchId, fileId),
     ]);
     expect(row.statusCode, 204, reason: row.body);
     final put = await http.put(
@@ -1813,7 +1816,7 @@ void main() {
   group('Photos', () {
     test('are uploaded and downloaded by their owner, with a token', () async {
       final user = await signUp();
-      final fileId = await addPhoto(user, await addUnit(user));
+      final fileId = await addPhoto(user, await addBatch(user));
 
       final got = await http.get(file(fileId), headers: auth(user.token));
       expect(got.statusCode, 200);
@@ -1840,8 +1843,8 @@ void main() {
       () async {
         final alice = await signUp();
         final bob = await signUp();
-        final unitId = await addUnit(alice);
-        final fileId = await addPhoto(alice, unitId);
+        final batchId = await addBatch(alice);
+        final fileId = await addPhoto(alice, batchId);
 
         expect(
           (await http.get(file(fileId), headers: auth(bob.token))).statusCode,
@@ -1854,10 +1857,10 @@ void main() {
           )).statusCode,
           404,
         );
-        // Bob's own row can't point at Alice's Unit, and without one he can't upload.
+        // Bob's own row can't point at Alice's Batch, and without one he can't upload.
         expect(
           (await upload(bob.token, [
-            putPhoto(await newId(), unitId, fileId),
+            putPhoto(await newId(), batchId, fileId),
           ])).statusCode,
           403,
         );
@@ -1876,11 +1879,11 @@ void main() {
 
     test('reject files that are not images, too large, or not of their declared type', () async {
       final user = await signUp();
-      final unitId = await addUnit(user);
+      final batchId = await addBatch(user);
       final fileId = await newId();
       expect(
         (await upload(user.token, [
-          putPhoto(await newId(), unitId, fileId),
+          putPhoto(await newId(), batchId, fileId),
         ])).statusCode,
         204,
       );
@@ -1942,7 +1945,7 @@ void main() {
         }
         // A Photo row's file id must be a UUID too.
         final row = await upload(user.token, [
-          putPhoto(await newId(), await addUnit(user), '../../etc/passwd'),
+          putPhoto(await newId(), await addBatch(user), '../../etc/passwd'),
         ]);
         expect(row.statusCode, 422, reason: row.body);
       },
@@ -1950,9 +1953,9 @@ void main() {
 
     test('a file shared by two Photos survives deleting one, and is deleted with the last', () async {
       final user = await signUp();
-      final unitId = await addUnit(user);
-      final splitId = await addUnit(user);
-      final fileId = await addPhoto(user, unitId);
+      final batchId = await addBatch(user);
+      final splitId = await addBatch(user);
+      final fileId = await addPhoto(user, batchId);
       // A Split copies the Photo: a second row pointing at the same file.
       final copyId = await newId();
       expect(
@@ -1967,7 +1970,7 @@ void main() {
       final original =
           (await db.execute(
                 r'SELECT id::text FROM photos WHERE unit_id = $1::uuid',
-                parameters: [unitId],
+                parameters: [batchId],
               )).single.single
               as String;
       expect(
@@ -1983,7 +1986,7 @@ void main() {
         reason: 'a Photo still points at the file',
       );
 
-      // As the app deletes a Unit: its Photos, then the Unit.
+      // As the app deletes a Batch: its Photos, then the Batch.
       expect(
         (await upload(user.token, [
           {'op': 'DELETE', 'type': 'photos', 'id': copyId},
@@ -1995,14 +1998,14 @@ void main() {
     });
 
     test(
-      'are deleted with their Unit, even if only the Unit delete arrives',
+      'are deleted with their Batch, even if only the Batch delete arrives',
       () async {
         final user = await signUp();
-        final unitId = await addUnit(user);
-        final fileId = await addPhoto(user, unitId);
+        final batchId = await addBatch(user);
+        final fileId = await addPhoto(user, batchId);
         expect(
           (await upload(user.token, [
-            {'op': 'DELETE', 'type': 'units', 'id': unitId},
+            {'op': 'DELETE', 'type': 'units', 'id': batchId},
           ])).statusCode,
           204,
         );
@@ -2013,17 +2016,17 @@ void main() {
       },
     );
 
-    test('are at most ten per Unit, and never edited', () async {
+    test('are at most ten per Batch, and never edited', () async {
       final user = await signUp();
-      final unitId = await addUnit(user);
+      final batchId = await addBatch(user);
       final ops = [
         for (var i = 0; i < 10; i++)
-          putPhoto(await newId(), unitId, await newId()),
+          putPhoto(await newId(), batchId, await newId()),
       ];
       expect((await upload(user.token, ops)).statusCode, 204);
 
       final eleventh = await upload(user.token, [
-        putPhoto(await newId(), unitId, await newId()),
+        putPhoto(await newId(), batchId, await newId()),
       ]);
       expect(eleventh.statusCode, 422, reason: eleventh.body);
       final edit = await upload(user.token, [
@@ -2037,57 +2040,57 @@ void main() {
       expect(edit.statusCode, 422, reason: edit.body);
       final count = await db.execute(
         r'SELECT count(*) FROM photos WHERE unit_id = $1::uuid',
-        parameters: [unitId],
+        parameters: [batchId],
       );
       expect(count.single.single, 10);
     });
 
     group('and a deleted Collection', () {
-      /// Adds a Unit to [collectionId] with its starting Stage Change, a Tag and a Photo of a new file;
-      /// returns the Unit id and the file id.
+      /// Adds a Batch to [collectionId] with its starting Stage Change, a Tag and a Photo of a new file;
+      /// returns the Batch id and the file id.
       Future<(String, String)> addFull(
         ({String token, String id}) user,
         String collectionId,
       ) async {
-        final unitId = await newId();
+        final batchId = await newId();
         final stageId = await stageOf(user.id, 'Wishlist');
         final response = await upload(user.token, [
-          putUnit(unitId, collectionId: collectionId, stageId: stageId),
+          putBatch(batchId, collectionId: collectionId, stageId: stageId),
           {
             'op': 'PUT',
             'type': 'stage_changes',
             'id': await newId(),
             'data': {
-              'unit_id': unitId,
+              'unit_id': batchId,
               'from_stage_id': null,
               'to_stage_id': stageId,
               'model_count': 10,
               'happened_at': DateTime.now().toUtc().toIso8601String(),
             },
           },
-          putTag(unitId, 'Imperium'),
+          putTag(batchId, 'Imperium'),
         ]);
         expect(response.statusCode, 204, reason: response.body);
-        return (unitId, await addPhoto(user, unitId));
+        return (batchId, await addPhoto(user, batchId));
       }
 
-      /// What the app uploads for deleting [collectionId] while it knows of [units]: their Tags and Photos, the
-      /// Units, then the Collection.
+      /// What the app uploads for deleting [collectionId] while it knows of [batches]: their Tags and Photos, the
+      /// Batches, then the Collection.
       Future<List<Map<String, Object?>>> appDelete(
         String collectionId,
-        List<String> units,
+        List<String> batches,
       ) async => [
         for (final table in ['unit_tags', 'photos'])
           for (final row in await db.execute(
             'SELECT id::text FROM $table WHERE unit_id::text = ANY(\$1)',
-            parameters: [TypedValue(Type.textArray, units)],
+            parameters: [TypedValue(Type.textArray, batches)],
           ))
             {'op': 'DELETE', 'type': table, 'id': row.first},
-        for (final u in units) {'op': 'DELETE', 'type': 'units', 'id': u},
+        for (final u in batches) {'op': 'DELETE', 'type': 'units', 'id': u},
         {'op': 'DELETE', 'type': 'collections', 'id': collectionId},
       ];
 
-      /// The user's rows left of each synced table under a Collection, and Units whose Collection is gone.
+      /// The user's rows left of each synced table under a Collection, and Batches whose Collection is gone.
       Future<List<Object?>> leftUnder(
         String userId,
         String collectionId,
@@ -2106,14 +2109,14 @@ void main() {
       Future<int> download(({String token, String id}) user, String id) async =>
           (await http.get(file(id), headers: auth(user.token))).statusCode;
 
-      test('deletes its Units with their rows and unreferenced files; a file shared with another Collection survives', () async {
+      test('deletes its Batches with their rows and unreferenced files; a file shared with another Collection survives', () async {
         final user = await signUp();
         final doomed = await createCollection(user);
         final kept = await createCollection(user);
         final (a, fileA) = await addFull(user, doomed);
         final (b, fileB) = await addFull(user, doomed);
         final (c, fileC) = await addFull(user, kept);
-        // A Split-style copy: a Unit in the kept Collection shares fileB.
+        // A Split-style copy: a Batch in the kept Collection shares fileB.
         expect(
           (await upload(user.token, [
             putPhoto(await newId(), c, fileB),
@@ -2134,23 +2137,23 @@ void main() {
         expect(await leftUnder(user.id, kept), [1, 1, 1, 1, 2, 0]);
       });
 
-      test('a Unit another device added meanwhile is deleted with it, or rejected if it arrives later', () async {
+      test('a Batch another device added meanwhile is deleted with it, or rejected if it arrives later', () async {
         final user = await signUp();
         final collectionId = await createCollection(user);
         final (known, _) = await addFull(user, collectionId);
-        // This device deletes offline, knowing only [known]; the other device's Unit lands first.
+        // This device deletes offline, knowing only [known]; the other device's Batch lands first.
         final deleteOps = await appDelete(collectionId, [known]);
         final (added, addedFile) = await addFull(user, collectionId);
 
         final response = await upload(user.token, deleteOps);
         expect(response.statusCode, 204, reason: response.body);
         expect(await leftUnder(user.id, collectionId), [0, 0, 0, 0, 0, 0]);
-        expect(await unit(added), isEmpty);
+        expect(await batch(added), isEmpty);
         expect(await download(user, addedFile), 404);
 
-        // The other device's Unit arriving after the delete is rejected: no orphan.
+        // The other device's Batch arriving after the delete is rejected: no orphan.
         final late = await upload(user.token, [
-          putUnit(
+          putBatch(
             await newId(),
             collectionId: collectionId,
             stageId: await stageOf(user.id, 'Wishlist'),
@@ -2160,7 +2163,7 @@ void main() {
         expect(await leftUnder(user.id, collectionId), [0, 0, 0, 0, 0, 0]);
       });
 
-      test('racing a Unit add at the same instant leaves no orphan, whichever commits first', () async {
+      test('racing a Batch add at the same instant leaves no orphan, whichever commits first', () async {
         final user = await signUp();
         final stageId = await stageOf(user.id, 'Wishlist');
         for (var i = 0; i < 10; i++) {
@@ -2170,7 +2173,7 @@ void main() {
           final [deleted, added] = await Future.wait([
             upload(user.token, deleteOps),
             upload(user.token, [
-              putUnit(
+              putBatch(
                 await newId(),
                 collectionId: collectionId,
                 stageId: stageId,
@@ -2187,14 +2190,14 @@ void main() {
         final alice = await signUp();
         final bob = await signUp();
         final collectionId = await createCollection(alice);
-        final (unitId, fileId) = await addFull(alice, collectionId);
+        final (batchId, fileId) = await addFull(alice, collectionId);
 
         final response = await upload(bob.token, [
           {'op': 'DELETE', 'type': 'collections', 'id': collectionId},
         ]);
         expect(response.statusCode, 403, reason: response.body);
         expect(await leftUnder(alice.id, collectionId), [1, 1, 1, 1, 1, 0]);
-        expect(await unit(unitId), isNotEmpty);
+        expect(await batch(batchId), isNotEmpty);
         expect(await download(alice, fileId), 200);
       });
     });
@@ -2216,7 +2219,7 @@ void main() {
     }
 
     Map<String, Object?> putStageChange(
-      String unitId,
+      String batchId,
       String? from,
       String to,
       int count,
@@ -2226,7 +2229,7 @@ void main() {
       'type': 'stage_changes',
       'id': uuid(),
       'data': {
-        'unit_id': unitId,
+        'unit_id': batchId,
         'from_stage_id': from,
         'to_stage_id': to,
         'model_count': count,
@@ -2235,14 +2238,14 @@ void main() {
     };
 
     /// The count PATCH the app uploads after a Split or Merge: its local view, which the server ignores.
-    Map<String, Object?> patchCount(String unitId, int count) => {
+    Map<String, Object?> patchCount(String batchId, int count) => {
       'op': 'PATCH',
       'type': 'units',
-      'id': unitId,
+      'id': batchId,
       'data': {'model_count': count},
     };
 
-    /// The app's Split batch: a new Unit at Primed with its Stage Change, the Split, then [source]'s new count.
+    /// The app's Split batch: a new Batch at Primed with its Stage Change, the Split, then [source]'s new count.
     List<Map<String, Object?>> split(
       String source,
       String created,
@@ -2250,7 +2253,7 @@ void main() {
       required int localCount,
       String? collection,
     }) => [
-      putUnit(
+      putBatch(
         created,
         collectionId: collection ?? collectionId,
         stageId: primed,
@@ -2270,9 +2273,9 @@ void main() {
       patchCount(source, localCount),
     ];
 
-    /// The app's Merge batch: the Merge, then [unitId]'s new count and the delete of [other].
+    /// The app's Merge batch: the Merge, then [batchId]'s new count and the delete of [other].
     List<Map<String, Object?>> merge(
-      String unitId,
+      String batchId,
       String other, {
       required int localCount,
     }) => [
@@ -2280,14 +2283,14 @@ void main() {
         'op': 'PUT',
         'type': 'merges',
         'id': uuid(),
-        'data': {'unit_id': unitId, 'merged_unit_id': other},
+        'data': {'unit_id': batchId, 'merged_unit_id': other},
       },
-      patchCount(unitId, localCount),
+      patchCount(batchId, localCount),
       {'op': 'DELETE', 'type': 'units', 'id': other},
     ];
 
-    Future<int?> count(String unitId) async =>
-        (await unit(unitId)).map((u) => u[2] as int).firstOrNull;
+    Future<int?> count(String batchId) async =>
+        (await batch(batchId)).map((u) => u[2] as int).firstOrNull;
 
     setUp(() async {
       user = await signUp();
@@ -2296,7 +2299,7 @@ void main() {
       primed = await stageOf(user.id, 'Primed');
       a = await newId();
       final created = await upload(user.token, [
-        putUnit(a, collectionId: collectionId, stageId: wishlist),
+        putBatch(a, collectionId: collectionId, stageId: wishlist),
         putStageChange(a, null, wishlist, 10, '2026-11-13T09:00:00Z'),
       ]);
       expect(created.statusCode, 204, reason: created.body);
@@ -2315,19 +2318,19 @@ void main() {
       }
 
       expect([await count(a), await count(b), await count(c)], [3, 4, 3]);
-      expect((await unit(b)).single[4], 'Primed');
+      expect((await batch(b)).single[4], 'Primed');
       expect((await upload(user.token, first)).statusCode, 204);
       expect([await count(a), await count(b)], [3, 4]);
     });
 
-    test('deleting a Collection takes its split and merged Units and their records with it', () async {
+    test('deleting a Collection takes its split and merged Batches and their records with it', () async {
       final (b, c) = (await newId(), await newId());
-      for (final batch in [
+      for (final ops in [
         split(a, b, 4, localCount: 6),
         split(a, c, 2, localCount: 4),
         merge(b, c, localCount: 6),
       ]) {
-        final r = await upload(user.token, batch);
+        final r = await upload(user.token, ops);
         expect(r.statusCode, 204, reason: r.body);
       }
 
@@ -2369,7 +2372,7 @@ void main() {
     });
 
     test(
-      "a Split of another user's Unit is rejected, with nothing written",
+      "a Split of another user's Batch is rejected, with nothing written",
       () async {
         final bob = await signUp();
         final bobsCollection = await createCollection(bob);
@@ -2384,7 +2387,7 @@ void main() {
       },
     );
 
-    test('a Merge adds the counts and deletes the merged Unit; a second Merge of it is rejected', () async {
+    test('a Merge adds the counts and deletes the merged Batch; a second Merge of it is rejected', () async {
       final b = await newId();
       expect(
         (await upload(user.token, split(a, b, 4, localCount: 6))).statusCode,
@@ -2402,10 +2405,10 @@ void main() {
       expect(again.statusCode, 422, reason: again.body);
 
       expect([await count(a), await count(b)], [10, null]);
-      expect((await unit(a)).single[4], 'Primed');
+      expect((await batch(a)).single[4], 'Primed');
     });
 
-    test('a Merge racing a Split of the merged Unit counts it as the server has it', () async {
+    test('a Merge racing a Split of the merged Batch counts it as the server has it', () async {
       final (b, c) = (await newId(), await newId());
       final atPrimed = await upload(user.token, [
         ...split(a, b, 4, localCount: 6),
@@ -2415,7 +2418,7 @@ void main() {
 
       // Device X splits 1 of B's 4 back to Wishlist; device Y, offline, Merges B (it still sees 4) into A.
       final splitOfB = await upload(user.token, [
-        putUnit(
+        putBatch(
           c,
           collectionId: collectionId,
           stageId: wishlist,
@@ -2438,7 +2441,7 @@ void main() {
     });
 
     test(
-      'a Merge is rejected once the Units are no longer at the same Stage',
+      'a Merge is rejected once the Batches are no longer at the same Stage',
       () async {
         final b = await newId();
         expect(
@@ -2498,12 +2501,12 @@ void main() {
       final collectionId = await createCollection(user);
       final wishlist = await stageOf(user.id, 'Wishlist');
       final [a, b, c] = [for (var i = 0; i < 3; i++) await newId()];
-      Future<Map<String, Object?>> putStageChange(String unitId) async => {
+      Future<Map<String, Object?>> putStageChange(String batchId) async => {
         'op': 'PUT',
         'type': 'stage_changes',
         'id': await newId(),
         'data': {
-          'unit_id': unitId,
+          'unit_id': batchId,
           'from_stage_id': null,
           'to_stage_id': wishlist,
           'model_count': 5,
@@ -2512,7 +2515,7 @@ void main() {
       };
       final response = await upload(user.token, [
         for (final id in [a, b, c])
-          putUnit(
+          putBatch(
             id,
             collectionId: collectionId,
             stageId: wishlist,
@@ -2579,7 +2582,7 @@ void main() {
       "a deleted account's token, though unexpired, can no longer write",
       () async {
         final user = await signUp();
-        final unitId = await addUnit(user);
+        final batchId = await addBatch(user);
         expect((await deleteAccount(user.token)).statusCode, 204);
 
         final write = await upload(user.token, [
@@ -2598,7 +2601,7 @@ void main() {
         );
         expect(photo.statusCode, 401);
         expect((await deleteAccount(user.token)).statusCode, 401);
-        expect(await unit(unitId), isEmpty);
+        expect(await batch(batchId), isEmpty);
       },
     );
 
@@ -2671,11 +2674,11 @@ void main() {
   });
 }
 
-/// A user with a Collection holding two Units, and a second Workflow with three Stages.
+/// A user with a Collection holding two Batches, and a second Workflow with three Stages.
 typedef _Switch = ({
   ({String token, String id}) user,
   String collectionId,
-  List<String> units,
+  List<String> batches,
   String workflowId,
   List<String> stages,
 });
