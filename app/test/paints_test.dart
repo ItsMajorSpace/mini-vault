@@ -9,6 +9,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/paints.dart';
 import 'package:mini_vault/photos.dart';
+import 'package:mini_vault/squad.dart';
 import 'package:powersync/powersync.dart';
 
 // The paint library against real SQLite. Paints are added through the Vault, not the dialog, and toggling owned is
@@ -89,6 +90,62 @@ void main() {
       await tester.tap(find.widgetWithText(FilterChip, 'Wanted'));
       await tester.pump();
       expect(find.text('Matt Black'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => dir.delete(recursive: true));
+    },
+  );
+
+  testWidgets(
+    'a Paint lists the Squads that use it and opens one; deleting it says how many Squads use it',
+    (tester) async {
+      final (vault, dir) = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's0', 's0')",
+        );
+        await db.execute(
+          "INSERT INTO stages (id, workflow_id, name, position) VALUES ('s0', 'w', 'Wishlist', 0)",
+        );
+        final vault = Vault(SqliteVaultStore(db));
+        final blue = await vault.addPaint(
+          brand: 'Citadel',
+          range: 'Base',
+          name: 'Macragge Blue',
+        );
+        for (final (collection, squad) in [
+          ('Space Marines', 'Intercessors'),
+          ('Dark Angels', 'Deathwing'),
+        ]) {
+          final c = await vault.createCollection(collection);
+          await vault.addUnit(c, name: squad, modelCount: 5, stageId: 's0');
+          await vault.addSquadPaint(c.id, squad, blue.id);
+        }
+        return (vault, dir);
+      }))!;
+      await tester.pumpWidget(MaterialApp(home: PaintsScreen(vault: vault)));
+      await settle(tester);
+
+      await tester.tap(find.byTooltip('Delete Paint'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('2 Squads use it'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Macragge Blue'));
+      await tester.pumpAndSettle();
+      final squads = ['Deathwing', 'Intercessors'];
+      final tops = [for (final s in squads) tester.getTopLeft(find.text(s)).dy];
+      expect(tops, [...tops]..sort(), reason: 'by Collection: $squads');
+      expect(find.text('Dark Angels'), findsOneWidget);
+      await tester.tap(find.text('Intercessors'));
+      await settle(tester);
+      expect(find.byType(SquadScreen), findsOneWidget);
+      expect(find.text('Citadel / Base'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
       await tester.runAsync(() => dir.delete(recursive: true));

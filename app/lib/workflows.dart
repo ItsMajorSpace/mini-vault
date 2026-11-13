@@ -478,10 +478,16 @@ class _MapStagesDialogState extends State<_MapStagesDialog> {
 }
 
 class NameDialog extends StatefulWidget {
-  const NameDialog({super.key, required this.title, required this.initial});
+  const NameDialog({
+    super.key,
+    required this.title,
+    required this.initial,
+    this.label = 'Name',
+  });
 
   final String title;
   final String initial;
+  final String label;
 
   @override
   State<NameDialog> createState() => _NameDialogState();
@@ -504,7 +510,7 @@ class _NameDialogState extends State<NameDialog> {
       content: TextField(
         controller: _controller,
         autofocus: true,
-        decoration: const InputDecoration(labelText: 'Name'),
+        decoration: InputDecoration(labelText: widget.label),
         onSubmitted: (_) => save(),
       ),
       actions: [

@@ -65,6 +65,13 @@ class SqliteVaultStore implements VaultStore {
       Column.text('name'),
       Column.integer('owned'),
     ]),
+    // A Paint a Squad uses, keyed by the Squad's Collection and name (squad_name), not by its Units.
+    Table('squad_paints', [
+      Column.text('collection_id'),
+      Column.text('squad_name'),
+      Column.text('paint_id'),
+      Column.text('note'),
+    ]),
   ]);
 
   // Stage order is (position, id): concurrent reorders on two devices can merge into equal positions, and the id
@@ -283,6 +290,7 @@ class SqliteVaultStore implements VaultStore {
     await tx.execute('DELETE FROM unit_tags WHERE unit_id IN ($units)', [id]);
     await tx.execute('DELETE FROM photos WHERE unit_id IN ($units)', [id]);
     await tx.execute('DELETE FROM units WHERE collection_id = ?', [id]);
+    await tx.execute('DELETE FROM squad_paints WHERE collection_id = ?', [id]);
     await tx.execute('DELETE FROM collections WHERE id = ?', [id]);
   });
 
@@ -633,6 +641,64 @@ class SqliteVaultStore implements VaultStore {
   );
 
   @override
-  Future<void> deletePaint(String id) =>
-      _db.execute('DELETE FROM paints WHERE id = ?', [id]);
+  Future<void> deletePaint(String id) => _db.writeTransaction((tx) async {
+    await tx.execute('DELETE FROM squad_paints WHERE paint_id = ?', [id]);
+    await tx.execute('DELETE FROM paints WHERE id = ?', [id]);
+  });
+
+  @override
+  Stream<List<SquadPaint>> watchSquadPaints() => _db
+      .watch(
+        'SELECT l.id, l.collection_id, l.squad_name, l.note, p.id AS paint_id, p.brand, p.range, p.name, p.owned '
+        'FROM squad_paints l JOIN paints p ON p.id = l.paint_id '
+        'ORDER BY p.brand COLLATE NOCASE, p.range COLLATE NOCASE, p.name COLLATE NOCASE, l.id',
+      )
+      .map(
+        (rows) => [
+          for (final r in rows)
+            SquadPaint(
+              id: r['id'] as String,
+              collectionId: r['collection_id'] as String,
+              squad: r['squad_name'] as String,
+              note: r['note'] as String? ?? '',
+              paint: Paint(
+                id: r['paint_id'] as String,
+                brand: r['brand'] as String,
+                range: r['range'] as String,
+                name: r['name'] as String,
+                owned: r['owned'] == 1,
+              ),
+            ),
+        ],
+      );
+
+  @override
+  Future<void> insertSquadPaints(List<SquadPaint> links) =>
+      _db.writeTransaction((tx) async {
+        for (final l in links) {
+          await tx.execute(
+            'INSERT INTO squad_paints (id, collection_id, squad_name, paint_id, note) VALUES (?, ?, ?, ?, ?)',
+            [l.id, l.collectionId, l.squad, l.paint.id, l.note],
+          );
+        }
+      });
+
+  // Only the given columns, so a rename and a note edit on two devices merge per field.
+  @override
+  Future<void> updateSquadPaint(
+    String id, {
+    String? squad,
+    String? note,
+  }) async {
+    final changes = {'squad_name': ?squad, 'note': ?note};
+    if (changes.isEmpty) return;
+    await _db.execute(
+      'UPDATE squad_paints SET ${changes.keys.map((c) => '$c = ?').join(', ')} WHERE id = ?',
+      [...changes.values, id],
+    );
+  }
+
+  @override
+  Future<void> deleteSquadPaint(String id) =>
+      _db.execute('DELETE FROM squad_paints WHERE id = ?', [id]);
 }

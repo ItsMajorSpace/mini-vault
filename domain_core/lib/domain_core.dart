@@ -129,6 +129,43 @@ List<({String brand, List<Paint> paints})> groupByBrand(
   ];
 }
 
+/// A Paint a Squad uses, with a note on where or how. Keyed by the Squad's Collection and exact name (as [squadsOf]
+/// groups Units), not by its Units, so it stays with the name while no Unit has it.
+class SquadPaint {
+  const SquadPaint({
+    required this.id,
+    required this.collectionId,
+    required this.squad,
+    required this.paint,
+    this.note = '',
+  });
+
+  final String id;
+  final String collectionId;
+
+  /// The Squad's name.
+  final String squad;
+  final Paint paint;
+  final String note;
+}
+
+/// The Squads in [links] (only those using Paint [paintId], if given), once each, by Collection then Squad name,
+/// ignoring case.
+List<({Collection collection, String squad})> paintedSquads(
+  Iterable<({Collection collection, SquadPaint link})> links, {
+  String? paintId,
+}) {
+  final seen = <(String, String)>{};
+  String key(({Collection collection, String squad}) s) =>
+      '${s.collection.name.toLowerCase()}\n${s.squad.toLowerCase()}';
+  return [
+    for (final (:collection, :link) in links)
+      if ((paintId == null || link.paint.id == paintId) &&
+          seen.add((collection.id, link.squad)))
+        (collection: collection, squad: link.squad),
+  ]..sort((a, b) => key(a).compareTo(key(b)));
+}
+
 /// A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection.
 class Unit {
   const Unit({
@@ -384,7 +421,7 @@ abstract interface class VaultStore {
   Future<void> renameCollection(String id, String name);
   Future<void> setGameSystem(String id, String? gameSystem);
 
-  /// Deletes the Collection and its Units, with their Tags and Photos, in one transaction.
+  /// Deletes the Collection and its Units, with their Tags and Photos, and its [SquadPaint]s, in one transaction.
   Future<void> deleteCollection(String id);
 
   /// Emits every Collection's Units now and again whenever they change.
@@ -422,7 +459,17 @@ abstract interface class VaultStore {
   Future<void> insertPaint(Paint paint);
   Future<void> updatePaint(Paint paint);
   Future<void> setPaintOwned(String id, bool owned);
+
+  /// Deletes the Paint and its [SquadPaint]s, in one transaction.
   Future<void> deletePaint(String id);
+
+  /// Emits every [SquadPaint] whose Paint has synced, by brand, range and name, now and again whenever they change.
+  Stream<List<SquadPaint>> watchSquadPaints();
+  Future<void> insertSquadPaints(List<SquadPaint> links);
+
+  /// Updates only the given fields.
+  Future<void> updateSquadPaint(String id, {String? squad, String? note});
+  Future<void> deleteSquadPaint(String id);
 
   /// Emits the Unit's Tags, by name, now and again whenever they change.
   Stream<List<String>> watchTags(String unitId);
@@ -712,7 +759,7 @@ class Vault {
   Future<List<Unit>> unitsOf(Collection collection) =>
       _store.watchUnits(collection.id).first;
 
-  /// Deletes the Collection, its Units and their history, Tags and Photos. The server deletes the history with the
+  /// Deletes the Collection, its Units and their history, Tags and Photos, and its Squads' Paint links (not the Paints). The server deletes the history with the
   /// Units, and any Unit another device added meanwhile, and each photo file once no Photo points at it.
   Future<void> deleteCollection(String id) => _store.deleteCollection(id);
 
@@ -1183,13 +1230,30 @@ class Vault {
     notes: notes?.trim(),
   );
 
-  /// Renames every Unit in [squad], one field edit each, so other fields edited elsewhere are kept.
+  /// Renames every Unit in [squad], one field edit each, so other fields edited elsewhere are kept, and carries its
+  /// Paints to the new name. Onto an existing Squad the Paints are unioned: for a Paint both use, the target's note
+  /// wins unless it is empty.
   Future<void> renameSquad(Squad squad, String name) async {
     final valid = validName(
       name,
     ); // Before any write, so a bad name renames none.
     for (final u in squad.units) {
       await editUnit(u.id, name: valid);
+    }
+    if (valid == squad.name || squad.units.isEmpty) return;
+    final collectionId = squad.units.first.collectionId;
+    final target = {
+      for (final l in await _squadPaints(collectionId, valid)) l.paint.id: l,
+    };
+    for (final l in await _squadPaints(collectionId, squad.name)) {
+      if (target[l.paint.id] case final t?) {
+        if (t.note.isEmpty && l.note.isNotEmpty) {
+          await _store.updateSquadPaint(t.id, note: l.note);
+        }
+        await _store.deleteSquadPaint(l.id);
+      } else {
+        await _store.updateSquadPaint(l.id, squad: valid);
+      }
     }
   }
 
@@ -1252,7 +1316,115 @@ class Vault {
   Future<void> setPaintOwned(String id, bool owned) =>
       _store.setPaintOwned(id, owned);
 
+  /// Deletes the Paint and removes it from every Squad that uses it.
   Future<void> deletePaint(String id) => _store.deletePaint(id);
+
+  /// The Paints Squad [squad] of Collection [collectionId] uses, by brand, range and name, emitted again whenever
+  /// they change.
+  Stream<List<SquadPaint>> watchSquadPaints(
+    String collectionId,
+    String squad,
+  ) => _store.watchSquadPaints().map(
+    (links) => [
+      for (final l in links)
+        if (l.collectionId == collectionId && l.squad == squad) l,
+    ],
+  );
+
+  Future<List<SquadPaint>> _squadPaints(String collectionId, String squad) =>
+      watchSquadPaints(collectionId, squad).first;
+
+  /// Every Squad's Paints with the Squad's Collection, emitted again whenever they or the Collections change; see
+  /// [paintedSquads]. Links whose Collection has not synced are left out.
+  Stream<List<({Collection collection, SquadPaint link})>>
+  watchAllSquadPaints() => _combineLatest(
+    [_store.watchSquadPaints(), _store.watchCollections()],
+    (latest) {
+      final [links as List<SquadPaint>, collections as List<Collection>] =
+          latest;
+      final byId = {for (final c in collections) c.id: c};
+      return [
+        for (final l in links)
+          if (byId[l.collectionId] case final c?) (collection: c, link: l),
+      ];
+    },
+  );
+
+  /// Adds Paint [paintId] to the Squad with [note] (trimmed). Throws a [StateError] if the Squad already uses it.
+  Future<void> addSquadPaint(
+    String collectionId,
+    String squad,
+    String paintId, {
+    String note = '',
+  }) async {
+    final paint = (await _store.watchPaints().first).firstWhere(
+      (p) => p.id == paintId,
+      orElse: () => throw StateError('That Paint is not in your paints'),
+    );
+    if ((await _squadPaints(
+      collectionId,
+      squad,
+    )).any((l) => l.paint.id == paintId)) {
+      throw StateError('$squad already uses ${paint.name}');
+    }
+    await _store.insertSquadPaints([
+      SquadPaint(
+        id: _newId(),
+        collectionId: collectionId,
+        squad: squad,
+        paint: paint,
+        note: note.trim(),
+      ),
+    ]);
+  }
+
+  /// Adds a new Paint to the library, checked as [addPaint] checks it, and to the Squad. It starts as wanted.
+  Future<Paint> addNewSquadPaint(
+    String collectionId,
+    String squad, {
+    required String brand,
+    required String range,
+    required String name,
+    bool owned = false,
+  }) async {
+    final paint = await addPaint(
+      brand: brand,
+      range: range,
+      name: name,
+      owned: owned,
+    );
+    await addSquadPaint(collectionId, squad, paint.id);
+    return paint;
+  }
+
+  Future<void> setSquadPaintNote(String id, String note) =>
+      _store.updateSquadPaint(id, note: note.trim());
+
+  Future<void> removeSquadPaint(String id) => _store.deleteSquadPaint(id);
+
+  /// Copies the Paints and notes of Squad [from] in Collection [fromCollectionId] to Squad [to] in Collection
+  /// [toCollectionId], skipping Paints it already uses.
+  Future<void> copySquadPaints({
+    required String fromCollectionId,
+    required String from,
+    required String toCollectionId,
+    required String to,
+  }) async {
+    final used = {
+      for (final l in await _squadPaints(toCollectionId, to)) l.paint.id,
+    };
+    await _store.insertSquadPaints([
+      for (final l in await _squadPaints(fromCollectionId, from))
+        if (!used.contains(l.paint.id))
+          SquadPaint(
+            id: _newId(),
+            collectionId: toCollectionId,
+            squad: to,
+            paint: l.paint,
+            note: l.note,
+          ),
+    ]);
+  }
 
   /// [paint] trimmed, with brand and range spelled as another Paint already spells them (ignoring case).
   Future<Paint> _checkedPaint(Paint paint) async {

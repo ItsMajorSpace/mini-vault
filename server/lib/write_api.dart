@@ -45,6 +45,12 @@ const _writable = {
   'splits': {'unit_id': 'uuid', 'new_unit_id': 'uuid', 'model_count': 'int'},
   'merges': {'unit_id': 'uuid', 'merged_unit_id': 'uuid'},
   'paints': {'brand': 'text', 'range': 'text', 'name': 'text', 'owned': 'int'},
+  'squad_paints': {
+    'collection_id': 'uuid',
+    'squad_name': 'text',
+    'paint_id': 'uuid',
+    'note': 'text',
+  },
 };
 
 /// Columns that point at another synced row, and that row's table. The row must exist and be the user's own.
@@ -58,6 +64,7 @@ const _references = {
   'to_stage_id': 'stages',
   'new_unit_id': 'units',
   'merged_unit_id': 'units',
+  'paint_id': 'paints',
 };
 
 /// Creates the synced tables, the trigger that gives each new account its starter Workflow,
@@ -161,6 +168,16 @@ CREATE TABLE IF NOT EXISTS paints (
   name text NOT NULL,
   owned integer NOT NULL CHECK (owned IN (0, 1))
 );
+-- A Paint a Squad uses, keyed by the Squad's Collection and exact name, not its Units (ADR 0007), so it outlives
+-- them. Deleted with its Collection or Paint. One Paint per Squad is checked by the app, not here, as for paints.
+CREATE TABLE IF NOT EXISTS squad_paints (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  collection_id uuid NOT NULL REFERENCES collections ON DELETE CASCADE,
+  squad_name text NOT NULL,
+  paint_id uuid NOT NULL REFERENCES paints ON DELETE CASCADE,
+  note text NOT NULL DEFAULT ''
+);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -189,7 +206,7 @@ DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
     CREATE PUBLICATION powersync;
   END IF;
-  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges', 'paints'])
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges', 'paints', 'squad_paints'])
     EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
   LOOP
     EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
@@ -361,7 +378,7 @@ Future<void> _apply(
       when extra.isNotEmpty) {
     throw _Rejected(422, 'Columns not writable on $table: ${extra.join(', ')}');
   }
-  for (final column in ['name', 'brand', 'range']) {
+  for (final column in ['name', 'brand', 'range', 'squad_name']) {
     if (data[column] case final name?) {
       try {
         data[column] = validName(name as String);
