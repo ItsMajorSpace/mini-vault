@@ -10,6 +10,7 @@ import 'package:powersync/powersync.dart' hide Column;
 
 import 'account.dart';
 import 'army_list.dart';
+import 'paint_schemes.dart';
 import 'paints.dart';
 import 'photos.dart';
 import 'progress.dart';
@@ -725,9 +726,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
   }
 
-  /// Asks first, saying how many Units and models go with the Collection; back to the Collections once deleted.
+  /// Asks first, saying how many Units, models and Paint Schemes go with the Collection; back to the Collections once
+  /// deleted.
   Future<void> _delete(Collection collection) async {
     final batches = await widget.vault.batchesOf(collection);
+    final schemes = await widget.vault.watchPaintSchemes(collection.id).first;
     if (!mounted) return;
     final units = {for (final b in batches) b.name}.length;
     final models = batches.fold(0, (sum, u) => sum + u.modelCount);
@@ -738,7 +741,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
         title: Text('Delete ${collection.name}?'),
         content: Text(
           'Its ${count(units, 'Unit')} (${count(models, 'model')}) and their history, '
-          'Tags and photos will be deleted on all your devices.',
+          'Tags and photos${schemes.isEmpty ? '' : ', and its ${count(schemes.length, 'Paint Scheme')},'} '
+          'will be deleted on all your devices.',
         ),
         actions: [
           TextButton(
@@ -829,6 +833,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     ),
                   ),
                 ),
+              PaintSchemesSection(vault: widget.vault, collection: _collection),
               Expanded(
                 child: switch (snapshot) {
                   AsyncSnapshot(:final error?) => LoadError(
