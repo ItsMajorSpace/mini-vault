@@ -11,6 +11,7 @@ import 'package:powersync/powersync.dart' hide Column;
 import 'account.dart';
 import 'photos.dart';
 import 'progress.dart';
+import 'squad.dart';
 import 'sync.dart';
 import 'theme.dart';
 import 'workflows.dart';
@@ -366,7 +367,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
   }
 }
 
-/// A Collection's Units, grouped by Stage in Workflow order, with a model count per Stage.
+/// A Collection's Squads, by name, each with its model count and progress.
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({
     super.key,
@@ -388,7 +389,7 @@ class CollectionScreen extends StatefulWidget {
 }
 
 class _CollectionScreenState extends State<CollectionScreen> {
-  late final _groups = widget.vault.watchStageGroups(widget.collection);
+  late final _squads = widget.vault.watchSquads(widget.collection);
 
   Future<void> _add(List<Stage> stages) async {
     final result = await showDialog<_UnitFields>(
@@ -413,9 +414,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
-      stream: _groups,
+      stream: _squads,
       builder: (context, snapshot) {
-        final groups = snapshot.data;
+        final squads = snapshot.data;
         return Scaffold(
           appBar: AppBar(
             title: Text(widget.collection.name),
@@ -428,7 +429,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
             AsyncSnapshot(:final error?) => Center(
               child: Text('Could not load Units: $error'),
             ),
-            _ when groups == null => const Center(
+            _ when squads == null => const Center(
               child: CircularProgressIndicator(),
             ),
             _ => ListView(
@@ -440,45 +441,34 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     collection: widget.collection,
                   ),
                 ),
-                for (final g in groups) ...[
+                for (final squad in squads)
                   ListTile(
-                    title: Text(
-                      g.stage.name,
-                      style: Theme.of(context).textTheme.titleMedium,
+                    title: Text(squad.name),
+                    subtitle: LinearProgressIndicator(
+                      value: squad.progress.finishedShare,
                     ),
-                    trailing: Text(
-                      g.modelCount == 1 ? '1 model' : '${g.modelCount} models',
-                    ),
-                  ),
-                  for (final u in g.units)
-                    ListTile(
-                      contentPadding: const EdgeInsets.only(
-                        left: 32,
-                        right: 16,
-                      ),
-                      title: Text(u.name),
-                      subtitle: u.notes.isEmpty ? null : Text(u.notes),
-                      trailing: Text('${u.modelCount}'),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => UnitScreen(
-                            vault: widget.vault,
-                            photos: widget.photos,
-                            collection: widget.collection,
-                            unitId: u.id,
-                          ),
+                    trailing: Text(modelCountText(squad.modelCount)),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => SquadScreen(
+                          vault: widget.vault,
+                          photos: widget.photos,
+                          collection: widget.collection,
+                          name: squad.name,
                         ),
                       ),
                     ),
-                ],
+                  ),
               ],
             ),
           },
-          floatingActionButton: groups == null
+          floatingActionButton: squads == null
               ? null
               : FloatingActionButton(
-                  onPressed: () => _add([for (final g in groups) g.stage]),
+                  onPressed: () async => _add(
+                    (await widget.vault.workflowOf(widget.collection)).stages,
+                  ),
                   tooltip: 'New Unit',
                   child: const Icon(Icons.add),
                 ),
