@@ -61,7 +61,12 @@ void main() {
       for (final file in ['a', 'b']) {
         await SqliteVaultStore.insertPhoto(
           db,
-          Photo(id: 'p$file', batchId: batch.id, fileId: file),
+          Photo(
+            id: 'p$file',
+            collectionId: collection.id,
+            unit: batch.name,
+            fileId: file,
+          ),
         );
         await db.execute(
           'INSERT INTO ${photoQueueTable.name} (id, filename, local_uri, timestamp, state, has_synced) '
@@ -103,7 +108,7 @@ void main() {
     expect(find.text('Delete this Unit?'), findsOneWidget);
     expect(
       find.text(
-        'Its 5 models, photos and history will be deleted on all your devices.',
+        'Its 5 models and their history will be deleted on all your devices.',
       ),
       findsOneWidget,
     );
@@ -123,13 +128,14 @@ void main() {
     'tapping a photo opens it full screen without removing it; Remove there asks first',
     (tester) async {
       final (vault, _, batch) = await openBatch(tester);
-      Future<int> photos() async =>
-          (await tester.runAsync(() => vault.photosOf(batch.id)))!.length;
+      Future<int> photos() async => (await tester.runAsync(
+        () => vault.photosOf(batch.collectionId, batch.name),
+      ))!.length;
 
       await tester.tap(
         find
             .descendant(
-              of: find.byType(BatchPhotos),
+              of: find.byType(UnitPhotos),
               matching: find.byType(InkWell),
             )
             .first,

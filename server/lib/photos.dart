@@ -1,6 +1,6 @@
 /// Photo files on the server's disk: one file per owner and file id, `<photos>/<owner id>/<file id>`.
-/// The app's PowerSync attachment queue uploads, downloads and deletes them; Photo rows (the `photos` table)
-/// point at them, and a file is deleted once no row points at it.
+/// The app's PowerSync attachment queue uploads, downloads and deletes them; Photo rows (the `squad_photos` table, and
+/// `photos` of app versions before #105) point at them, and a file is deleted once no row points at it.
 library;
 
 import 'dart:io';
@@ -106,9 +106,11 @@ Future<void> deleteAllPhotos(Directory photos, String owner) async {
   if (await directory.exists()) await directory.delete(recursive: true);
 }
 
+// photos rows come from app versions before #105, squad_photos from later ones; both may point at a file.
 Future<bool> _referenced(Pool<void> db, String owner, String fileId) async =>
     (await db.execute(
-      r'SELECT FROM photos WHERE owner_id = $1::uuid AND file_id = $2::uuid LIMIT 1',
+      r'''SELECT 1 FROM photos WHERE owner_id = $1::uuid AND file_id = $2::uuid
+        UNION ALL SELECT 1 FROM squad_photos WHERE owner_id = $1::uuid AND file_id = $2::uuid LIMIT 1''',
       parameters: [owner, fileId],
     )).isNotEmpty;
 

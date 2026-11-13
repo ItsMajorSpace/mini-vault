@@ -4,5 +4,5 @@ People think in "my Intercessors", not in "the 3 Intercessors at Primed", yet th
 
 ## Consequences
 
-- Table `units` holds Batches; a Unit is the rows sharing a Collection and name, and its Paints are the `squad_paints` rows for that name. Read the old table names through this mapping.
+- Table `units` holds Batches; a Unit is the rows sharing a Collection and name, and its Paints, notes, Tags and photos are the `squad_paints`, `squad_notes`, `squad_tags` and `squad_photos` rows for that name. Read the old table names through this mapping. `unit_tags`, `photos` and `units.notes` held them per Batch until #105 and stay only for app versions from before it.
 - ADRs 0001–0007 use the old words: their "Unit" is a Batch and their "Squad" is a Unit.

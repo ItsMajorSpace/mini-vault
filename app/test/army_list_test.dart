@@ -119,7 +119,10 @@ Necron Warriors (200 points)
         for (final u in batches) (u.name, u.stageId, u.modelCount),
       ], unorderedEquals([('Szeras', 's0', 1), ('Necron Warriors', 's0', 13)]));
       for (final u in batches) {
-        expect(await tester.runAsync(() => vault.tagsOf(u.id)), ['Necrons']);
+        expect(
+          await tester.runAsync(() => vault.tagsOf(u.collectionId, u.name)),
+          ['Necrons'],
+        );
       }
     },
   );
