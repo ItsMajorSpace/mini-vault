@@ -293,6 +293,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
       appBar: AppBar(
         title: const Text('Collections'),
         actions: [
+          SyncIcon(db: widget.db, onSyncNow: widget.onSyncNow),
           PopupMenuButton<VoidCallback>(
             tooltip: 'Account',
             onSelected: (action) => action(),
@@ -328,118 +329,125 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
             ],
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(32),
-          child: SyncStatusBar(db: widget.db, onSyncNow: widget.onSyncNow),
-        ),
       ),
-      body: Builder(
-        builder: (context) {
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('Could not load Collections: ${snapshot.error}'),
-            );
-          }
-          final collections = snapshot.data;
-          if (collections == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (collections.isEmpty) {
-            return const Center(child: Text('No Collections yet'));
-          }
-          final groups = groupByGameSystem(collections);
-          // Headers only once some Collection has a Game System; until then the list is as before.
-          final headed = groups.any((g) => g.gameSystem != null);
-          return ListView(
-            children: [
-              StreamBuilder(
-                stream: _recent,
-                builder: (context, recent) => switch (recent.data) {
-                  null || [] => const SizedBox.shrink(),
-                  final squads => Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                        child: Text(
-                          'Recently painted',
-                          style: stencil(
-                            Theme.of(context).textTheme.titleSmall,
+      body: Column(
+        children: [
+          SyncBanner(db: widget.db),
+          Expanded(
+            child: Builder(
+              builder: (context) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'Could not load Collections: ${snapshot.error}',
+                    ),
+                  );
+                }
+                final collections = snapshot.data;
+                if (collections == null) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (collections.isEmpty) {
+                  return const Center(child: Text('No Collections yet'));
+                }
+                final groups = groupByGameSystem(collections);
+                // Headers only once some Collection has a Game System; until then the list is as before.
+                final headed = groups.any((g) => g.gameSystem != null);
+                return ListView(
+                  children: [
+                    StreamBuilder(
+                      stream: _recent,
+                      builder: (context, recent) => switch (recent.data) {
+                        null || [] => const SizedBox.shrink(),
+                        final squads => Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                              child: Text(
+                                'Recently painted',
+                                style: stencil(
+                                  Theme.of(context).textTheme.titleSmall,
+                                ),
+                              ),
+                            ),
+                            for (final r in squads)
+                              ListTile(
+                                title: Text(r.squad.name),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(r.collection.name),
+                                    const SizedBox(height: 4),
+                                    StageBar(r.squad.progress),
+                                  ],
+                                ),
+                                onTap: () => showMoveSheet(
+                                  context,
+                                  widget.vault,
+                                  r.collection,
+                                  r.squad,
+                                  r.from,
+                                  // shortcut: no recount from here, it needs the Squad screen; open it for that.
+                                  onDetails: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => SquadScreen(
+                                        vault: widget.vault,
+                                        photos: widget.photos,
+                                        collection: r.collection,
+                                        name: r.squad.name,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            const Divider(),
+                          ],
+                        ),
+                      },
+                    ),
+                    for (final g in groups) ...[
+                      if (headed)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                          child: Text(
+                            g.gameSystem ?? 'Other',
+                            style: stencil(
+                              Theme.of(context).textTheme.titleSmall,
+                            ),
                           ),
                         ),
-                      ),
-                      for (final r in squads)
+                      for (final c in g.collections)
                         ListTile(
-                          title: Text(r.squad.name),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(r.collection.name),
-                              const SizedBox(height: 4),
-                              StageBar(r.squad.progress),
-                            ],
+                          key: ValueKey(c.id),
+                          title: Text(c.name),
+                          // Keyed by Workflow, so switching it restarts the watch on the new one.
+                          subtitle: ProgressSummary(
+                            key: ValueKey(c.workflowId),
+                            vault: widget.vault,
+                            collection: c,
                           ),
-                          onTap: () => showMoveSheet(
+                          onTap: () => Navigator.push(
                             context,
-                            widget.vault,
-                            r.collection,
-                            r.squad,
-                            r.from,
-                            // shortcut: no recount from here, it needs the Squad screen; open it for that.
-                            onDetails: () => Navigator.push(
-                              context,
-                              MaterialPageRoute<void>(
-                                builder: (_) => SquadScreen(
-                                  vault: widget.vault,
-                                  photos: widget.photos,
-                                  collection: r.collection,
-                                  name: r.squad.name,
-                                ),
+                            MaterialPageRoute<void>(
+                              builder: (_) => CollectionScreen(
+                                vault: widget.vault,
+                                db: widget.db,
+                                photos: widget.photos,
+                                collection: c,
+                                onSyncNow: widget.onSyncNow,
                               ),
                             ),
                           ),
                         ),
-                      const Divider(),
                     ],
-                  ),
-                },
-              ),
-              for (final g in groups) ...[
-                if (headed)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: Text(
-                      g.gameSystem ?? 'Other',
-                      style: stencil(Theme.of(context).textTheme.titleSmall),
-                    ),
-                  ),
-                for (final c in g.collections)
-                  ListTile(
-                    key: ValueKey(c.id),
-                    title: Text(c.name),
-                    // Keyed by Workflow, so switching it restarts the watch on the new one.
-                    subtitle: ProgressSummary(
-                      key: ValueKey(c.workflowId),
-                      vault: widget.vault,
-                      collection: c,
-                    ),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => CollectionScreen(
-                          vault: widget.vault,
-                          db: widget.db,
-                          photos: widget.photos,
-                          collection: c,
-                          onSyncNow: widget.onSyncNow,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ],
-          );
-        },
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: StreamBuilder(
         stream: _progress,
@@ -574,6 +582,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
           appBar: AppBar(
             title: Text(_collection.name),
             actions: [
+              SyncIcon(db: widget.db, onSyncNow: widget.onSyncNow),
               PopupMenuButton<VoidCallback>(
                 tooltip: 'Collection',
                 onSelected: (action) => action(),
@@ -600,40 +609,43 @@ class _CollectionScreenState extends State<CollectionScreen> {
                 ],
               ),
             ],
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(32),
-              child: SyncStatusBar(db: widget.db, onSyncNow: widget.onSyncNow),
-            ),
           ),
-          body: switch (snapshot) {
-            AsyncSnapshot(:final error?) => Center(
-              child: Text('Could not load Units: $error'),
-            ),
-            _ when squads == null => const Center(
-              child: CircularProgressIndicator(),
-            ),
-            _ => ListView(
-              children: [
-                for (final squad in squads)
-                  ListTile(
-                    title: Text(squad.name),
-                    subtitle: StageBar(squad.progress),
-                    trailing: Text(modelCountText(squad.modelCount)),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => SquadScreen(
-                          vault: widget.vault,
-                          photos: widget.photos,
-                          collection: _collection,
-                          name: squad.name,
-                        ),
-                      ),
-                    ),
+          body: Column(
+            children: [
+              SyncBanner(db: widget.db),
+              Expanded(
+                child: switch (snapshot) {
+                  AsyncSnapshot(:final error?) => Center(
+                    child: Text('Could not load Units: $error'),
                   ),
-              ],
-            ),
-          },
+                  _ when squads == null => const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                  _ => ListView(
+                    children: [
+                      for (final squad in squads)
+                        ListTile(
+                          title: Text(squad.name),
+                          subtitle: StageBar(squad.progress),
+                          trailing: Text(modelCountText(squad.modelCount)),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) => SquadScreen(
+                                vault: widget.vault,
+                                photos: widget.photos,
+                                collection: _collection,
+                                name: squad.name,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                },
+              ),
+            ],
+          ),
           bottomNavigationBar: StreamBuilder(
             stream: _progress,
             builder: (context, progress) => ProgressDrawer(
@@ -1116,32 +1128,24 @@ class _UnitDialogState extends State<_UnitDialog> {
   }
 }
 
-/// Shows how many local changes are still waiting to be uploaded, and whether the app is connected.
-/// Connected with changes waiting, it offers to sync now.
-class SyncStatusBar extends StatefulWidget {
-  const SyncStatusBar({super.key, required this.db, this.onSyncNow});
-
-  final PowerSyncDatabase db;
-
-  /// Null hides Sync now.
-  final Future<void> Function()? onSyncNow;
-
-  @override
-  State<SyncStatusBar> createState() => _SyncStatusBarState();
-}
-
-class _SyncStatusBarState extends State<SyncStatusBar> {
-  late SyncStatus _status = widget.db.currentStatus;
-  int _waiting = 0;
-  bool _syncing = false;
+/// Keeps [status] and [waiting] (the unsynced count, see [watchUnsynced]) of [db] up to date.
+mixin _WatchSync<T extends StatefulWidget> on State<T> {
+  PowerSyncDatabase get db;
+  late SyncStatus status = db.currentStatus;
+  int waiting = 0;
   late final List<StreamSubscription<void>> _subscriptions;
+
+  void onWaiting(int n) {}
 
   @override
   void initState() {
     super.initState();
     _subscriptions = [
-      widget.db.statusStream.listen((s) => setState(() => _status = s)),
-      watchUnsynced(widget.db).listen((n) => setState(() => _waiting = n)),
+      db.statusStream.listen((s) => setState(() => status = s)),
+      watchUnsynced(db).listen((n) {
+        onWaiting(n);
+        setState(() => waiting = n);
+      }),
     ];
   }
 
@@ -1152,6 +1156,26 @@ class _SyncStatusBarState extends State<SyncStatusBar> {
     }
     super.dispose();
   }
+}
+
+/// A cloud in the app bar: crossed out offline, with a badge counting the local changes still waiting to upload.
+/// Connected, tapping it syncs now.
+class SyncIcon extends StatefulWidget {
+  const SyncIcon({super.key, required this.db, this.onSyncNow});
+
+  final PowerSyncDatabase db;
+
+  /// Null hides Sync now.
+  final Future<void> Function()? onSyncNow;
+
+  @override
+  State<SyncIcon> createState() => _SyncIconState();
+}
+
+class _SyncIconState extends State<SyncIcon> with _WatchSync {
+  @override
+  PowerSyncDatabase get db => widget.db;
+  bool _syncing = false;
 
   Future<void> _syncNow(Future<void> Function() syncNow) async {
     setState(() => _syncing = true);
@@ -1165,41 +1189,100 @@ class _SyncStatusBarState extends State<SyncStatusBar> {
   }
 
   @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: switch ((waiting, status.connected)) {
+      (0, true) => 'All changes synced',
+      (0, false) => 'Offline',
+      (1, _) => '1 change waiting to sync',
+      (final n, _) => '$n changes waiting to sync',
+    },
+    onPressed: switch (widget.onSyncNow) {
+      final syncNow? when status.connected && !_syncing => () => _syncNow(
+        syncNow,
+      ),
+      _ => null,
+    },
+    // Disabled only for want of a connection or while syncing: keep the icon's colour.
+    disabledColor: IconTheme.of(context).color,
+    icon: _syncing
+        ? const SizedBox.square(
+            dimension: 24,
+            child: Padding(
+              padding: EdgeInsets.all(2),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          )
+        : Badge.count(
+            count: waiting,
+            isLabelVisible: waiting > 0,
+            child: Icon(status.connected ? Icons.cloud : Icons.cloud_off),
+          ),
+  );
+}
+
+/// A full-width warning, shown only when syncing failed or changes have waited to upload for over a day.
+class SyncBanner extends StatefulWidget {
+  const SyncBanner({super.key, required this.db, this.now = DateTime.now});
+
+  final PowerSyncDatabase db;
+  final DateTime Function() now;
+
+  @override
+  State<SyncBanner> createState() => _SyncBannerState();
+}
+
+class _SyncBannerState extends State<SyncBanner> with _WatchSync {
+  // shortcut: ps_crud has no timestamps, so "waiting since" is when this app run first saw changes waiting (kept per
+  // database across screens); restarting the app restarts the clock. Record the time in a local-only table if
+  // stale changes go unnoticed.
+  static final _waitingSince = Expando<DateTime>();
+  static const _staleAfter = Duration(days: 1);
+  Timer? _stale;
+
+  @override
+  PowerSyncDatabase get db => widget.db;
+
+  @override
+  void onWaiting(int n) {
+    _stale?.cancel();
+    if (n == 0) {
+      _waitingSince[db] = null;
+      return;
+    }
+    final since = _waitingSince[db] ??= widget.now();
+    final left = since.add(_staleAfter).difference(widget.now());
+    // Rebuilds when the changes turn stale, even with nothing else happening (offline).
+    if (!left.isNegative) _stale = Timer(left, () => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _stale?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final (icon, text) = switch ((_waiting, _status.connected)) {
-      (0, true) => (Icons.cloud_done, 'All changes synced'),
-      (0, false) => (Icons.cloud_off, 'Offline'),
-      (1, _) => (Icons.cloud_upload, '1 change waiting to sync'),
-      (final n, _) => (Icons.cloud_upload, '$n changes waiting to sync'),
+    final since = _waitingSince[db];
+    final text = switch (status.anyError) {
+      final error? => 'Sync failed: $error',
+      _
+          when waiting > 0 &&
+              since != null &&
+              widget.now().difference(since) >= _staleAfter =>
+        "Changes haven't synced for over a day. Connect to the internet to keep them.",
+      _ => null,
     };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 16),
-          const SizedBox(width: 8),
-          Text(text),
-          if (widget.onSyncNow case final syncNow?
-              when _status.connected && _waiting > 0) ...[
-            const SizedBox(width: 8),
-            if (_syncing)
-              const SizedBox.square(
-                dimension: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              TextButton(
-                // Compact to fit the bar under the app bar.
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                onPressed: () => _syncNow(syncNow),
-                child: const Text('Sync now'),
-              ),
-          ],
-        ],
+    if (text == null) return const SizedBox.shrink();
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: colors.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: SizedBox(
+          width: double.infinity,
+          child: Text(text, style: TextStyle(color: colors.onErrorContainer)),
+        ),
       ),
     );
   }
