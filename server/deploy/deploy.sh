@@ -140,7 +140,9 @@ if [ -f "$APP_DIR/.env" ]; then
 fi
 # No powersync/ yet on the first deploy.
 powersync_sum() { cat "$APP_DIR"/powersync/* 2> /dev/null | sha256sum || true; }
-OLD_POWERSYNC="$(powersync_sum)"
+# The config PowerSync last started with, not what is on disk: a deploy that fails after copying the new config
+# must not make the next one think nothing changed.
+OLD_POWERSYNC="$(cat "$APP_DIR/.powersync-applied" 2> /dev/null || true)"
 
 if [ "$STAGE_DIR" != "$APP_DIR" ]; then
     [ -f "$STAGE_DIR/docker-compose.prod.yaml" ] || die "$STAGE_DIR/docker-compose.prod.yaml not found"
@@ -214,6 +216,7 @@ if [ "$(powersync_sum)" != "$OLD_POWERSYNC" ] && [ -n "$(dc ps -q powersync 2> /
     dc restart powersync
 fi
 dc up -d --no-deps --wait --wait-timeout 180 powersync
+powersync_sum > .powersync-applied
 
 # --- 6. swap the api ----------------------------------------------------------
 log "Starting api ${IMAGE_TAG}"
