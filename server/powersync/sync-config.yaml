@@ -17,3 +17,4 @@ streams:
       - SELECT * FROM photos WHERE owner_id = auth.user_id()
       - SELECT * FROM splits WHERE owner_id = auth.user_id()
       - SELECT * FROM merges WHERE owner_id = auth.user_id()
+      - SELECT * FROM paints WHERE owner_id = auth.user_id()

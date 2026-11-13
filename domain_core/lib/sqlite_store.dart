@@ -58,6 +58,13 @@ class SqliteVaultStore implements VaultStore {
       Column.integer('model_count'),
     ]),
     Table('merges', [Column.text('unit_id'), Column.text('merged_unit_id')]),
+    // The paint library; owned is 1, wanted 0.
+    Table('paints', [
+      Column.text('brand'),
+      Column.text('range'),
+      Column.text('name'),
+      Column.integer('owned'),
+    ]),
   ]);
 
   // Stage order is (position, id): concurrent reorders on two devices can merge into equal positions, and the id
@@ -587,4 +594,45 @@ class SqliteVaultStore implements VaultStore {
       await insertPhoto(tx, p);
     }
   }
+
+  @override
+  Stream<List<Paint>> watchPaints() => _db
+      .watch(
+        'SELECT * FROM paints ORDER BY brand COLLATE NOCASE, range COLLATE NOCASE, name COLLATE NOCASE, id',
+      )
+      .map(
+        (rows) => [
+          for (final p in rows)
+            Paint(
+              id: p['id'] as String,
+              brand: p['brand'] as String,
+              range: p['range'] as String,
+              name: p['name'] as String,
+              owned: p['owned'] == 1,
+            ),
+        ],
+      );
+
+  @override
+  Future<void> insertPaint(Paint paint) => _db.execute(
+    'INSERT INTO paints (id, brand, range, name, owned) VALUES (?, ?, ?, ?, ?)',
+    [paint.id, paint.brand, paint.range, paint.name, paint.owned ? 1 : 0],
+  );
+
+  @override
+  Future<void> updatePaint(Paint paint) => _db.execute(
+    'UPDATE paints SET brand = ?, range = ?, name = ?, owned = ? WHERE id = ?',
+    [paint.brand, paint.range, paint.name, paint.owned ? 1 : 0, paint.id],
+  );
+
+  // One column, so toggling on two devices merges per field.
+  @override
+  Future<void> setPaintOwned(String id, bool owned) => _db.execute(
+    'UPDATE paints SET owned = ? WHERE id = ?',
+    [owned ? 1 : 0, id],
+  );
+
+  @override
+  Future<void> deletePaint(String id) =>
+      _db.execute('DELETE FROM paints WHERE id = ?', [id]);
 }

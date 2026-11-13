@@ -1986,4 +1986,145 @@ void main() {
       expect(recent.first.squad.modelCount, 5);
     });
   });
+
+  group('Paint', () {
+    Future<List<String>> library() async => [
+      for (final p in await vault.watchPaints().first)
+        '${p.brand} / ${p.range} / ${p.name}${p.owned ? '' : ' (wanted)'}',
+    ];
+
+    test('is added trimmed, edited, toggled owned or wanted, deleted, and kept across restarts', () async {
+      final blue = await vault.addPaint(
+        brand: ' Citadel ',
+        range: 'Base',
+        name: ' Macragge Blue ',
+      );
+      final flat = await vault.addPaint(
+        brand: 'Vallejo',
+        range: 'Model Color',
+        name: 'Flat Blue',
+        owned: false,
+      );
+      await restart();
+      expect(await library(), [
+        'Citadel / Base / Macragge Blue',
+        'Vallejo / Model Color / Flat Blue (wanted)',
+      ]);
+
+      await vault.editPaint(
+        Paint(
+          id: blue.id,
+          brand: 'Citadel',
+          range: 'Layer',
+          name: 'Calgar Blue',
+          owned: true,
+        ),
+      );
+      await vault.setPaintOwned(flat.id, true);
+      await vault.setPaintOwned(blue.id, false);
+      expect(await library(), [
+        'Citadel / Layer / Calgar Blue (wanted)',
+        'Vallejo / Model Color / Flat Blue',
+      ]);
+      final toggle = (await db.getCrudBatch(limit: 100))!.crud.last;
+      expect(toggle.opData, {'owned': 0}); // One field, so it merges per field.
+
+      await vault.deletePaint(flat.id);
+      await restart();
+      expect(await library(), ['Citadel / Layer / Calgar Blue (wanted)']);
+    });
+
+    test('needs a brand, range and name', () async {
+      for (final (brand, range, name) in [
+        (' ', 'Base', 'Abaddon Black'),
+        ('Citadel', '', 'Abaddon Black'),
+        ('Citadel', 'Base', '  '),
+      ]) {
+        await expectLater(
+          vault.addPaint(brand: brand, range: range, name: name),
+          throwsArgumentError,
+        );
+      }
+      expect(await library(), isEmpty);
+    });
+
+    test('is refused as a duplicate of another, ignoring case, when added or edited', () async {
+      await vault.addPaint(
+        brand: 'Citadel',
+        range: 'Base',
+        name: 'Mephiston Red',
+      );
+      final other = await vault.addPaint(
+        brand: 'Citadel',
+        range: 'Base',
+        name: 'Khorne Red',
+      );
+      await expectLater(
+        vault.addPaint(brand: 'CITADEL', range: ' base', name: 'mephiston red'),
+        throwsStateError,
+      );
+      await expectLater(
+        vault.editPaint(
+          Paint(
+            id: other.id,
+            brand: 'citadel',
+            range: 'Base',
+            name: 'Mephiston RED',
+            owned: true,
+          ),
+        ),
+        throwsStateError,
+      );
+      // Saving a Paint unchanged is not a duplicate of itself.
+      await vault.editPaint(other);
+      expect(await library(), [
+        'Citadel / Base / Khorne Red',
+        'Citadel / Base / Mephiston Red',
+      ]);
+    });
+
+    test('takes the spelling of a brand and range already in use', () async {
+      await vault.addPaint(brand: 'Citadel', range: 'Shade', name: 'Nuln Oil');
+      await vault.addPaint(
+        brand: 'citadel',
+        range: 'SHADE',
+        name: 'Agrax Earthshade',
+      );
+      await vault.addPaint(
+        brand: 'Vallejo',
+        range: 'shade',
+        name: 'Black Wash',
+      );
+      expect(await library(), [
+        'Citadel / Shade / Agrax Earthshade',
+        'Citadel / Shade / Nuln Oil',
+        'Vallejo / shade / Black Wash',
+      ]);
+    });
+
+    test('are grouped by brand ignoring case, A–Z, then by range and name', () {
+      Paint p(String brand, String range, String name) =>
+          Paint(id: name, brand: brand, range: range, name: name, owned: true);
+      final groups = groupByBrand([
+        p('vallejo', 'Model Color', 'Flat Blue'),
+        p('Citadel', 'Layer', 'Calgar Blue'),
+        p('Army Painter', 'Warpaints', 'Matt Black'),
+        p('Vallejo', 'Game Color', 'Bloody Red'),
+        p('citadel', 'base', 'Macragge Blue'),
+        p('Citadel', 'Base', 'Abaddon Black'),
+      ]);
+      expect(
+        [
+          for (final g in groups)
+            '${g.brand}: ${g.paints.map((p) => p.name).join(', ')}',
+        ],
+        [
+          'Army Painter: Matt Black',
+          'Citadel: Abaddon Black, Macragge Blue, Calgar Blue',
+          'vallejo: Bloody Red, Flat Blue',
+        ],
+      );
+      expect(groupByBrand([]), isEmpty);
+    });
+  });
 }

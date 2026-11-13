@@ -10,6 +10,7 @@ import 'package:powersync/powersync.dart' hide Column;
 
 import 'account.dart';
 import 'army_list.dart';
+import 'paints.dart';
 import 'photos.dart';
 import 'progress.dart';
 import 'squad.dart';
@@ -294,6 +295,16 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
       appBar: AppBar(
         title: const Text('Collections'),
         actions: [
+          IconButton(
+            tooltip: 'Paints',
+            icon: const Icon(Icons.palette),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => PaintsScreen(vault: widget.vault),
+              ),
+            ),
+          ),
           IconButton(
             tooltip: 'Import army list',
             icon: const Icon(Icons.playlist_add),

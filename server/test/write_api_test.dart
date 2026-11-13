@@ -248,6 +248,71 @@ void main() {
     },
   );
 
+  test('a Paint is stored trimmed, toggled owned per field, never blank, and deleted', () async {
+    final user = await signUp();
+    final id = await newId();
+    Future<List<List<Object?>>> paint() async => [
+      for (final row in await db.execute(
+        r'SELECT owner_id::text, brand, range, name, owned FROM paints WHERE id = $1::uuid',
+        parameters: [id],
+      ))
+        row.toList(),
+    ];
+
+    final created = await upload(user.token, [
+      {
+        'op': 'PUT',
+        'type': 'paints',
+        'id': id,
+        'data': {
+          'brand': ' Citadel ',
+          'range': 'Base ',
+          'name': ' Macragge Blue',
+          'owned': 1,
+        },
+      },
+    ]);
+    expect(created.statusCode, 204, reason: created.body);
+    final toggled = await upload(user.token, [
+      {
+        'op': 'PATCH',
+        'type': 'paints',
+        'id': id,
+        'data': {'owned': 0},
+      },
+    ]);
+    expect(toggled.statusCode, 204, reason: toggled.body);
+    expect(await paint(), [
+      [user.id, 'Citadel', 'Base', 'Macragge Blue', 0],
+    ]);
+
+    for (final column in ['brand', 'range', 'name']) {
+      final blank = await upload(user.token, [
+        {
+          'op': 'PATCH',
+          'type': 'paints',
+          'id': id,
+          'data': {column: '  '},
+        },
+      ]);
+      expect(blank.statusCode, 422, reason: column);
+    }
+    final notABool = await upload(user.token, [
+      {
+        'op': 'PATCH',
+        'type': 'paints',
+        'id': id,
+        'data': {'owned': 2},
+      },
+    ]);
+    expect(notABool.statusCode, 422, reason: notABool.body);
+
+    await upload(user.token, [
+      {'op': 'DELETE', 'type': 'paints', 'id': id},
+    ]);
+    expect(await paint(), isEmpty);
+  });
+
   test(
     "writes to another user's rows are rejected and change nothing",
     () async {
@@ -707,6 +772,7 @@ void main() {
     final wishlist = await stageOf(alice.id, 'Wishlist');
     final tag = putTag(unitId, 'Necrons');
     final photoId = await newId();
+    final paintId = await newId();
     final uploaded = await upload(alice.token, [
       putUnit(unitId, collectionId: id, stageId: wishlist),
       {
@@ -726,6 +792,17 @@ void main() {
         'type': 'photos',
         'id': photoId,
         'data': {'unit_id': unitId, 'file_id': await newId()},
+      },
+      {
+        'op': 'PUT',
+        'type': 'paints',
+        'id': paintId,
+        'data': {
+          'brand': 'Citadel',
+          'range': 'Base',
+          'name': 'Macragge Blue',
+          'owned': 1,
+        },
       },
     ]);
     expect(uploaded.statusCode, 204, reason: uploaded.body);
@@ -772,7 +849,7 @@ void main() {
     }
     expect(
       aliceIds,
-      containsAll([id, unitId, stageChangeId, tag['id'], photoId]),
+      containsAll([id, unitId, stageChangeId, tag['id'], photoId, paintId]),
     );
     expect(aliceIds, contains(await workflowOf(alice.id)));
 

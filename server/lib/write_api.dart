@@ -44,6 +44,7 @@ const _writable = {
   'photos': {'unit_id': 'uuid', 'file_id': 'uuid'},
   'splits': {'unit_id': 'uuid', 'new_unit_id': 'uuid', 'model_count': 'int'},
   'merges': {'unit_id': 'uuid', 'merged_unit_id': 'uuid'},
+  'paints': {'brand': 'text', 'range': 'text', 'name': 'text', 'owned': 'int'},
 };
 
 /// Columns that point at another synced row, and that row's table. The row must exist and be the user's own.
@@ -150,6 +151,16 @@ CREATE TABLE IF NOT EXISTS merges (
   unit_id uuid NOT NULL REFERENCES units ON DELETE CASCADE,
   merged_unit_id uuid NOT NULL
 );
+-- The paint library, one per person, independent of any Collection. owned is 1, wanted 0. Duplicates (brand, range
+-- and name alike ignoring case) are refused by the app, not here: two devices offline may each add the same Paint.
+CREATE TABLE IF NOT EXISTS paints (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  brand text NOT NULL,
+  range text NOT NULL,
+  name text NOT NULL,
+  owned integer NOT NULL CHECK (owned IN (0, 1))
+);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -178,7 +189,7 @@ DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
     CREATE PUBLICATION powersync;
   END IF;
-  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges'])
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges', 'paints'])
     EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
   LOOP
     EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
@@ -350,11 +361,13 @@ Future<void> _apply(
       when extra.isNotEmpty) {
     throw _Rejected(422, 'Columns not writable on $table: ${extra.join(', ')}');
   }
-  if (data['name'] case final name?) {
-    try {
-      data['name'] = validName(name as String);
-    } on ArgumentError catch (e) {
-      throw _Rejected(422, '${e.message}');
+  for (final column in ['name', 'brand', 'range']) {
+    if (data[column] case final name?) {
+      try {
+        data[column] = validName(name as String);
+      } on ArgumentError catch (e) {
+        throw _Rejected(422, '$column ${e.message}');
+      }
     }
   }
   if (data.containsKey('game_system')) {
