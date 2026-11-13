@@ -77,14 +77,26 @@ void main() {
         find.text('citadel'),
         findsNothing,
       ); // One brand, spelled as first added.
-      expect(find.byTooltip('Wanted: mark owned'), findsNWidgets(2));
+      expect(find.widgetWithText(ChoiceChip, 'Wanted'), findsNWidgets(2));
+      expect(find.widgetWithText(ChoiceChip, 'Owned'), findsNWidgets(2));
+      expect(find.byIcon(Icons.delete), findsNothing);
+      expect(find.byTooltip('Delete Paint'), findsNothing);
+
+      // The tap runs in the real async zone so its SQLite write completes.
+      await tester.runAsync(() async {
+        await tester.tap(find.widgetWithText(ChoiceChip, 'Wanted').first);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await settle(tester);
+      expect(find.widgetWithText(ChoiceChip, 'Wanted'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Owned'), findsNWidgets(3));
 
       await tester.tap(find.widgetWithText(FilterChip, 'Wanted'));
       await tester.pump();
       expect(find.text('Matt Black'), findsNothing);
       expect(find.text('Calgar Blue'), findsNothing);
       expect(find.text('Army Painter'), findsNothing);
-      expect(find.text('Macragge Blue'), findsOneWidget);
+      expect(find.text('Macragge Blue'), findsNothing); // Now owned.
       expect(find.text('Flat Blue'), findsOneWidget);
 
       // Search narrows on brand, range or name, ignoring case, and combines with Wanted.
@@ -118,7 +130,39 @@ void main() {
   );
 
   testWidgets(
-    'a Paint lists the Squads that use it and opens one; deleting it says how many Squads use it',
+    'Paints that fail to load say so plainly, with Retry and no exception text',
+    (tester) async {
+      final dir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('app_test'),
+      ))!;
+      // No tables, so every query fails.
+      final db = (await tester.runAsync(() async {
+        final db = PowerSyncDatabase(
+          schema: const Schema([]),
+          path: '${dir.path}/vault.db',
+        );
+        await db.initialize();
+        return db;
+      }))!;
+      await tester.pumpWidget(
+        MaterialApp(home: PaintsScreen(vault: Vault(SqliteVaultStore(db)))),
+      );
+      await settle(tester);
+
+      expect(find.text('Could not load your Paints.'), findsOneWidget);
+      expect(find.textContaining('Exception'), findsNothing);
+      expect(find.textContaining('no such table'), findsNothing);
+      await tester.tap(find.text('Retry'));
+      await settle(tester);
+      expect(find.text('Retry'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => dir.delete(recursive: true));
+    },
+  );
+
+  testWidgets(
+    'a Paint lists the Squads that use it and opens one; deleting it from its dialog says how many Squads use it',
     (tester) async {
       final (vault, dir) = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('app_test');
@@ -151,7 +195,10 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: PaintsScreen(vault: vault)));
       await settle(tester);
 
-      await tester.tap(find.byTooltip('Delete Paint'));
+      // Delete is in the Paint dialog, and confirmed.
+      await tester.tap(find.text('Macragge Blue'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Delete'));
       await tester.pumpAndSettle();
       expect(find.textContaining('2 Squads use it'), findsOneWidget);
       await tester.tap(find.text('Cancel'));
