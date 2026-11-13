@@ -132,7 +132,7 @@ void main() {
     ];
     final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
     expect(tops, [...tops]..sort(), reason: 'in the order $order');
-    // A Batch, but no move yet.
+    // Models, but no move yet.
     expect(find.text('Recently painted'), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
@@ -246,7 +246,7 @@ void main() {
     expect(find.byType(StageBar), findsNWidgets(4));
     // Owned and Finished Stage are both Unassembled: Primed counts as finished, Wishlist as wanted.
     expect(
-      find.text('3 Squads · 11 owned · 11 finished · 10 wanted'),
+      find.text('3 Units · 11 owned · 11 finished · 10 wanted'),
       findsOneWidget,
     );
     // Each Unit's bar: solid owned segments, then wanted ones outlined; together they fill the bar.
@@ -302,7 +302,7 @@ void main() {
       outline.border,
       Border.all(color: stageColour(Vault.stageColours.first)),
     );
-    expect(find.byTooltip('New Unit'), findsOneWidget);
+    expect(find.byTooltip('Add models'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -420,7 +420,7 @@ void main() {
   );
 
   testWidgets(
-    'Recently painted lists the last 3 moved Units, newest first; tapping one opens its Move sheet',
+    'Recently painted lists the last 3 moved Units, newest first; tapping one opens its Move sheet, its chevron the Unit',
     (tester) async {
       final (db, vault) = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('app_test');
@@ -498,6 +498,13 @@ void main() {
       expect(find.text('Move from Primed'), findsOneWidget);
       expect(find.text('3 of 3'), findsOneWidget);
       expect(find.text('Move 3 models to Painted'), findsOneWidget);
+
+      // Its chevron opens the Unit screen instead.
+      Navigator.pop(tester.element(find.text('Move from Primed')));
+      await settle();
+      await tester.tap(find.byTooltip('Open Captain'));
+      await settle();
+      expect(find.byTooltip('Edit Unit'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
     },
@@ -690,7 +697,7 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
-      // An empty Collection: what a Batch is, a New Batch button, and the FAB still there.
+      // An empty Collection: what a Unit is, an Add models button, and the FAB still there.
       await tester.runAsync(() => vault.createCollection('Space Marines'));
       await settle();
       expect(bigButton('New Collection'), findsNothing);
@@ -698,13 +705,13 @@ void main() {
       await settle();
       expect(
         find.text(
-          'A Unit is a number of models at the same Stage. Units with the same name form a Squad.',
+          'A Unit is all the models you track under one name, like "Intercessors", wherever they are in your Workflow.',
         ),
         findsOneWidget,
       );
-      expect(find.byTooltip('New Unit'), findsOneWidget);
-      await tapAndWait(bigButton('New Unit'));
-      expect(dialogTitled('New Unit'), findsOneWidget);
+      expect(find.byTooltip('Add models'), findsOneWidget);
+      await tapAndWait(bigButton('Add models'));
+      expect(dialogTitled('Add models'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
     },

@@ -83,7 +83,7 @@ class _PaintsScreenState extends State<PaintsScreen> {
         title: Text('Delete ${paint.name}?'),
         content: Text(
           '${paint.brand} ${paint.range} ${paint.name} will be removed from your paints on all your devices.'
-          '${units == 0 ? '' : ' ${units == 1 ? '1 Squad uses' : '$units Squads use'} it; it will be removed from them.'}',
+          '${units == 0 ? '' : ' ${units == 1 ? '1 Unit uses' : '$units Units use'} it; it will be removed from them.'}',
         ),
         actions: [
           TextButton(

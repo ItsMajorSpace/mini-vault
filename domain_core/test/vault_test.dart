@@ -1919,6 +1919,26 @@ void main() {
         '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
     ];
 
+    test("a Unit's history combines its Batches' Stage Changes, newest first, each once after a Merge", () async {
+      await add(5, 's1');
+      await add(1, 's1', name: 'Captain');
+      await vault.moveModels(collection, 'Intercessors', 's1', 's3', 3);
+      // The other 2 follow, Merging into the Batch the first 3 started at s3.
+      await vault.moveModels(collection, 'Intercessors', 's1', 's3', 2);
+      expect(await unit(), hasLength(2)); // Intercessors at s3, Captain at s1.
+
+      expect(
+        [
+          for (final c
+              in await vault
+                  .watchUnitHistory(collection.id, 'Intercessors')
+                  .first)
+            '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
+        ],
+        ['s1 -> s3 (2)', 's1 -> s3 (3)', 'null -> s1 (5)'],
+      );
+    });
+
     test('moving a whole Batch onto a Stage with a matching Batch Merges it into that Batch, move recorded', () async {
       final there = await add(3, 's3');
       final moving = await add(5, 's1');

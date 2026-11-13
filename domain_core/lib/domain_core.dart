@@ -453,6 +453,13 @@ abstract interface class VaultStore {
   /// Emits the Batch's Stage Changes, oldest first, now and again whenever they change.
   Stream<List<StageChange>> watchStageChanges(String batchId);
 
+  /// Emits the Stage Changes of every Batch of Unit [unit] in Collection [collectionId], oldest first, now and again
+  /// whenever they change.
+  Stream<List<StageChange>> watchUnitStageChanges(
+    String collectionId,
+    String unit,
+  );
+
   /// Emits every Batch's Stage Changes from a move (those with a from-Stage), newest first, now and again whenever
   /// they change.
   Stream<List<StageChange>> watchMoves();
@@ -1229,6 +1236,16 @@ class Vault {
   /// The Batch's history, oldest first, emitted again whenever it changes.
   Stream<List<StageChange>> watchHistory(String batchId) =>
       _store.watchStageChanges(batchId);
+
+  /// The history of Unit [unit] in Collection [collectionId]: every one of its Batches' Stage Changes, newest first,
+  /// emitted again whenever it changes. A Merge copies the merged Batch's Stage Changes and deletes it, so each shows
+  /// once.
+  Stream<List<StageChange>> watchUnitHistory(
+    String collectionId,
+    String unit,
+  ) => _store
+      .watchUnitStageChanges(collectionId, unit)
+      .map((h) => h.reversed.toList());
 
   static StageChange _stageChange(Batch batch, String? from, String to) =>
       StageChange(

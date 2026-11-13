@@ -10,7 +10,8 @@ import 'workflows.dart';
 
 String modelCountText(int n) => n == 1 ? '1 model' : '$n models';
 
-/// A Unit's ladder: every Stage of the Workflow in order, with the Unit's model count at each.
+/// The one place for a Unit: every Stage of the Workflow in order with the Unit's model count at each, then its
+/// photos, Tags, notes, Paints and history.
 class UnitScreen extends StatefulWidget {
   const UnitScreen({
     super.key,
@@ -38,23 +39,65 @@ class _UnitScreenState extends State<UnitScreen> {
   late final _library = widget.vault.watchPaints();
   late final _links = widget.vault.watchAllUnitPaints();
   late String _name = widget.name;
-  // The Unit's Tags and notes, followed through a rename.
+  // The Unit's Tags, notes and history, followed through a rename.
   late var _tags = widget.vault.watchTags(widget.collection.id, _name);
   late var _notes = widget.vault.watchNotes(widget.collection.id, _name);
+  late var _history = widget.vault.watchUnitHistory(
+    widget.collection.id,
+    _name,
+  );
 
-  Future<void> _rename(Unit unit) async {
-    final name = await askName(context, 'Rename Squad', unit.name);
-    if (name == null || !mounted) return;
+  /// Edits the Unit's name, notes and Tags, writing only what changed so edits elsewhere are kept.
+  Future<void> _edit(Unit unit, List<String> tags, String notes) async {
+    final result = await showDialog<UnitFields>(
+      context: context,
+      builder: (_) => UnitDialog(
+        title: 'Edit Unit',
+        name: unit.name,
+        notes: notes,
+        tags: tags,
+        suggestTags: widget.vault.suggestTags,
+      ),
+    );
+    if (result == null || !mounted) return;
+    final (vault, collectionId) = (widget.vault, widget.collection.id);
     await attempt(context, () async {
-      await widget.vault.renameUnit(unit, name);
+      final kept = {for (final t in result.tags) tagKey(t)};
+      for (final t in tags.where((t) => !kept.contains(tagKey(t)))) {
+        await vault.removeTag(collectionId, unit.name, t);
+      }
+      await vault.addTags(collectionId, unit.name, result.tags);
+      if (result.notes != notes) {
+        await vault.setNotes(collectionId, unit.name, result.notes);
+      }
+      // Last: a rename carries the notes and Tags just saved along.
+      if (result.name == unit.name) return;
+      await vault.renameUnit(unit, result.name);
       if (mounted) {
         setState(() {
-          _name = name.trim();
-          _tags = widget.vault.watchTags(widget.collection.id, _name);
-          _notes = widget.vault.watchNotes(widget.collection.id, _name);
+          _name = result.name;
+          _tags = vault.watchTags(collectionId, _name);
+          _notes = vault.watchNotes(collectionId, _name);
+          _history = vault.watchUnitHistory(collectionId, _name);
         });
       }
     });
+  }
+
+  /// Asks first, saying how many models go; back to the Collection once deleted.
+  Future<void> _delete(Unit unit) async {
+    final confirmed = await confirmDeleteModels(
+      context,
+      'Delete ${unit.name}?',
+      unit.modelCount,
+    );
+    if (!confirmed || !mounted) return;
+    await attempt(context, () async {
+      for (final b in unit.batches) {
+        await widget.vault.deleteBatch(b.id);
+      }
+    });
+    if (mounted) Navigator.pop(context);
   }
 
   /// Sets how many of the Unit's models are at one Stage, without moving any: a recount of the Batch there or, once
@@ -85,7 +128,7 @@ class _UnitScreenState extends State<UnitScreen> {
         ],
       ),
     );
-    // Not disposed: the closing dialog's TextField still uses it (as in the Batch screen's move dialog).
+    // Not disposed: the closing dialog's TextField still uses it.
     final n = int.tryParse(count.text);
     if (save != true || n == null || n == g.modelCount || !mounted) return;
     // A Stage has one Batch, bar a moment after sync before the automatic Merge (ADR 0009).
@@ -96,10 +139,10 @@ class _UnitScreenState extends State<UnitScreen> {
         () => widget.vault.editBatch(batch.id, modelCount: n),
       );
     }
-    final confirmed = await confirmDeleteBatch(
+    final confirmed = await confirmDeleteModels(
       context,
-      'Delete the Unit at ${g.stage.name}?',
-      batch,
+      'Delete the models at ${g.stage.name}?',
+      batch.modelCount,
     );
     if (confirmed && mounted) {
       await attempt(context, () => widget.vault.deleteBatch(batch.id));
@@ -114,19 +157,6 @@ class _UnitScreenState extends State<UnitScreen> {
     [for (final s in unit.stages) s.stage],
     g,
     onRecount: () => _recount(g),
-    onDetails: () => _open(g.batches.first),
-  );
-
-  Future<void> _open(Batch batch) => Navigator.push(
-    context,
-    MaterialPageRoute<void>(
-      builder: (_) => BatchScreen(
-        vault: widget.vault,
-        photos: widget.photos,
-        collection: widget.collection,
-        batchId: batch.id,
-      ),
-    ),
   );
 
   @override
@@ -138,12 +168,16 @@ class _UnitScreenState extends State<UnitScreen> {
         stream: _tags,
         builder: (context, tags) => StreamBuilder(
           stream: _notes,
-          builder: (context, notes) => _build(
-            context,
-            library.data,
-            links.data,
-            tags.data ?? const [],
-            notes.data ?? '',
+          builder: (context, notes) => StreamBuilder(
+            stream: _history,
+            builder: (context, history) => _build(
+              context,
+              library.data,
+              links.data,
+              tags.data ?? const [],
+              notes.data ?? '',
+              history.data ?? const [],
+            ),
           ),
         ),
       ),
@@ -156,26 +190,41 @@ class _UnitScreenState extends State<UnitScreen> {
     List<({Collection collection, UnitPaint link})>? links,
     List<String> tags,
     String notes,
+    List<StageChange> history,
   ) {
+    final heading = stencil(Theme.of(context).textTheme.titleSmall);
     return StreamBuilder(
       stream: _units,
       builder: (context, snapshot) {
         final unit = snapshot.data?.where((s) => s.name == _name).firstOrNull;
+        String stageName(String? id) =>
+            unit?.stages
+                .where((g) => g.stage.id == id)
+                .firstOrNull
+                ?.stage
+                .name ??
+            'a deleted Stage';
         return Scaffold(
           appBar: AppBar(
             title: Text(_name),
             actions: [
-              if (unit != null)
+              if (unit != null) ...[
                 IconButton(
                   icon: const Icon(Icons.edit),
-                  tooltip: 'Rename Squad',
-                  onPressed: () => _rename(unit),
+                  tooltip: 'Edit Unit',
+                  onPressed: () => _edit(unit, tags, notes),
                 ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Delete Unit',
+                  onPressed: () => _delete(unit),
+                ),
+              ],
             ],
           ),
           body: switch (snapshot) {
             AsyncSnapshot(:final error?) => LoadError(
-              what: 'the Squad',
+              what: 'the Unit',
               error: error,
               onRetry: () => setState(
                 () => _units = widget.vault.watchUnits(widget.collection),
@@ -185,19 +234,11 @@ class _UnitScreenState extends State<UnitScreen> {
               child: CircularProgressIndicator(),
             ),
             _ when unit == null => const Center(
-              child: Text('This Squad has no Units left'),
+              child: Text('This Unit has no models left'),
             ),
             _ => ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Wrap(
-                    spacing: 8,
-                    children: [for (final t in tags) Chip(label: Text(t))],
-                  ),
-                ),
-                if (notes.isNotEmpty) ListTile(title: Text(notes)),
                 for (final g in unit.stages)
                   // Empty Stages stay in Workflow order, dimmed, with nothing to move.
                   Opacity(
@@ -213,6 +254,25 @@ class _UnitScreenState extends State<UnitScreen> {
                       onTap: g.modelCount == 0 ? null : () => _sheet(unit, g),
                     ),
                   ),
+                if (widget.photos case final photos?)
+                  UnitPhotos(
+                    vault: widget.vault,
+                    files: photos,
+                    collectionId: widget.collection.id,
+                    unit: _name,
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    spacing: 8,
+                    children: [for (final t in tags) Chip(label: Text(t))],
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.notes),
+                  title: Text(notes.isEmpty ? 'Add notes' : notes),
+                  onTap: () => _edit(unit, tags, notes),
+                ),
                 if (library != null && links != null)
                   _UnitPaints(
                     vault: widget.vault,
@@ -221,20 +281,33 @@ class _UnitScreenState extends State<UnitScreen> {
                     library: library,
                     links: links,
                   ),
+                ListTile(title: Text('History', style: heading)),
+                for (final c in history)
+                  ListTile(
+                    title: Text(
+                      c.fromStageId == null
+                          ? '${modelCountText(c.modelCount)} added at ${stageName(c.toStageId)}'
+                          : '${modelCountText(c.modelCount)} ${stageName(c.fromStageId)} → ${stageName(c.toStageId)}',
+                    ),
+                    subtitle: Text(
+                      MaterialLocalizations.of(context)
+                          .formatShortMonthDay(c.happenedAt.toLocal()),
+                    ),
+                  ),
               ],
             ),
           },
           floatingActionButton: snapshot.data == null
               ? null
               : FloatingActionButton(
-                  onPressed: () => addBatch(
+                  onPressed: () => addModels(
                     context,
                     widget.vault,
                     widget.collection,
                     [for (final s in snapshot.data!) s.name],
                     name: _name,
                   ),
-                  tooltip: 'New Unit',
+                  tooltip: 'Add models',
                   child: const Icon(Icons.add),
                 ),
         );
@@ -243,18 +316,18 @@ class _UnitScreenState extends State<UnitScreen> {
   }
 }
 
-/// Asks whether to delete [batch], titled [title]; true only once confirmed.
-Future<bool> confirmDeleteBatch(
+/// Asks whether to delete [models] models, titled [title]; true only once confirmed.
+Future<bool> confirmDeleteModels(
   BuildContext context,
   String title,
-  Batch batch,
+  int models,
 ) async =>
     await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
         content: Text(
-          'Its ${modelCountText(batch.modelCount)} and their history will be deleted on all your devices.',
+          '${modelCountText(models)} and their history will be deleted on all your devices.',
         ),
         actions: [
           TextButton(
@@ -289,7 +362,7 @@ void showUndo(
 );
 
 /// The Move sheet for a Stage of the Unit [name] with models, [stages] being its Workflow's: how many to move and
-/// where, or recount them ([onRecount], null to disable), or open their details ([onDetails], null to disable).
+/// where, or recount them ([onRecount], null to disable).
 Future<void> showMoveSheet(
   BuildContext context,
   Vault vault,
@@ -298,7 +371,6 @@ Future<void> showMoveSheet(
   List<Stage> stages,
   StageGroup from, {
   VoidCallback? onRecount,
-  VoidCallback? onDetails,
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
@@ -316,7 +388,6 @@ Future<void> showMoveSheet(
       }
     }),
     onRecount: onRecount,
-    onDetails: onDetails,
   ),
 );
 
@@ -328,7 +399,6 @@ class _MoveSheet extends StatefulWidget {
     required this.stages,
     required this.onMove,
     required this.onRecount,
-    required this.onDetails,
   });
 
   final StageGroup from;
@@ -337,7 +407,6 @@ class _MoveSheet extends StatefulWidget {
   final List<Stage> stages;
   final void Function(int count, Stage to) onMove;
   final VoidCallback? onRecount;
-  final VoidCallback? onDetails;
 
   @override
   State<_MoveSheet> createState() => _MoveSheetState();
@@ -412,21 +481,14 @@ class _MoveSheetState extends State<_MoveSheet> {
                     ),
               ],
             ),
-            Row(
-              children: [
-                TextButton(
-                  onPressed: widget.onRecount == null
-                      ? null
-                      : _then(widget.onRecount!),
-                  child: const Text('Edit count'),
-                ),
-                TextButton(
-                  onPressed: widget.onDetails == null
-                      ? null
-                      : _then(widget.onDetails!),
-                  child: const Text('Details'),
-                ),
-              ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: widget.onRecount == null
+                    ? null
+                    : _then(widget.onRecount!),
+                child: const Text('Edit count'),
+              ),
             ),
             const SizedBox(height: 8),
             FilledButton(
@@ -501,7 +563,7 @@ class _UnitPaintsState extends State<_UnitPaints> {
               if (others.isNotEmpty)
                 IconButton(
                   icon: const Icon(Icons.content_copy),
-                  tooltip: 'Copy Paints from another Squad',
+                  tooltip: 'Copy Paints from another Unit',
                   onPressed: () => _copyPaints(others),
                 ),
               IconButton(

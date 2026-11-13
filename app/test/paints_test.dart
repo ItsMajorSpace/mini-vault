@@ -208,7 +208,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, 'Delete'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('2 Squads use it'), findsOneWidget);
+      expect(find.textContaining('2 Units use it'), findsOneWidget);
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
