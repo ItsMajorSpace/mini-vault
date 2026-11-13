@@ -236,6 +236,42 @@ void main() {
   );
 
   testWidgets(
+    'the Paints section shows again after it is scrolled out of view and back',
+    (tester) async {
+      // Tall enough at first that the section is built (and listening) when the screen opens.
+      tester.view.physicalSize = const Size(800, 4000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final (vault, collection) = await openSquad(
+        tester,
+        [for (var i = 0; i < 40; i++) 'Stage $i'],
+        [(5, 0)],
+      );
+      await tester.runAsync(() async {
+        final blue = await vault.addPaint(
+          brand: 'Citadel',
+          range: 'Base',
+          name: 'Macragge Blue',
+        );
+        await vault.addSquadPaint(collection.id, 'Intercessors', blue.id);
+      });
+      await settle(tester);
+      expect(find.text('Macragge Blue'), findsOneWidget);
+
+      // A short screen drops the section from the list; scrolling to it builds it again.
+      tester.view.physicalSize = const Size(800, 400);
+      await settle(tester);
+      expect(find.text('Macragge Blue'), findsNothing);
+      await tester.scrollUntilVisible(find.text('Macragge Blue'), 500);
+      await settle(tester);
+      expect(tester.takeException(), isNull);
+      expect(find.text('Macragge Blue'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'tapping a Stage opens the Move sheet, next Stage preselected; Move moves the chosen count',
     (tester) async {
       await openSquad(tester, stages, [(5, 0)]);

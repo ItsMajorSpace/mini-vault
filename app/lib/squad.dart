@@ -33,6 +33,8 @@ class SquadScreen extends StatefulWidget {
 
 class _SquadScreenState extends State<SquadScreen> {
   late final _squads = widget.vault.watchSquads(widget.collection);
+  // Listened to here, above the lazily built list: a list child scrolled out of view is disposed, and building it
+  // again would listen to a single-subscription stream a second time.
   late final _library = widget.vault.watchPaints();
   late final _links = widget.vault.watchAllSquadPaints();
   late String _name = widget.name;
@@ -66,157 +68,6 @@ class _SquadScreenState extends State<SquadScreen> {
       await widget.vault.renameSquad(squad, name);
       if (mounted) setState(() => _name = name.trim());
     });
-  }
-
-  /// The Squad's Paints, with their notes and the wanted ones marked, and actions to add, copy, edit and remove them.
-  Widget _paints(
-    List<Paint> library,
-    List<({Collection collection, SquadPaint link})> all,
-  ) {
-    final used = [
-      for (final (:collection, :link) in all)
-        if (collection.id == widget.collection.id && link.squad == _name) link,
-    ];
-    final others = [
-      for (final s in paintedSquads(all))
-        if (s.collection.id != widget.collection.id || s.squad != _name) s,
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ListTile(
-          title: Text(
-            'Paints',
-            style: stencil(Theme.of(context).textTheme.titleSmall),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (others.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.content_copy),
-                  tooltip: 'Copy Paints from another Squad',
-                  onPressed: () => _copyPaints(others),
-                ),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline),
-                tooltip: 'Add Paint',
-                onPressed: () => _addPaint(library, used),
-              ),
-            ],
-          ),
-        ),
-        for (final l in used)
-          ListTile(
-            key: ValueKey(l.id),
-            title: Text(l.paint.name),
-            subtitle: Text(
-              [
-                '${l.paint.brand} / ${l.paint.range}',
-                if (l.note.isNotEmpty) l.note,
-                if (!l.paint.owned) 'Wanted',
-              ].join(' · '),
-            ),
-            onTap: () => _editNote(l),
-            trailing: IconButton(
-              icon: const Icon(Icons.remove_circle_outline),
-              tooltip: 'Remove Paint',
-              onPressed: () =>
-                  attempt(context, () => widget.vault.removeSquadPaint(l.id)),
-            ),
-          ),
-      ],
-    );
-  }
-
-  /// Picks a Paint from the library that the Squad does not use yet, or creates one, wanted to start with.
-  Future<void> _addPaint(List<Paint> library, List<SquadPaint> used) async {
-    final usedIds = {for (final l in used) l.paint.id};
-    final picked = await showDialog<Object>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Add Paint'),
-        children: [
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, 'new'),
-            child: const Text('New Paint…'),
-          ),
-          for (final p in library)
-            if (!usedIds.contains(p.id))
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, p),
-                child: Text('${p.brand} / ${p.range} / ${p.name}'),
-              ),
-        ],
-      ),
-    );
-    if (!mounted) return;
-    if (picked is Paint) {
-      return attempt(
-        context,
-        () =>
-            widget.vault.addSquadPaint(widget.collection.id, _name, picked.id),
-      );
-    }
-    if (picked != 'new') return;
-    final fields = await showDialog<PaintFields>(
-      context: context,
-      builder: (_) => PaintDialog(paints: library, owned: false),
-    );
-    if (fields == null || !mounted) return;
-    final (:brand, :range, :name, :owned) = fields;
-    await attempt(
-      context,
-      () => widget.vault.addNewSquadPaint(
-        widget.collection.id,
-        _name,
-        brand: brand,
-        range: range,
-        name: name,
-        owned: owned,
-      ),
-    );
-  }
-
-  Future<void> _copyPaints(
-    List<({Collection collection, String squad})> others,
-  ) async {
-    final from = await showDialog<({Collection collection, String squad})>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Copy Paints from'),
-        children: [
-          for (final s in others)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, s),
-              child: Text('${s.squad} · ${s.collection.name}'),
-            ),
-        ],
-      ),
-    );
-    if (from == null || !mounted) return;
-    await attempt(
-      context,
-      () => widget.vault.copySquadPaints(
-        fromCollectionId: from.collection.id,
-        from: from.squad,
-        toCollectionId: widget.collection.id,
-        to: _name,
-      ),
-    );
-  }
-
-  Future<void> _editNote(SquadPaint link) async {
-    final note = await showDialog<String>(
-      context: context,
-      builder: (_) => NameDialog(
-        title: 'Note for ${link.paint.name}',
-        initial: link.note,
-        label: 'Where or how',
-      ),
-    );
-    if (note == null || !mounted) return;
-    await attempt(context, () => widget.vault.setSquadPaintNote(link.id, note));
   }
 
   /// Merges the other Units at one Stage into the first: tapping the Merge chip is the explicit choice.
@@ -337,7 +188,19 @@ class _SquadScreenState extends State<SquadScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => StreamBuilder(
+    stream: _library,
+    builder: (context, library) => StreamBuilder(
+      stream: _links,
+      builder: (context, links) => _build(context, library.data, links.data),
+    ),
+  );
+
+  Widget _build(
+    BuildContext context,
+    List<Paint>? library,
+    List<({Collection collection, SquadPaint link})>? links,
+  ) {
     return StreamBuilder(
       stream: _squads,
       builder: (context, snapshot) {
@@ -408,16 +271,14 @@ class _SquadScreenState extends State<SquadScreen> {
                       onTap: g.modelCount == 0 ? null : () => _sheet(squad, g),
                     ),
                   ),
-                StreamBuilder(
-                  stream: _library,
-                  builder: (context, library) => StreamBuilder(
-                    stream: _links,
-                    builder: (context, links) =>
-                        library.data == null || links.data == null
-                        ? const SizedBox.shrink()
-                        : _paints(library.data!, links.data!),
+                if (library != null && links != null)
+                  _SquadPaints(
+                    vault: widget.vault,
+                    collection: widget.collection,
+                    name: _name,
+                    library: library,
+                    links: links,
                   ),
-                ),
               ],
             ),
           },
@@ -588,5 +449,186 @@ class _MoveSheetState extends State<_MoveSheet> {
         ),
       ),
     );
+  }
+}
+
+/// The Squad's Paints section, from the paint [library] and every Squad's Paint [links].
+class _SquadPaints extends StatefulWidget {
+  const _SquadPaints({
+    required this.vault,
+    required this.collection,
+    required this.name,
+    required this.library,
+    required this.links,
+  });
+
+  final Vault vault;
+  final Collection collection;
+  final String name;
+  final List<Paint> library;
+  final List<({Collection collection, SquadPaint link})> links;
+
+  @override
+  State<_SquadPaints> createState() => _SquadPaintsState();
+}
+
+class _SquadPaintsState extends State<_SquadPaints> {
+  @override
+  Widget build(BuildContext context) => _paints(widget.library, widget.links);
+
+  /// The Squad's Paints, with their notes and the wanted ones marked, and actions to add, copy, edit and remove them.
+  Widget _paints(
+    List<Paint> library,
+    List<({Collection collection, SquadPaint link})> all,
+  ) {
+    final used = [
+      for (final (:collection, :link) in all)
+        if (collection.id == widget.collection.id && link.squad == widget.name)
+          link,
+    ];
+    final others = [
+      for (final s in paintedSquads(all))
+        if (s.collection.id != widget.collection.id || s.squad != widget.name)
+          s,
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ListTile(
+          title: Text(
+            'Paints',
+            style: stencil(Theme.of(context).textTheme.titleSmall),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (others.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.content_copy),
+                  tooltip: 'Copy Paints from another Squad',
+                  onPressed: () => _copyPaints(others),
+                ),
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: 'Add Paint',
+                onPressed: () => _addPaint(library, used),
+              ),
+            ],
+          ),
+        ),
+        for (final l in used)
+          ListTile(
+            key: ValueKey(l.id),
+            title: Text(l.paint.name),
+            subtitle: Text(
+              [
+                '${l.paint.brand} / ${l.paint.range}',
+                if (l.note.isNotEmpty) l.note,
+                if (!l.paint.owned) 'Wanted',
+              ].join(' · '),
+            ),
+            onTap: () => _editNote(l),
+            trailing: IconButton(
+              icon: const Icon(Icons.remove_circle_outline),
+              tooltip: 'Remove Paint',
+              onPressed: () =>
+                  attempt(context, () => widget.vault.removeSquadPaint(l.id)),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Picks a Paint from the library that the Squad does not use yet, or creates one, wanted to start with.
+  Future<void> _addPaint(List<Paint> library, List<SquadPaint> used) async {
+    final usedIds = {for (final l in used) l.paint.id};
+    final picked = await showDialog<Object>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Add Paint'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'new'),
+            child: const Text('New Paint…'),
+          ),
+          for (final p in library)
+            if (!usedIds.contains(p.id))
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(context, p),
+                child: Text('${p.brand} / ${p.range} / ${p.name}'),
+              ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (picked is Paint) {
+      return attempt(
+        context,
+        () => widget.vault.addSquadPaint(
+          widget.collection.id,
+          widget.name,
+          picked.id,
+        ),
+      );
+    }
+    if (picked != 'new') return;
+    final fields = await showDialog<PaintFields>(
+      context: context,
+      builder: (_) => PaintDialog(paints: library, owned: false),
+    );
+    if (fields == null || !mounted) return;
+    final (:brand, :range, :name, :owned) = fields;
+    await attempt(
+      context,
+      () => widget.vault.addNewSquadPaint(
+        widget.collection.id,
+        widget.name,
+        brand: brand,
+        range: range,
+        name: name,
+        owned: owned,
+      ),
+    );
+  }
+
+  Future<void> _copyPaints(
+    List<({Collection collection, String squad})> others,
+  ) async {
+    final from = await showDialog<({Collection collection, String squad})>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Copy Paints from'),
+        children: [
+          for (final s in others)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, s),
+              child: Text('${s.squad} · ${s.collection.name}'),
+            ),
+        ],
+      ),
+    );
+    if (from == null || !mounted) return;
+    await attempt(
+      context,
+      () => widget.vault.copySquadPaints(
+        fromCollectionId: from.collection.id,
+        from: from.squad,
+        toCollectionId: widget.collection.id,
+        to: widget.name,
+      ),
+    );
+  }
+
+  Future<void> _editNote(SquadPaint link) async {
+    final note = await showDialog<String>(
+      context: context,
+      builder: (_) => NameDialog(
+        title: 'Note for ${link.paint.name}',
+        initial: link.note,
+        label: 'Where or how',
+      ),
+    );
+    if (note == null || !mounted) return;
+    await attempt(context, () => widget.vault.setSquadPaintNote(link.id, note));
   }
 }
