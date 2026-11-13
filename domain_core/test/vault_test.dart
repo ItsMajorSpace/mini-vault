@@ -2127,4 +2127,238 @@ void main() {
       expect(groupByBrand([]), isEmpty);
     });
   });
+
+  group('Squad Paints', () {
+    late Collection collection;
+    late Paint blue;
+    late Paint black;
+
+    Future<Squad> squad(String name) async =>
+        (await vault.watchSquads(collection).first).firstWhere(
+          (s) => s.name == name,
+        );
+    Future<List<String>> paintsOf(String name, [Collection? c]) async => [
+      for (final l
+          in await vault.watchSquadPaints((c ?? collection).id, name).first)
+        '${l.paint.name}${l.note.isEmpty ? '' : ': ${l.note}'}${l.paint.owned ? '' : ' (wanted)'}',
+    ];
+
+    setUp(() async {
+      await syncStarterWorkflow();
+      collection = await vault.createCollection('Space Marines');
+      for (final name in ['Intercessors', 'Hellblasters']) {
+        await vault.addUnit(
+          collection,
+          name: name,
+          modelCount: 5,
+          stageId: 's1',
+        );
+      }
+      blue = await vault.addPaint(
+        brand: 'Citadel',
+        range: 'Base',
+        name: 'Macragge Blue',
+      );
+      black = await vault.addPaint(
+        brand: 'Citadel',
+        range: 'Base',
+        name: 'Abaddon Black',
+      );
+    });
+
+    test('are added with a note, edited, removed, used once each, and kept across restarts', () async {
+      await vault.addSquadPaint(
+        collection.id,
+        'Intercessors',
+        blue.id,
+        note: ' armour base ',
+      );
+      await vault.addSquadPaint(collection.id, 'Intercessors', black.id);
+      await expectLater(
+        vault.addSquadPaint(collection.id, 'Intercessors', blue.id),
+        throwsStateError,
+      );
+      await restart();
+      expect(await paintsOf('Intercessors'), [
+        'Abaddon Black',
+        'Macragge Blue: armour base',
+      ]);
+      expect(await paintsOf('Hellblasters'), isEmpty);
+
+      final [first, second] = await vault
+          .watchSquadPaints(collection.id, 'Intercessors')
+          .first;
+      await vault.setSquadPaintNote(first.id, ' weapons ');
+      await vault.removeSquadPaint(second.id);
+      expect(await paintsOf('Intercessors'), ['Abaddon Black: weapons']);
+      expect(
+        [
+          for (final s in paintedSquads(
+            await vault.watchAllSquadPaints().first,
+            paintId: black.id,
+          ))
+            (s.collection.name, s.squad),
+        ],
+        [('Space Marines', 'Intercessors')],
+      );
+      expect(
+        paintedSquads(
+          await vault.watchAllSquadPaints().first,
+          paintId: blue.id,
+        ),
+        isEmpty,
+      );
+    });
+
+    test('a Paint created inline is added to the library wanted', () async {
+      await vault.addNewSquadPaint(
+        collection.id,
+        'Intercessors',
+        brand: 'Citadel',
+        range: 'Shade',
+        name: 'Nuln Oil',
+      );
+      expect(await paintsOf('Intercessors'), ['Nuln Oil (wanted)']);
+      expect(
+        (await vault.watchPaints().first).where((p) => !p.owned).single.name,
+        'Nuln Oil',
+      );
+    });
+
+    test(
+      'are copied from another Squad, notes too, skipping Paints already used',
+      () async {
+        final other = await vault.createCollection('Dark Angels');
+        await vault.addSquadPaint(
+          collection.id,
+          'Intercessors',
+          blue.id,
+          note: 'armour',
+        );
+        await vault.addSquadPaint(
+          collection.id,
+          'Intercessors',
+          black.id,
+          note: 'gun',
+        );
+        await vault.addSquadPaint(
+          other.id,
+          'Deathwing',
+          black.id,
+          note: 'trim',
+        );
+
+        await vault.copySquadPaints(
+          fromCollectionId: collection.id,
+          from: 'Intercessors',
+          toCollectionId: other.id,
+          to: 'Deathwing',
+        );
+
+        expect(await paintsOf('Deathwing', other), [
+          'Abaddon Black: trim',
+          'Macragge Blue: armour',
+        ]);
+        expect(await paintsOf('Intercessors'), [
+          'Abaddon Black: gun',
+          'Macragge Blue: armour',
+        ]);
+      },
+    );
+
+    test('renaming a Squad carries its Paints to the new name', () async {
+      await vault.addSquadPaint(
+        collection.id,
+        'Intercessors',
+        blue.id,
+        note: 'armour',
+      );
+      await vault.renameSquad(await squad('Intercessors'), 'Assault Squad');
+      expect(await paintsOf('Assault Squad'), ['Macragge Blue: armour']);
+      expect(await paintsOf('Intercessors'), isEmpty);
+    });
+
+    test('renaming onto an existing Squad unions the Paints; the target note wins unless empty', () async {
+      final red = await vault.addPaint(
+        brand: 'Citadel',
+        range: 'Base',
+        name: 'Mephiston Red',
+      );
+      for (final (squadName, paint, note) in [
+        ('Intercessors', blue, 'armour'),
+        ('Intercessors', black, 'gun'),
+        ('Intercessors', red, 'eyes'),
+        ('Hellblasters', blue, ''),
+        ('Hellblasters', black, 'casing'),
+      ]) {
+        await vault.addSquadPaint(
+          collection.id,
+          squadName,
+          paint.id,
+          note: note,
+        );
+      }
+
+      await vault.renameSquad(await squad('Intercessors'), 'Hellblasters');
+
+      expect(await paintsOf('Hellblasters'), [
+        'Abaddon Black: casing',
+        'Macragge Blue: armour',
+        'Mephiston Red: eyes',
+      ]);
+      expect(await paintsOf('Intercessors'), isEmpty);
+    });
+
+    test('stay with the name of a Squad without Units and reappear when the name is added again', () async {
+      await vault.addSquadPaint(collection.id, 'Intercessors', blue.id);
+      await vault.deleteUnit((await squad('Intercessors')).units.single.id);
+      expect((await vault.watchSquads(collection).first).map((s) => s.name), [
+        'Hellblasters',
+      ]);
+
+      await vault.importArmyList(collection, 's2', [
+        (name: 'Intercessors', count: 5),
+      ]);
+      expect(await paintsOf('Intercessors'), ['Macragge Blue']);
+    });
+
+    test('deleting a Paint removes it from every Squad', () async {
+      await vault.addSquadPaint(collection.id, 'Intercessors', blue.id);
+      await vault.addSquadPaint(collection.id, 'Hellblasters', blue.id);
+      await vault.addSquadPaint(collection.id, 'Hellblasters', black.id);
+      expect(
+        paintedSquads(
+          await vault.watchAllSquadPaints().first,
+          paintId: blue.id,
+        ),
+        hasLength(2),
+      );
+
+      await vault.deletePaint(blue.id);
+
+      expect(await paintsOf('Intercessors'), isEmpty);
+      expect(await paintsOf('Hellblasters'), ['Abaddon Black']);
+      expect(await db.getAll('SELECT * FROM squad_paints'), hasLength(1));
+    });
+
+    test(
+      "deleting a Collection removes its Squads' Paint links, not the Paints",
+      () async {
+        final other = await vault.createCollection('Dark Angels');
+        await vault.addSquadPaint(collection.id, 'Intercessors', blue.id);
+        await vault.addSquadPaint(other.id, 'Deathwing', blue.id);
+
+        await vault.deleteCollection(collection.id);
+
+        expect(
+          [
+            for (final l in await db.getAll('SELECT * FROM squad_paints'))
+              l['collection_id'],
+          ],
+          [other.id],
+        );
+        expect(await vault.watchPaints().first, hasLength(2));
+      },
+    );
+  });
 }

@@ -313,6 +313,110 @@ void main() {
     expect(await paint(), isEmpty);
   });
 
+  test("a Squad's Paint is stored by Collection and name, only on the user's own rows, and goes with its Collection or Paint", () async {
+    final alice = await signUp();
+    final bob = await signUp();
+    Future<String> putPaint(({String token, String id}) user) async {
+      final id = await newId();
+      final response = await upload(user.token, [
+        {
+          'op': 'PUT',
+          'type': 'paints',
+          'id': id,
+          'data': {
+            'brand': 'Citadel',
+            'range': 'Base',
+            'name': 'Macragge Blue',
+            'owned': 1,
+          },
+        },
+      ]);
+      expect(response.statusCode, 204, reason: response.body);
+      return id;
+    }
+
+    Map<String, Object?> putLink(
+      String id,
+      String collectionId,
+      String paintId,
+    ) => {
+      'op': 'PUT',
+      'type': 'squad_paints',
+      'id': id,
+      'data': {
+        'collection_id': collectionId,
+        'squad_name': ' Intercessors ',
+        'paint_id': paintId,
+        'note': 'armour',
+      },
+    };
+    Future<List<List<Object?>>> links() async => [
+      for (final row in await db.execute(
+        r'SELECT owner_id::text, squad_name, note FROM squad_paints WHERE owner_id = ANY($1::uuid[]) ORDER BY note',
+        parameters: [
+          TypedValue(Type.textArray, [alice.id, bob.id]),
+        ],
+      ))
+        row.toList(),
+    ];
+
+    final collectionId = await createCollection(alice);
+    final paintId = await putPaint(alice);
+    final otherPaintId = await putPaint(alice);
+    final id = await newId();
+    final created = await upload(alice.token, [
+      putLink(id, collectionId, paintId),
+      putLink(await newId(), collectionId, otherPaintId),
+    ]);
+    expect(created.statusCode, 204, reason: created.body);
+    final renamed = await upload(alice.token, [
+      {
+        'op': 'PATCH',
+        'type': 'squad_paints',
+        'id': id,
+        'data': {'squad_name': 'Hellblasters', 'note': 'base'},
+      },
+    ]);
+    expect(renamed.statusCode, 204, reason: renamed.body);
+    expect(await links(), [
+      [alice.id, 'Intercessors', 'armour'],
+      [alice.id, 'Hellblasters', 'base'],
+    ]);
+
+    final blank = await upload(alice.token, [
+      {
+        'op': 'PATCH',
+        'type': 'squad_paints',
+        'id': id,
+        'data': {'squad_name': ' '},
+      },
+    ]);
+    expect(blank.statusCode, 422, reason: blank.body);
+
+    // Bob can't link to Alice's Collection or Paint, nor touch her link.
+    final bobCollection = await createCollection(bob);
+    final bobPaint = await putPaint(bob);
+    for (final op in [
+      putLink(await newId(), collectionId, bobPaint),
+      putLink(await newId(), bobCollection, paintId),
+      {'op': 'DELETE', 'type': 'squad_paints', 'id': id},
+    ]) {
+      final response = await upload(bob.token, [op]);
+      expect(response.statusCode, 403, reason: response.body);
+    }
+
+    await upload(alice.token, [
+      {'op': 'DELETE', 'type': 'paints', 'id': otherPaintId},
+    ]);
+    expect(await links(), [
+      [alice.id, 'Hellblasters', 'base'],
+    ]);
+    await upload(alice.token, [
+      {'op': 'DELETE', 'type': 'collections', 'id': collectionId},
+    ]);
+    expect(await links(), isEmpty);
+  });
+
   test(
     "writes to another user's rows are rejected and change nothing",
     () async {
@@ -773,6 +877,7 @@ void main() {
     final tag = putTag(unitId, 'Necrons');
     final photoId = await newId();
     final paintId = await newId();
+    final squadPaintId = await newId();
     final uploaded = await upload(alice.token, [
       putUnit(unitId, collectionId: id, stageId: wishlist),
       {
@@ -802,6 +907,17 @@ void main() {
           'range': 'Base',
           'name': 'Macragge Blue',
           'owned': 1,
+        },
+      },
+      {
+        'op': 'PUT',
+        'type': 'squad_paints',
+        'id': squadPaintId,
+        'data': {
+          'collection_id': id,
+          'squad_name': 'Intercessors',
+          'paint_id': paintId,
+          'note': '',
         },
       },
     ]);
@@ -849,7 +965,15 @@ void main() {
     }
     expect(
       aliceIds,
-      containsAll([id, unitId, stageChangeId, tag['id'], photoId, paintId]),
+      containsAll([
+        id,
+        unitId,
+        stageChangeId,
+        tag['id'],
+        photoId,
+        paintId,
+        squadPaintId,
+      ]),
     );
     expect(aliceIds, contains(await workflowOf(alice.id)));
 
