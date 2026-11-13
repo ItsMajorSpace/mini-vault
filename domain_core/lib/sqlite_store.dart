@@ -31,6 +31,7 @@ class SqliteVaultStore implements VaultStore {
       Column.text('name'),
       Column.text('workflow_id'),
       Column.text('game_system'),
+      Column.text('description'),
     ]),
     Table('units', [
       Column.text('collection_id'),
@@ -271,17 +272,20 @@ class SqliteVaultStore implements VaultStore {
             name: c['name'] as String,
             workflowId: c['workflow_id'] as String,
             gameSystem: c['game_system'] as String?,
+            // Null until the server's '' syncs down to a Collection from before descriptions.
+            description: c['description'] as String? ?? '',
           ),
       ];
 
   @override
   Future<void> insertCollection(Collection collection) => _db.execute(
-    'INSERT INTO collections (id, name, workflow_id, game_system) VALUES (?, ?, ?, ?)',
+    'INSERT INTO collections (id, name, workflow_id, game_system, description) VALUES (?, ?, ?, ?, ?)',
     [
       collection.id,
       collection.name,
       collection.workflowId,
       collection.gameSystem,
+      collection.description,
     ],
   );
 
@@ -295,6 +299,13 @@ class SqliteVaultStore implements VaultStore {
     'UPDATE collections SET game_system = ? WHERE id = ?',
     [gameSystem, id],
   );
+
+  @override
+  Future<void> setCollectionDescription(String id, String description) =>
+      _db.execute('UPDATE collections SET description = ? WHERE id = ?', [
+        description,
+        id,
+      ]);
 
   // As deleteBatch, for every Batch: Stage Changes are left to the server, and children go first. The server also
   // deletes Batches and Unit rows this device hasn't seen yet when the Collection's delete arrives.
