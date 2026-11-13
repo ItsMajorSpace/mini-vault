@@ -193,6 +193,13 @@ class Progress {
   /// The owned models per Stage: each Stage from the Owned Stage on that has models, in Workflow order.
   final List<({Stage stage, int models})> stages;
 
+  /// [all] together: their counts summed, their [stages] one after another.
+  Progress.combined(Iterable<Progress> all)
+    : wanted = all.fold(0, (n, p) => n + p.wanted),
+      owned = all.fold(0, (n, p) => n + p.owned),
+      finished = all.fold(0, (n, p) => n + p.finished),
+      stages = [for (final p in all) ...p.stages];
+
   /// [finished] as a share of [owned], 0 when nothing is owned.
   double get finishedShare => owned == 0 ? 0 : finished / owned;
 
@@ -211,6 +218,17 @@ class Progress {
 
   @override
   String toString() => '$finished / $owned finished, $wanted wanted';
+}
+
+/// The [Progress] of the Collections using one Workflow, together.
+class WorkflowProgress {
+  const WorkflowProgress(this.workflow, this.stages, this.progress);
+
+  final Workflow workflow;
+
+  /// One group per Stage of the Workflow, in Workflow order, including Stages without Units and before the Owned Stage.
+  final List<StageGroup> stages;
+  final Progress progress;
 }
 
 /// Counts [units]' models against [workflow]'s Owned and Finished Stage, in Workflow order.
@@ -296,6 +314,9 @@ abstract interface class VaultStore {
 
   /// Deletes the Collection and its Units, with their Tags and Photos, in one transaction.
   Future<void> deleteCollection(String id);
+
+  /// Emits every Collection's Units now and again whenever they change.
+  Stream<List<Unit>> watchAllUnits();
 
   /// Emits the Collection's Units, by name, now and again whenever they change.
   Stream<List<Unit>> watchUnits(String collectionId);
@@ -651,35 +672,81 @@ class Vault {
       .asyncMap((units) async => squadsOf(await workflowOf(collection), units));
 
   /// The Collection's [Progress], emitted again whenever its Units or its Workflow (Stages, Owned or Finished Stage) change.
-  Stream<Progress> watchProgress(Collection collection) {
-    List<Workflow>? workflows;
-    List<Unit>? units;
-    final subscriptions = <StreamSubscription<void>>[];
-    late final StreamController<Progress> controller;
-    void emit() {
-      if (workflows == null || units == null) return;
-      final workflow = workflows!
+  Stream<Progress> watchProgress(Collection collection) => _combineLatest(
+    [_store.watchWorkflows(), _store.watchUnits(collection.id)],
+    (latest) {
+      final [workflows as List<Workflow>, units as List<Unit>] = latest;
+      final workflow = workflows
           .where((w) => w.id == collection.workflowId)
           .firstOrNull;
-      workflow == null
-          ? controller.addError(StateError('The Workflow has not synced yet'))
-          : controller.add(progressOf(workflow, units!));
-    }
+      if (workflow == null) throw StateError('The Workflow has not synced yet');
+      return progressOf(workflow, units);
+    },
+  ).distinct();
 
+  /// The [Progress] of every Collection, or only of [collection], per Workflow: one [WorkflowProgress] per Workflow
+  /// that at least one of them uses, in [workflows] order. Emitted again whenever the Collections, their Units or the
+  /// Workflows change. Collections whose Workflow has not synced are left out.
+  Stream<List<WorkflowProgress>> watchProgressByWorkflow([
+    Collection? collection,
+  ]) => _combineLatest(
+    [
+      _store.watchWorkflows(),
+      _store.watchCollections(),
+      collection == null
+          ? _store.watchAllUnits()
+          : _store.watchUnits(collection.id),
+    ],
+    (latest) {
+      final [
+        workflows as List<Workflow>,
+        collections as List<Collection>,
+        units as List<Unit>,
+      ] = latest;
+      final workflowOf = {
+        for (final c in collections)
+          if (collection == null || c.id == collection.id) c.id: c.workflowId,
+      };
+      WorkflowProgress of(Workflow w) {
+        final us = [
+          for (final u in units)
+            if (workflowOf[u.collectionId] == w.id) u,
+        ];
+        return WorkflowProgress(w, groupByStage(w, us), progressOf(w, us));
+      }
+
+      return [
+        for (final w in workflows)
+          if (workflowOf.containsValue(w.id)) of(w),
+      ];
+    },
+  );
+
+  /// Emits [combine] of each stream's latest value once all have emitted, and again whenever one emits. What
+  /// [combine] throws is emitted as an error.
+  static Stream<T> _combineLatest<T>(
+    List<Stream<Object>> streams,
+    T Function(List<Object>) combine,
+  ) {
+    final latest = List<Object?>.filled(streams.length, null);
+    final subscriptions = <StreamSubscription<void>>[];
+    late final StreamController<T> controller;
     controller = StreamController(
       onListen: () => subscriptions.addAll([
-        _store.watchWorkflows().listen((ws) {
-          workflows = ws;
-          emit();
-        }, onError: controller.addError),
-        _store.watchUnits(collection.id).listen((us) {
-          units = us;
-          emit();
-        }, onError: controller.addError),
+        for (final (i, stream) in streams.indexed)
+          stream.listen((value) {
+            latest[i] = value;
+            if (latest.contains(null)) return;
+            try {
+              controller.add(combine(latest.cast()));
+            } catch (e, s) {
+              controller.addError(e, s);
+            }
+          }, onError: controller.addError),
       ]),
       onCancel: () => Future.wait([for (final s in subscriptions) s.cancel()]),
     );
-    return controller.stream.distinct();
+    return controller.stream;
   }
 
   /// Adds a Unit at [stageId], which must be a Stage of the Collection's Workflow.

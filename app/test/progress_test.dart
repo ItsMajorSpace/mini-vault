@@ -53,4 +53,116 @@ void main() {
       );
     },
   );
+
+  group('Progress drawer', () {
+    Workflow workflow(String id, String name, List<String> stages) => Workflow(
+      id: id,
+      name: name,
+      stages: [
+        for (final (i, s) in stages.indexed)
+          Stage(id: '$id$i', name: s, colour: Vault.stageColours[i]),
+      ],
+      ownedStageId: '${id}1',
+      finishedStageId: '$id${stages.length - 1}',
+    );
+    WorkflowProgress progress(Workflow w, Map<int, int> modelsAt) {
+      final units = [
+        for (final MapEntry(key: i, value: n) in modelsAt.entries)
+          Unit(
+            id: '${w.id}u$i',
+            collectionId: 'c',
+            stageId: w.stages[i].id,
+            name: 'Unit',
+            modelCount: n,
+            notes: '',
+          ),
+      ];
+      return WorkflowProgress(w, groupByStage(w, units), progressOf(w, units));
+    }
+
+    final starter = workflow('a', 'Starter', [
+      'Wishlist',
+      'Unassembled',
+      'Primed',
+      'Done',
+    ]);
+    final killTeam = workflow('b', 'Kill Team', ['Wishlist', 'Primed', 'Done']);
+    final workflows = [
+      progress(starter, {0: 5, 1: 10, 3: 2}),
+      progress(killTeam, {1: 4, 2: 1}),
+    ];
+
+    Future<void> pump(WidgetTester tester, int count) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: const SizedBox.expand(),
+          bottomSheet: ProgressDrawer(
+            count: count,
+            noun: 'Collection',
+            workflows: workflows,
+          ),
+        ),
+      ),
+    );
+
+    /// The listed Stages, per Workflow, as "Stage models".
+    List<String> listed(WidgetTester tester) => [
+      for (final t in tester.widgetList<ListTile>(find.byType(ListTile)))
+        '${((t.title! as Text).data)} ${(t.trailing! as Text).data}',
+    ];
+
+    testWidgets('collapsed, shows the totals over every Workflow and one bar', (
+      tester,
+    ) async {
+      await pump(tester, 2);
+
+      expect(
+        find.text('2 Collections · 17 owned · 3 finished · 5 wanted'),
+        findsOneWidget,
+      );
+      expect(find.byType(StageBar), findsOneWidget);
+      expect(find.byType(ListTile), findsNothing);
+    });
+
+    testWidgets(
+      'dragged up, lists each Workflow\'s every Stage apart, even where names match; dragged down, collapses',
+      (tester) async {
+        // Tall enough to build every Stage row of the sheet's lazy list.
+        tester.view.physicalSize = const Size(2400, 4800);
+        addTearDown(tester.view.reset);
+        await pump(tester, 2);
+        await tester.fling(find.byType(StageBar), const Offset(0, -200), 1000);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Starter'), findsOneWidget);
+        expect(find.text('Kill Team'), findsOneWidget);
+        expect(
+          tester.getTopLeft(find.text('Starter')).dy,
+          lessThan(tester.getTopLeft(find.text('Kill Team')).dy),
+        );
+        // Wishlist is before the Owned Stage, Primed in Starter has no models.
+        expect(listed(tester), [
+          'Wishlist 5',
+          'Unassembled 10',
+          'Primed 0',
+          'Done 2',
+          'Wishlist 0',
+          'Primed 4',
+          'Done 1',
+        ]);
+
+        await tester.fling(find.byType(StageBar), const Offset(0, 200), 1000);
+        await tester.pumpAndSettle();
+        expect(find.byType(ListTile), findsNothing);
+      },
+    );
+
+    testWidgets('is hidden with nothing to count', (tester) async {
+      await pump(tester, 0);
+
+      expect(find.byType(StageBar), findsNothing);
+      expect(find.textContaining('owned'), findsNothing);
+      expect(tester.getSize(find.byType(BottomSheet)).height, 0);
+    });
+  });
 }
