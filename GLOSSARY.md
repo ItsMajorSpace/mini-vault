@@ -48,6 +48,10 @@ Moving only some of a Unit's models to another Stage, which creates a new Unit f
 **Merge**:
 Combining two Units that share a Collection, name and Stage into one Unit. Happens automatically when models are moved onto a Stage where such a Unit already exists; Units that already share a Stage are Merged only by explicit choice.
 
+**Army List**:
+A list of game-rules units made in another app (e.g. the Warhammer 40k app, Army Forge) for one faction of one Game System. Importing it adds one Unit per entry, all at one chosen Stage, to a single Collection; it never changes or removes Units already there.
+_Avoid_: Roster, list, army
+
 **Tag**:
 A free-form label on a Unit, used for faction or any other grouping below the Collection. Game Systems belong to Collections, not Tags.
 _Avoid_: Category, label, faction field

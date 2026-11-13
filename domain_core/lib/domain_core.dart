@@ -892,6 +892,31 @@ class Vault {
     return unit;
   }
 
+  /// Imports an Army List's [entries] into [collection]: one Unit each at [stageId], with the Tag [tag] unless it is
+  /// blank, Merged on arrival (ADR 0004) with a Unit already there under its name, earlier entries included. Never
+  /// changes other Units. Checks every entry first, so a bad one adds nothing.
+  Future<void> importArmyList(
+    Collection collection,
+    String stageId,
+    Iterable<({String name, int count})> entries, {
+    String? tag,
+  }) async {
+    for (final e in entries) {
+      validName(e.name);
+      validModelCount(e.count);
+    }
+    for (final e in entries) {
+      final unit = await addUnit(
+        collection,
+        name: e.name,
+        modelCount: e.count,
+        stageId: stageId,
+      );
+      await addTags(unit.id, [?tag]);
+      await _mergeOnArrival(collection, unit);
+    }
+  }
+
   /// Moves the whole Unit to [stageId], any Stage of its Collection's Workflow, forward or back, and Merges it into
   /// the Unit already there with its name, if any (ADR 0004): that Unit survives, with this move in its history.
   /// Does nothing if it is already there.
