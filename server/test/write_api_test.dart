@@ -249,6 +249,47 @@ void main() {
     },
   );
 
+  test('a Collection\'s description is stored trimmed, defaults to empty, and blank or null clears it', () async {
+    final user = await signUp();
+    final id = await newId();
+    Future<Object?> description() async => (await db.execute(
+      r'SELECT description FROM collections WHERE id = $1::uuid',
+      parameters: [id],
+    )).single.single;
+    Future<int> patch(Object? value) async => (await upload(user.token, [
+      {
+        'op': 'PATCH',
+        'type': 'collections',
+        'id': id,
+        'data': {'description': value},
+      },
+    ])).statusCode;
+
+    // An app version from before descriptions doesn't send one.
+    final created = await upload(user.token, [
+      {
+        'op': 'PUT',
+        'type': 'collections',
+        'id': id,
+        'data': {
+          'name': 'Space Marines',
+          'workflow_id': await workflowOf(user.id),
+        },
+      },
+    ]);
+    expect(created.statusCode, 204, reason: created.body);
+    expect(await description(), '');
+
+    expect(await patch(' Blue armour,\nwhite helmets \n'), 204);
+    expect(await description(), 'Blue armour,\nwhite helmets');
+    expect(await patch('  '), 204);
+    expect(await description(), '');
+    await patch('Blue');
+    expect(await patch(null), 204);
+    expect(await description(), '');
+    expect(await patch(42), 422);
+  });
+
   test('a Paint is stored trimmed, toggled owned per field, never blank, and deleted', () async {
     final user = await signUp();
     final id = await newId();

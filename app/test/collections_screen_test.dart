@@ -144,7 +144,7 @@ void main() {
   testWidgets(
     'the Collection dialog suggests Game Systems in use and returns the fields',
     (tester) async {
-      (String, String?, String)? result;
+      (String, String?, String, String)? result;
       await tester.pumpWidget(
         MaterialApp(
           home: Builder(
@@ -181,7 +181,7 @@ void main() {
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
-      expect(result, ('Orks', null, 'Warhammer 40k'));
+      expect(result, ('Orks', null, 'Warhammer 40k', ''));
     },
   );
 
@@ -754,6 +754,81 @@ void main() {
       await tapAndWait(find.text('Delete'));
       expect(find.byType(CollectionScreen), findsNothing);
       expect(find.text('New Collection'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'a Collection description is set in Edit Collection, shown clipped under the app bar, tapped to edit, and cleared',
+    (tester) async {
+      final (db, vault, collection) = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's', 's')",
+        );
+        await db.execute(
+          "INSERT INTO stages (id, workflow_id, name, position) VALUES ('s', 'w', 'Wishlist', 0)",
+        );
+        final vault = Vault(SqliteVaultStore(db));
+        return (db, vault, await vault.createCollection('Ultramarines'));
+      }))!;
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      // Taps outside the fake-async zone: SQLite I/O started from a tap inside it never completes.
+      Future<void> tapAndWait(Finder finder) async {
+        await tester.runAsync(() async {
+          await tester.tap(finder);
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        });
+        await settle();
+      }
+
+      final description = find.widgetWithText(TextField, 'Description');
+      const text =
+          '2nd Company strike force,\nblue with gold trim.\nLeague in spring.';
+      Finder shown() => find.textContaining('2nd Company');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CollectionScreen(vault: vault, db: db, collection: collection),
+        ),
+      );
+      await settle();
+      expect(shown(), findsNothing);
+
+      await tester.tap(find.byTooltip('Collection'));
+      await tester.pumpAndSettle();
+      await tapAndWait(find.text('Edit Collection'));
+      await tester.enterText(description, '  $text  ');
+      await tapAndWait(find.text('Save'));
+      expect(shown(), findsOneWidget);
+      final shownText = tester.widget<Text>(shown());
+      expect(shownText.data, text);
+      expect(shownText.maxLines, 2);
+      expect(shownText.overflow, TextOverflow.ellipsis);
+
+      await tapAndWait(shown());
+      expect(find.text('Edit Collection'), findsOneWidget);
+      expect(tester.widget<TextField>(description).controller!.text, text);
+      await tester.enterText(description, '   ');
+      await tapAndWait(find.text('Save'));
+      expect(shown(), findsNothing);
+      expect(
+        (await tester.runAsync(vault.collections))!.single.description,
+        '',
+      );
 
       await tester.pumpWidget(const SizedBox());
     },

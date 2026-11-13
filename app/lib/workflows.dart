@@ -525,8 +525,8 @@ class _NameDialogState extends State<NameDialog> {
 }
 
 /// Asks for a new Collection's name and Workflow, the first (starter) Workflow preselected.
-/// Name, Game System and (for a new Collection) Workflow. Pops `(name, workflowId, gameSystem)`; the Workflow is
-/// null when editing.
+/// Name, Game System and either (for a new Collection) Workflow or (when editing) description. Pops
+/// `(name, workflowId, gameSystem, description)`; the Workflow is null when editing, the description '' when not.
 class NewCollectionDialog extends StatefulWidget {
   const NewCollectionDialog({
     super.key,
@@ -552,6 +552,9 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
   late final _gameSystem = TextEditingController(
     text: widget.collection?.gameSystem,
   );
+  late final _description = TextEditingController(
+    text: widget.collection?.description,
+  );
   final _gameSystemFocus = FocusNode();
   late String? _workflowId = widget.workflows.firstOrNull?.id;
 
@@ -559,6 +562,7 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
   void dispose() {
     _name.dispose();
     _gameSystem.dispose();
+    _description.dispose();
     _gameSystemFocus.dispose();
     super.dispose();
   }
@@ -566,8 +570,12 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
   @override
   Widget build(BuildContext context) {
     final editing = widget.collection != null;
-    void save() =>
-        Navigator.pop(context, (_name.text, _workflowId, _gameSystem.text));
+    void save() => Navigator.pop(context, (
+      _name.text,
+      _workflowId,
+      _gameSystem.text,
+      _description.text,
+    ));
     return AlertDialog(
       title: Text(editing ? 'Edit Collection' : 'New Collection'),
       content: Column(
@@ -593,7 +601,15 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
               decoration: const InputDecoration(labelText: 'Game System'),
             ),
           ),
-          if (!editing)
+          if (editing)
+            TextField(
+              controller: _description,
+              minLines: 1,
+              maxLines: 5,
+              keyboardType: TextInputType.multiline,
+              decoration: const InputDecoration(labelText: 'Description'),
+            )
+          else
             DropdownButtonFormField<String>(
               initialValue: _workflowId,
               decoration: const InputDecoration(labelText: 'Workflow'),

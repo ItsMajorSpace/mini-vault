@@ -25,7 +25,12 @@ const _writable = {
     'position': 'int',
     'colour': 'text',
   },
-  'collections': {'name': 'text', 'workflow_id': 'uuid', 'game_system': 'text'},
+  'collections': {
+    'name': 'text',
+    'workflow_id': 'uuid',
+    'game_system': 'text',
+    'description': 'text',
+  },
   // Table names predate ADR 0008: `units` holds Batches, `squad_*` a Unit's Paints, notes, Tags and Photos.
   'units': {
     'collection_id': 'uuid',
@@ -190,6 +195,8 @@ CREATE TABLE IF NOT EXISTS collections (
 );
 -- Free text; Collections whose Game System matches ignoring case share it (domain_core's tagKey). Null: none.
 ALTER TABLE collections ADD COLUMN IF NOT EXISTS game_system text;
+-- Free text; '' when none. Existing Collections get ''.
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS units (
   id uuid PRIMARY KEY,
   owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
@@ -509,6 +516,13 @@ Future<void> _apply(
       throw _Rejected(422, 'A Game System must be text, not $gameSystem');
     }
     data['game_system'] = validGameSystem(gameSystem);
+  }
+  if (data.containsKey('description')) {
+    final description = data['description'];
+    if (description is! String?) {
+      throw _Rejected(422, 'A description must be text, not $description');
+    }
+    data['description'] = (description ?? '').trim();
   }
   final colour = data['colour'];
   if (data.containsKey('colour') &&

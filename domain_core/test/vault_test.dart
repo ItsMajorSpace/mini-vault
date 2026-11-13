@@ -436,6 +436,27 @@ void main() {
       expect(ops.last.opData, {'game_system': null});
     });
 
+    test('has a description, set trimmed, cleared, kept across restarts and uploaded per field', () async {
+      await syncStarterWorkflow();
+      final marines = await vault.createCollection('Space Marines');
+      expect(marines.description, '');
+      await vault.setCollectionDescription(
+        marines.id,
+        ' 2nd Company,\nblue with gold trim \n',
+      );
+      await restart();
+      expect(
+        (await vault.collections()).single.description,
+        '2nd Company,\nblue with gold trim',
+      );
+
+      await vault.setCollectionDescription(marines.id, '   ');
+      expect((await vault.collections()).single.description, '');
+      final ops = (await db.getCrudBatch(limit: 100))!.crud
+          .where((e) => e.table == 'collections' && e.op == UpdateType.patch);
+      expect(ops.last.opData, {'description': ''});
+    });
+
     test('are grouped by Game System ignoring case, A–Z, with those without one last', () {
       Collection c(String name, [String? gameSystem]) => Collection(
         id: name,
