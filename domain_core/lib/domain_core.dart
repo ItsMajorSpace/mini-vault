@@ -102,11 +102,16 @@ class Paint {
 
   final String id;
   final String brand;
+
+  /// Empty when the Paint has none.
   final String range;
   final String name;
 
   /// Owned, or else wanted (on the shopping list).
   final bool owned;
+
+  /// Brand, range and name, as "Citadel / Base / Macragge Blue", or "AP / Greedy Gold" with no range.
+  String get label => [brand, if (range.isNotEmpty) range, name].join(' / ');
 }
 
 /// Groups [paints] by brand (ignoring case and outer spaces, as [tagKey]), A–Z; inside a brand, by range then name,
@@ -1513,20 +1518,21 @@ class Vault {
         used.where((u) => tagKey(u) == tagKey(value)).firstOrNull ?? value;
     final brand = known(validName(paint.brand), others.map((p) => p.brand));
     final sameBrand = others.where((p) => tagKey(p.brand) == tagKey(brand));
-    final range = known(validName(paint.range), sameBrand.map((p) => p.range));
+    final range = known(paint.range.trim(), sameBrand.map((p) => p.range));
     final name = validName(paint.name);
-    if (sameBrand.any(
-      (p) => tagKey(p.range) == tagKey(range) && tagKey(p.name) == tagKey(name),
-    )) {
-      throw StateError('$brand $range $name is already in your paints');
-    }
-    return Paint(
+    final checked = Paint(
       id: paint.id,
       brand: brand,
       range: range,
       name: name,
       owned: paint.owned,
     );
+    if (sameBrand.any(
+      (p) => tagKey(p.range) == tagKey(range) && tagKey(p.name) == tagKey(name),
+    )) {
+      throw StateError('${checked.label} is already in your paints');
+    }
+    return checked;
   }
 
   /// The most Photos a Unit may be given. The write API enforces the same limit.

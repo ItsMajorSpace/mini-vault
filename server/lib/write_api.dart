@@ -244,8 +244,8 @@ CREATE TABLE IF NOT EXISTS merges (
   unit_id uuid NOT NULL REFERENCES units ON DELETE CASCADE,
   merged_unit_id uuid NOT NULL
 );
--- The paint library, one per person, independent of any Collection. owned is 1, wanted 0. Duplicates (brand, range
--- and name alike ignoring case) are refused by the app, not here: two devices offline may each add the same Paint.
+-- The paint library, one per person, independent of any Collection. owned is 1, wanted 0; range is '' when none.
+-- Duplicates (brand, range and name alike ignoring case) are refused by the app, not here: two devices offline may each add the same Paint.
 CREATE TABLE IF NOT EXISTS paints (
   id uuid PRIMARY KEY,
   owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
@@ -491,7 +491,10 @@ Future<void> _apply(
       when extra.isNotEmpty) {
     throw _Rejected(422, 'Columns not writable on $table: ${extra.join(', ')}');
   }
-  for (final column in ['name', 'brand', 'range', 'squad_name']) {
+  if (data['range'] case final String range) {
+    data['range'] = range.trim(); // A Paint's range is optional.
+  }
+  for (final column in ['name', 'brand', 'squad_name']) {
     if (data[column] case final name?) {
       try {
         data[column] = validName(name as String);

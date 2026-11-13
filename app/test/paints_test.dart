@@ -301,4 +301,66 @@ void main() {
       ));
     },
   );
+
+  testWidgets(
+    'a Paint saves without a range, shows no empty range, and is refused as a duplicate of brand and name alone',
+    (tester) async {
+      final (vault, dir) = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.initialize();
+        final vault = Vault(SqliteVaultStore(db));
+        await vault.addPaint(
+          brand: 'AP',
+          range: 'Fanatics',
+          name: 'Greedy Gold',
+        );
+        return (vault, dir);
+      }))!;
+      await tester.pumpWidget(MaterialApp(home: PaintsScreen(vault: vault)));
+      await settle(tester);
+
+      Future<void> add(String brand, String name) async {
+        await tester.tap(find.byTooltip('New Paint'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.widgetWithText(TextField, 'Brand'), brand);
+        await tester.enterText(find.widgetWithText(TextField, 'Name'), name);
+        await tester.pumpAndSettle();
+        // The tap runs in the real async zone so its SQLite write completes.
+        await tester.runAsync(() async {
+          await tester.tap(find.text('Add'));
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        });
+        await settle(tester);
+      }
+
+      // A missing range is one more range: not a duplicate of AP / Fanatics / Greedy Gold.
+      await add('ap', 'Greedy Gold');
+      final tiles = tester.widgetList<ListTile>(
+        find.widgetWithText(ListTile, 'Greedy Gold'),
+      );
+      expect(tiles.map((t) => (t.subtitle as Text?)?.data), [null, 'Fanatics']);
+
+      await add('AP', 'greedy gold');
+      expect(find.text('AP / greedy gold is already in your paints'), findsOne);
+      expect(find.widgetWithText(ListTile, 'Greedy Gold'), findsNWidgets(2));
+
+      await tester.tap(find.widgetWithText(ListTile, 'Greedy Gold').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Delete'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'AP / Greedy Gold will be removed from your paints on all your devices.',
+        ),
+        findsOne,
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => dir.delete(recursive: true));
+    },
+  );
 }
