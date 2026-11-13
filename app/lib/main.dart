@@ -348,7 +348,11 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (collections.isEmpty) {
-                  return const Center(child: Text('No Collections yet'));
+                  return EmptyState(
+                    explanation: 'A Collection is a named set of Units that progress through the same Workflow.',
+                    label: 'New Collection',
+                    onPressed: _create,
+                  );
                 }
                 final groups = groupByGameSystem(collections);
                 // Headers only once some Collection has a Game System; until then the list is as before.
@@ -461,6 +465,40 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
         onPressed: _create,
         tooltip: 'New Collection',
         child: const Icon(Icons.add),
+      ),
+    ),
+  );
+}
+
+/// An empty screen: one line on what belongs here and a large button to add the first one.
+class EmptyState extends StatelessWidget {
+  const EmptyState({
+    super.key,
+    required this.explanation,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String explanation;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(explanation, textAlign: TextAlign.center),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: onPressed,
+            icon: const Icon(Icons.add),
+            label: Text(label),
+            style: FilledButton.styleFrom(minimumSize: const Size(200, 56)),
+          ),
+        ],
       ),
     ),
   );
@@ -620,6 +658,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
                   ),
                   _ when squads == null => const Center(
                     child: CircularProgressIndicator(),
+                  ),
+                  _ when squads.isEmpty => EmptyState(
+                    explanation: 'A Unit is a number of models at the same Stage. Units with the same name form a Squad.',
+                    label: 'New Unit',
+                    onPressed: () =>
+                        addUnit(context, widget.vault, _collection, const []),
                   ),
                   _ => ListView(
                     children: [
