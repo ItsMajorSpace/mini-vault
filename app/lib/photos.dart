@@ -125,6 +125,26 @@ class PhotoFiles {
         ],
       );
 
+  /// The file on this device of the newest Photo among the Squad's Units (null if it has none, or the newest is not
+  /// downloaded yet), again whenever it changes. Nothing is downloaded for it.
+  // shortcut: Photos have no creation time, so "newest" is the latest attachment queue timestamp (set when the
+  // file is saved here, or queued or downloaded on another device); add a created_at to photos if that misleads.
+  Stream<File?> watchNewest(String collectionId, String squadName) => _db
+      .watch(
+        'SELECT a.local_uri FROM photos p JOIN units u ON u.id = p.unit_id '
+        'LEFT JOIN ${photoQueueTable.name} a ON a.id = p.file_id AND a.state <> ? '
+        'WHERE u.collection_id = ? AND u.name = ? '
+        'ORDER BY a.timestamp DESC, p.id DESC LIMIT 1',
+        parameters: [AttachmentState.archived.toInt(), collectionId, squadName],
+        triggerOnTables: ['photos', 'units', photoQueueTable.name],
+      )
+      .map(
+        (rows) => switch (rows.firstOrNull?['local_uri']) {
+          final String uri => File('${dir.path}/$uri'),
+          _ => null,
+        },
+      );
+
   /// Picks a photo from [source], resizes it and adds it to the Unit; its file uploads once online.
   /// Throws a [StateError] if the Unit has no room, before anything is picked.
   Future<void> add(Vault vault, String unitId, ImageSource source) async {
@@ -312,6 +332,58 @@ class _UnitPhotosState extends State<UnitPhotos> {
           ),
         );
       },
+    );
+  }
+}
+
+/// A Squad row's leading square: the newest photo of the Squad's Units on this device, or a placeholder.
+class SquadThumbnail extends StatefulWidget {
+  const SquadThumbnail({
+    super.key,
+    required this.files,
+    required this.collectionId,
+    required this.squadName,
+  });
+
+  final PhotoFiles? files;
+  final String collectionId;
+  final String squadName;
+
+  @override
+  State<SquadThumbnail> createState() => _SquadThumbnailState();
+}
+
+class _SquadThumbnailState extends State<SquadThumbnail> {
+  late final _newest = widget.files?.watchNewest(
+    widget.collectionId,
+    widget.squadName,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final placeholder = Icon(
+      Icons.image_outlined,
+      color: Theme.of(context).colorScheme.outline,
+      semanticLabel: 'No photo',
+    );
+    return SizedBox.square(
+      dimension: 48,
+      child: StreamBuilder(
+        stream: _newest,
+        builder: (context, snapshot) => switch (snapshot.data) {
+          final file? => ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Image.file(
+              file,
+              fit: BoxFit.cover,
+              cacheWidth: 96,
+              semanticLabel: 'Photo',
+              errorBuilder: (_, _, _) => placeholder,
+            ),
+          ),
+          null => placeholder,
+        },
+      ),
     );
   }
 }
