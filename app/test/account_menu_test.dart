@@ -9,7 +9,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
-import 'package:mini_vault/workflows.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:powersync/attachments/attachments.dart';
 import 'package:powersync/powersync.dart';
@@ -91,10 +90,7 @@ void main() {
     await openMenu(tester);
     expect(find.text('collector@example.com'), findsOneWidget);
     expect(find.text('Sign out'), findsOneWidget);
-    expect(
-      tester.getTopLeft(find.text('Workflows')).dy,
-      lessThan(tester.getTopLeft(find.text('Sign out')).dy),
-    );
+    expect(find.text('Workflows'), findsNothing); // A bottom tab now.
     expect(find.text('Delete account'), findsOneWidget);
     expect(find.byType(PopupMenuDivider), findsOneWidget);
 
@@ -125,18 +121,6 @@ void main() {
 
     await openMenu(tester);
     expect(find.text('0.0.0-dev (0)'), findsOneWidget);
-  });
-
-  testWidgets('the account menu opens Workflows', (tester) async {
-    final db = await openDb(tester, waiting: 0);
-    await pumpCollections(tester, db);
-
-    await openMenu(tester);
-    await tester.tap(find.text('Workflows'));
-    await settle(tester);
-
-    expect(find.byType(WorkflowsScreen), findsOneWidget);
-    expect(find.text('Starter'), findsOneWidget);
   });
 
   testWidgets('signing out with everything synced asks nothing', (

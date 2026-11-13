@@ -49,17 +49,91 @@ class MiniVaultApp extends StatelessWidget {
       theme: grimdarkTheme,
       home: StreamBuilder(
         stream: auth.onAuthStateChange,
-        builder: (context, _) => auth.currentSession == null
-            ? SignInScreen(auth: auth)
-            : CollectionsScreen(
-                vault: Vault(SqliteVaultStore(db)),
-                db: db,
-                photos: photos,
-                email: auth.currentUser?.email,
-                onSignOut: auth.signOut,
-                onSyncNow: () => syncNow(auth, db, photos.queue),
-                onDeleteAccount: () => deleteAccount(context, auth),
+        builder: (context, _) {
+          if (auth.currentSession == null) return SignInScreen(auth: auth);
+          final vault = Vault(SqliteVaultStore(db));
+          return HomeScreen(
+            vault: vault,
+            photos: photos,
+            collections: CollectionsScreen(
+              vault: vault,
+              db: db,
+              photos: photos,
+              email: auth.currentUser?.email,
+              onSignOut: auth.signOut,
+              onSyncNow: () => syncNow(auth, db, photos.queue),
+              onDeleteAccount: () => deleteAccount(context, auth),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Collections, Paints and Workflows as bottom tabs, each with its own back stack.
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({
+    super.key,
+    required this.vault,
+    required this.collections,
+    this.photos,
+  });
+
+  final Vault vault;
+
+  /// The first tab, on the same [vault].
+  final Widget collections;
+
+  /// Passed on to the Paints tab.
+  final PhotoFiles? photos;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final _navigators = List.generate(3, (_) => GlobalKey<NavigatorState>());
+  int _tab = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final tabs = [
+      widget.collections,
+      PaintsScreen(vault: widget.vault, photos: widget.photos),
+      WorkflowsScreen(vault: widget.vault),
+    ];
+    return Scaffold(
+      body: IndexedStack(
+        index: _tab,
+        children: [
+          for (final (i, tab) in tabs.indexed)
+            // System back pops the open tab's stack before leaving the app.
+            NavigatorPopHandler(
+              enabled: i == _tab,
+              onPopWithResult: (_) => _navigators[i].currentState?.maybePop(),
+              child: Navigator(
+                key: _navigators[i],
+                onGenerateRoute: (_) =>
+                    MaterialPageRoute<void>(builder: (_) => tab),
               ),
+            ),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) => setState(() => _tab = i),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.collections_bookmark),
+            label: 'Collections',
+          ),
+          NavigationDestination(icon: Icon(Icons.palette), label: 'Paints'),
+          NavigationDestination(
+            icon: Icon(Icons.account_tree),
+            label: 'Workflows',
+          ),
+        ],
       ),
     );
   }
@@ -305,27 +379,6 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
       appBar: AppBar(
         title: const Text('Collections'),
         actions: [
-          IconButton(
-            tooltip: 'Paints',
-            icon: const Icon(Icons.palette),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    PaintsScreen(vault: widget.vault, photos: widget.photos),
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Import army list',
-            icon: const Icon(Icons.playlist_add),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => ArmyListScreen(vault: widget.vault),
-              ),
-            ),
-          ),
           SyncIcon(db: widget.db, onSyncNow: widget.onSyncNow),
           PopupMenuButton<VoidCallback>(
             tooltip: 'Account',
@@ -333,15 +386,6 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
             itemBuilder: (context) => [
               if (widget.email case final email?)
                 PopupMenuItem(enabled: false, child: Text(email)),
-              PopupMenuItem(
-                value: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => WorkflowsScreen(vault: widget.vault),
-                  ),
-                ),
-                child: const Text('Workflows'),
-              ),
               if (widget.onSignOut case final signOut?)
                 PopupMenuItem(
                   value: () => _signOut(signOut),
@@ -388,6 +432,15 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                     explanation: 'A Collection is a named set of Units that progress through the same Workflow.',
                     label: 'New Collection',
                     onPressed: _create,
+                    alternative: TextButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => ArmyListScreen(vault: widget.vault),
+                        ),
+                      ),
+                      child: const Text('Import army list'),
+                    ),
                   );
                 }
                 final groups = groupByGameSystem(collections);
@@ -547,11 +600,15 @@ class EmptyState extends StatelessWidget {
     required this.explanation,
     required this.label,
     required this.onPressed,
+    this.alternative,
   });
 
   final String explanation;
   final String label;
   final VoidCallback onPressed;
+
+  /// A second way to add, shown under the button.
+  final Widget? alternative;
 
   @override
   Widget build(BuildContext context) => Center(
@@ -568,6 +625,10 @@ class EmptyState extends StatelessWidget {
             label: Text(label),
             style: FilledButton.styleFrom(minimumSize: const Size(200, 56)),
           ),
+          if (alternative case final alternative?) ...[
+            const SizedBox(height: 8),
+            alternative,
+          ],
         ],
       ),
     ),
