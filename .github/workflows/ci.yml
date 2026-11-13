@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write  # attach the APK to the GitHub Release
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -180,9 +180,17 @@ jobs:
           "$aapt" dump badging app/build/app/outputs/flutter-apk/app-release.apk > badging.txt
           grep -F "versionCode='$BUILD_NUMBER' versionName='${TAG#v}'" badging.txt
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v7
-        with:
-          name: mini-vault-${{ github.ref_name }}.apk
-          path: app/build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
+      # Creates the Release if only a bare tag was pushed; `|| true` because it
+      # usually exists already. A real failure still fails the upload below.
+      - name: Attach APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          apk="mini-vault-$TAG.apk"
+          cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
+          prerelease=()
+          [[ "$TAG" == *-* ]] && prerelease=(--prerelease)
+          gh release create "$TAG" --verify-tag --generate-notes "${prerelease[@]}" || true
+          gh release upload "$TAG" "$apk" --clobber
