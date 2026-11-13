@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
+import 'package:mini_vault/workflows.dart';
 import 'package:powersync/attachments/attachments.dart';
 import 'package:powersync/powersync.dart';
 
@@ -79,7 +80,8 @@ void main() {
     var deletes = 0;
     await pumpCollections(tester, db, onDeleteAccount: () => deletes++);
 
-    expect(find.byTooltip('Workflows'), findsOneWidget);
+    expect(find.byTooltip('Workflows'), findsNothing);
+    expect(find.byIcon(Icons.account_tree), findsNothing);
     expect(find.byTooltip('Sign out'), findsNothing);
     expect(find.byTooltip('Delete account'), findsNothing);
     expect(find.byIcon(Icons.logout), findsNothing);
@@ -88,6 +90,10 @@ void main() {
     await openMenu(tester);
     expect(find.text('collector@example.com'), findsOneWidget);
     expect(find.text('Sign out'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Workflows')).dy,
+      lessThan(tester.getTopLeft(find.text('Sign out')).dy),
+    );
     expect(find.text('Delete account'), findsOneWidget);
     expect(find.byType(PopupMenuDivider), findsOneWidget);
 
@@ -101,6 +107,18 @@ void main() {
     await tester.tap(find.text('Delete account'));
     await tester.pumpAndSettle();
     expect(deletes, 1);
+  });
+
+  testWidgets('the account menu opens Workflows', (tester) async {
+    final db = await openDb(tester, waiting: 0);
+    await pumpCollections(tester, db);
+
+    await openMenu(tester);
+    await tester.tap(find.text('Workflows'));
+    await settle(tester);
+
+    expect(find.byType(WorkflowsScreen), findsOneWidget);
+    expect(find.text('Starter'), findsOneWidget);
   });
 
   testWidgets('signing out with everything synced asks nothing', (
