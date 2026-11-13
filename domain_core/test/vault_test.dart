@@ -1911,4 +1911,42 @@ void main() {
       );
     });
   });
+
+  group('Recently moved Squads', () {
+    test('are the last 3 Squads moved, across Collections, newest first, each starting where it last moved from', () async {
+      await syncStarterWorkflow();
+      final marines = await vault.createCollection('Space Marines');
+      final orks = await vault.createCollection('Orks');
+      expect(await vault.watchRecentlyMoved().first, isEmpty);
+      Future<void> add(Collection c, String name, int n, String stageId) =>
+          vault.addUnit(c, name: name, modelCount: n, stageId: stageId);
+      await add(marines, 'Intercessors', 5, 's1');
+      await add(marines, 'Captain', 1, 's1');
+      await add(orks, 'Boyz', 10, 's3');
+      await add(orks, 'Nobz', 3, 's0');
+      // Never moved: not listed.
+      await add(orks, 'Gretchin', 4, 's1');
+
+      await vault.moveModels(marines, 'Intercessors', 's1', 's2', 2);
+      await vault.moveModels(orks, 'Nobz', 's0', 's1', 3);
+      await vault.moveModels(marines, 'Captain', 's1', 's4', 1);
+      await vault.moveModels(orks, 'Boyz', 's3', 's4', 4);
+      await vault.moveModels(marines, 'Intercessors', 's1', 's2', 1);
+
+      final recent = await vault.watchRecentlyMoved().first;
+      expect(
+        [
+          for (final r in recent)
+            (r.collection.name, r.squad.name, r.from.stage.id),
+        ],
+        [
+          ('Space Marines', 'Intercessors', 's1'),
+          ('Orks', 'Boyz', 's3'),
+          // Nothing left at s1: its earliest Stage with models from the Owned Stage (s1) on.
+          ('Space Marines', 'Captain', 's4'),
+        ],
+      );
+      expect(recent.first.squad.modelCount, 5);
+    });
+  });
 }

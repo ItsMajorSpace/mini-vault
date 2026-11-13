@@ -193,6 +193,17 @@ List<Squad> squadsOf(Workflow workflow, Iterable<Unit> units) {
   ];
 }
 
+/// A Squad whose models moved recently, with its Collection and the Stage a move from it starts at: its latest
+/// move's from-Stage while that still has models, otherwise its earliest Stage with models from the Owned Stage on,
+/// otherwise its earliest with any.
+class RecentSquad {
+  const RecentSquad(this.collection, this.squad, this.from);
+
+  final Collection collection;
+  final Squad squad;
+  final StageGroup from;
+}
+
 /// How many of a Collection's models are wanted, owned and finished, by its Workflow's Owned and Finished Stage.
 class Progress {
   const Progress({
@@ -351,6 +362,10 @@ abstract interface class VaultStore {
 
   /// Emits the Unit's Stage Changes, oldest first, now and again whenever they change.
   Stream<List<StageChange>> watchStageChanges(String unitId);
+
+  /// Emits every Unit's Stage Changes from a move (those with a from-Stage), newest first, now and again whenever
+  /// they change.
+  Stream<List<StageChange>> watchMoves();
 
   /// Updates only the given fields, so concurrent edits of other fields on other devices are kept.
   Future<void> updateUnit(
@@ -766,6 +781,59 @@ class Vault {
         for (final w in workflows)
           if (workflowOf.containsValue(w.id)) of(w),
       ];
+    },
+  );
+
+  /// The [limit] Squads, across all Collections, whose models moved most recently, newest first by their latest Stage
+  /// Change from a move. Emitted again whenever the moves, Units, Collections or Workflows change.
+  Stream<List<RecentSquad>> watchRecentlyMoved({
+    int limit = 3,
+  }) => _combineLatest(
+    [
+      _store.watchWorkflows(),
+      _store.watchCollections(),
+      _store.watchAllUnits(),
+      _store.watchMoves(),
+    ],
+    (latest) {
+      final [
+        workflows as List<Workflow>,
+        collections as List<Collection>,
+        units as List<Unit>,
+        moves as List<StageChange>,
+      ] = latest;
+      final unitById = {for (final u in units) u.id: u};
+      final recent = <RecentSquad>[];
+      final seen = <(String, String)>{};
+      for (final m in moves) {
+        if (recent.length == limit) break;
+        final unit = unitById[m.unitId];
+        final collection = collections
+            .where((c) => c.id == unit?.collectionId)
+            .firstOrNull;
+        final workflow = workflows
+            .where((w) => w.id == collection?.workflowId)
+            .firstOrNull;
+        if (unit == null || workflow == null) continue;
+        if (!seen.add((unit.collectionId, unit.name))) continue;
+        final squad = squadsOf(workflow, [
+          for (final u in units)
+            if (u.collectionId == unit.collectionId && u.name == unit.name) u,
+        ]).single;
+        final owned = workflow.stages.indexOf(workflow.ownedStage);
+        final withModels = [
+          for (final g in squad.stages)
+            if (g.modelCount > 0) g,
+        ];
+        final from =
+            withModels.where((g) => g.stage.id == m.fromStageId).firstOrNull ??
+            withModels
+                .where((g) => squad.stages.indexOf(g) >= owned)
+                .firstOrNull ??
+            withModels.first;
+        recent.add(RecentSquad(collection!, squad, from));
+      }
+      return recent;
     },
   );
 

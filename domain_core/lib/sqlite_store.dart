@@ -360,32 +360,41 @@ class SqliteVaultStore implements VaultStore {
     );
   }
 
-  // Sorted after parsing: synced timestamps come back from Postgres in a different text format than local ones.
-  // Ties break on id, as on the server.
   @override
   Stream<List<StageChange>> watchStageChanges(String unitId) => _db
       .watch(
         'SELECT * FROM stage_changes WHERE unit_id = ?',
         parameters: [unitId],
       )
-      .map(
-        (rows) =>
-            [
-              for (final c in rows)
-                StageChange(
-                  id: c['id'] as String,
-                  unitId: c['unit_id'] as String,
-                  fromStageId: c['from_stage_id'] as String?,
-                  toStageId: c['to_stage_id'] as String,
-                  modelCount: c['model_count'] as int,
-                  happenedAt: DateTime.parse(c['happened_at'] as String),
-                ),
-            ]..sort(
-              (a, b) => switch (a.happenedAt.compareTo(b.happenedAt)) {
-                0 => a.id.compareTo(b.id),
-                final order => order,
-              },
-            ),
+      .map(_toStageChanges);
+
+  // shortcut: reads every move ever made to find the latest few, fine for one person's collection; sort and limit in
+  // SQL once happened_at is stored in one text format, if it gets slow.
+  @override
+  Stream<List<StageChange>> watchMoves() => _db
+      .watch('SELECT * FROM stage_changes WHERE from_stage_id IS NOT NULL')
+      .map((rows) => _toStageChanges(rows).reversed.toList());
+
+  // Sorted after parsing: synced timestamps come back from Postgres in a different text format than local ones.
+  // Oldest first, ties broken on id, as on the server.
+  static List<StageChange> _toStageChanges(
+    Iterable<Map<String, Object?>> rows,
+  ) =>
+      [
+        for (final c in rows)
+          StageChange(
+            id: c['id'] as String,
+            unitId: c['unit_id'] as String,
+            fromStageId: c['from_stage_id'] as String?,
+            toStageId: c['to_stage_id'] as String,
+            modelCount: c['model_count'] as int,
+            happenedAt: DateTime.parse(c['happened_at'] as String),
+          ),
+      ]..sort(
+        (a, b) => switch (a.happenedAt.compareTo(b.happenedAt)) {
+          0 => a.id.compareTo(b.id),
+          final order => order,
+        },
       );
 
   // Only the given columns, so sync uploads a PATCH of just those fields.
