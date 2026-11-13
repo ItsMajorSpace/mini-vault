@@ -287,7 +287,7 @@ void main() {
       [user.id, 'Citadel', 'Base', 'Macragge Blue', 0],
     ]);
 
-    for (final column in ['brand', 'range', 'name']) {
+    for (final column in ['brand', 'name']) {
       final blank = await upload(user.token, [
         {
           'op': 'PATCH',
@@ -298,6 +298,19 @@ void main() {
       ]);
       expect(blank.statusCode, 422, reason: column);
     }
+    // A Paint's range is optional: a blank one is stored empty.
+    final noRange = await upload(user.token, [
+      {
+        'op': 'PATCH',
+        'type': 'paints',
+        'id': id,
+        'data': {'range': '  '},
+      },
+    ]);
+    expect(noRange.statusCode, 204, reason: noRange.body);
+    expect(await paint(), [
+      [user.id, 'Citadel', '', 'Macragge Blue', 0],
+    ]);
     final notABool = await upload(user.token, [
       {
         'op': 'PATCH',

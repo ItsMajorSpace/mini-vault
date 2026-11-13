@@ -2264,10 +2264,9 @@ void main() {
       expect(await library(), ['Citadel / Layer / Calgar Blue (wanted)']);
     });
 
-    test('needs a brand, range and name', () async {
+    test('needs a brand and name, not a range', () async {
       for (final (brand, range, name) in [
         (' ', 'Base', 'Abaddon Black'),
-        ('Citadel', '', 'Abaddon Black'),
         ('Citadel', 'Base', '  '),
       ]) {
         await expectLater(
@@ -2276,6 +2275,17 @@ void main() {
         );
       }
       expect(await library(), isEmpty);
+      await vault.addPaint(brand: 'AP', range: '  ', name: 'Greedy Gold');
+      // A missing range counts as one more range.
+      await vault.addPaint(brand: 'AP', range: 'Fanatics', name: 'Greedy Gold');
+      await expectLater(
+        vault.addPaint(brand: 'ap', range: '', name: 'greedy gold'),
+        throwsStateError,
+      );
+      expect(await library(), [
+        'AP /  / Greedy Gold',
+        'AP / Fanatics / Greedy Gold',
+      ]);
     });
 
     test('is refused as a duplicate of another, ignoring case, when added or edited', () async {
