@@ -78,6 +78,7 @@ class _SignInScreenState extends State<SignInScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   bool _busy = false;
+  bool _showPassword = false;
   String? _error;
 
   @override
@@ -131,8 +132,17 @@ class _SignInScreenState extends State<SignInScreen> {
           ),
           TextField(
             controller: _password,
-            decoration: const InputDecoration(labelText: 'Password'),
-            obscureText: true,
+            decoration: InputDecoration(
+              labelText: 'Password',
+              suffixIcon: IconButton(
+                tooltip: _showPassword ? 'Hide password' : 'Show password',
+                icon: Icon(
+                  _showPassword ? Icons.visibility_off : Icons.visibility,
+                ),
+                onPressed: () => setState(() => _showPassword = !_showPassword),
+              ),
+            ),
+            obscureText: !_showPassword,
             autofillHints: const [AutofillHints.password],
           ),
           const SizedBox(height: 16),
@@ -205,7 +215,7 @@ class CollectionsScreen extends StatefulWidget {
 }
 
 class _CollectionsScreenState extends State<CollectionsScreen> {
-  late final _collections = widget.vault.watchCollections();
+  late var _collections = widget.vault.watchCollections();
   late final _progress = widget.vault.watchProgressByWorkflow();
   late final _recent = widget.vault.watchRecentlyMoved();
   // Kept up to date rather than read on tap, so signing out can warn without waiting on SQLite.
@@ -360,10 +370,12 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
           Expanded(
             child: Builder(
               builder: (context) {
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'Could not load Collections: ${snapshot.error}',
+                if (snapshot.error case final error?) {
+                  return LoadError(
+                    what: 'your Collections',
+                    error: error,
+                    onRetry: () => setState(
+                      () => _collections = widget.vault.watchCollections(),
                     ),
                   );
                 }
@@ -495,6 +507,39 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
 }
 
 /// An empty screen: one line on what belongs here and a large button to add the first one.
+/// A stream that failed: a plain sentence and Retry; the exception goes to the log, not the screen.
+class LoadError extends StatelessWidget {
+  const LoadError({
+    super.key,
+    required this.what,
+    required this.error,
+    required this.onRetry,
+  });
+
+  /// What could not be loaded, e.g. "the Paints".
+  final String what;
+  final Object error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    debugPrint('Could not load $what: $error');
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Could not load $what.', textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class EmptyState extends StatelessWidget {
   const EmptyState({
     super.key,
@@ -689,8 +734,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
               SyncBanner(db: widget.db),
               Expanded(
                 child: switch (snapshot) {
-                  AsyncSnapshot(:final error?) => Center(
-                    child: Text('Could not load Units: $error'),
+                  AsyncSnapshot(:final error?) => LoadError(
+                    what: 'the Units',
+                    error: error,
+                    onRetry: () => setState(
+                      () => _squads = widget.vault.watchSquads(_collection),
+                    ),
                   ),
                   _ when squads == null => const Center(
                     child: CircularProgressIndicator(),
@@ -809,7 +858,7 @@ class UnitScreen extends StatefulWidget {
 
 class _UnitScreenState extends State<UnitScreen> {
   // The Stage groups carry both the Workflow's Stages and the Unit's current fields.
-  late final _groups = widget.vault.watchStageGroups(widget.collection);
+  late var _groups = widget.vault.watchStageGroups(widget.collection);
   late final _history = widget.vault.watchHistory(widget.unitId);
 
   Future<void> _edit(Unit unit) async {
@@ -940,8 +989,13 @@ class _UnitScreenState extends State<UnitScreen> {
             ],
           ),
           body: switch (snapshot) {
-            AsyncSnapshot(:final error?) => Center(
-              child: Text('Could not load the Unit: $error'),
+            AsyncSnapshot(:final error?) => LoadError(
+              what: 'the Unit',
+              error: error,
+              onRetry: () => setState(
+                () =>
+                    _groups = widget.vault.watchStageGroups(widget.collection),
+              ),
             ),
             _ when unit == null && !snapshot.hasData => const Center(
               child: CircularProgressIndicator(),

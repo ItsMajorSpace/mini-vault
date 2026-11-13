@@ -32,7 +32,7 @@ class SquadScreen extends StatefulWidget {
 }
 
 class _SquadScreenState extends State<SquadScreen> {
-  late final _squads = widget.vault.watchSquads(widget.collection);
+  late var _squads = widget.vault.watchSquads(widget.collection);
   // Listened to here, above the lazily built list: a list child scrolled out of view is disposed, and building it
   // again would listen to a single-subscription stream a second time.
   late final _library = widget.vault.watchPaints();
@@ -218,8 +218,12 @@ class _SquadScreenState extends State<SquadScreen> {
             ],
           ),
           body: switch (snapshot) {
-            AsyncSnapshot(:final error?) => Center(
-              child: Text('Could not load the Squad: $error'),
+            AsyncSnapshot(:final error?) => LoadError(
+              what: 'the Squad',
+              error: error,
+              onRetry: () => setState(
+                () => _squads = widget.vault.watchSquads(widget.collection),
+              ),
             ),
             AsyncSnapshot(data: null) => const Center(
               child: CircularProgressIndicator(),
