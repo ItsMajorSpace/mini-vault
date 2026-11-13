@@ -1,0 +1,139 @@
+import 'package:domain_core/army_list.dart';
+import 'package:test/test.dart';
+
+// The fixtures from issue #85, verbatim.
+const layoutA = r'''
+GSC rising  (2000 Points)
+
+Genestealer Cults
+Final Day
+Strike Force (2 000 Points)
+
+CHARACTERS
+
+Patriarch (85 Points)
+  • Warlord
+  • 1x Patriarch’s claws
+  • Enhancements: Enraptured Damnation
+
+BATTLELINE
+
+Acolyte Hybrids with Autopistols (65 Points)
+  • 1x Acolyte Leader
+     ◦ 1x Autopistol
+     ◦ 1x Leader’s bio-weapons
+  • 4x Acolyte Hybrid
+     ◦ 1x Cult Icon
+     ◦ 1x Cult claws and knife
+     ◦ 3x Heavy mining tool
+
+Achilles Ridgerunners (95 Points)
+  • 1x Armoured hull
+  • 1x Heavy mortar
+
+Exported with App Version: v1.43.0 (1), Data Version: v705
+''';
+
+const layoutB = r'''
+cano (2000 points)
+
+Necrons
+Strike Force (2000 points)
+Canoptek Court
+
+CHARACTERS
+
+Illuminor Szeras (165 points)
+  • 1x Eldritch Lance
+    1x Impaling legs
+
+Technomancer (100 points)
+  • 1x Staff of light
+  • Enhancement: Dimensional Sanctum
+
+BATTLELINE
+
+Necron Warriors (200 points)
+  • 20x Necron Warrior
+    • 20x Close combat weapon
+      20x Gauss reaper
+''';
+
+const armyForge = r'''
+++ Human Defense Force (v3.4.4) [GF 1970pts] ++
+
+Company Leader [1] Q4+ D5+ | 70pts | Hero, Tough(3), 1x Enforcer(Hold the Line)
+CCW (A2), Master Rifle (24", A2)
+| Joined to:
+Recruits [10] Q6+ D5+ | 70pts | 
+10x Rifle (24", A1), 10x CCW (A1)
+
+Sappers [6] Q5+ D5+ | 250pts | Relentless
+6x CCW (A1), 6x Rapid Plasma Rifle (24", A2, AP(4))
+''';
+
+void main() {
+  test('Warhammer 40k app, layout A: wargear under ◦, mixed model types summed, characters and vehicles 1', () {
+    final list = parseArmyList(layoutA)!;
+    expect(list.gameSystem, 'Warhammer 40,000');
+    expect(list.faction, 'Genestealer Cults');
+    expect(list.entries, [
+      (name: 'Patriarch', count: 1),
+      (name: 'Acolyte Hybrids with Autopistols', count: 5),
+      (name: 'Achilles Ridgerunners', count: 1),
+    ]);
+  });
+
+  test('Warhammer 40k app, layout B: continuation lines without a bullet', () {
+    final list = parseArmyList(layoutB)!;
+    expect(list.gameSystem, 'Warhammer 40,000');
+    expect(list.faction, 'Necrons');
+    expect(list.entries, [
+      (name: 'Illuminor Szeras', count: 1),
+      (name: 'Technomancer', count: 1),
+      (name: 'Necron Warriors', count: 20),
+    ]);
+  });
+
+  test('Warhammer 40k app: text after the points is dropped', () {
+    final list = parseArmyList(
+      layoutA.replaceFirst(
+        'Patriarch (85 Points)',
+        'Patriarch (85 Points) WARLORD',
+      ),
+    )!;
+    expect(list.entries.first, (name: 'Patriarch', count: 1));
+  });
+
+  test('Army Forge: joined heroes stay separate entries; weapons lines are ignored', () {
+    final list = parseArmyList(armyForge)!;
+    expect(list.gameSystem, 'Grimdark Future');
+    expect(list.faction, 'Human Defense Force');
+    expect(list.entries, [
+      (name: 'Company Leader', count: 1),
+      (name: 'Recruits', count: 10),
+      (name: 'Sappers', count: 6),
+    ]);
+  });
+
+  test('Army Forge: list name, second book, unknown code, Nx multiplier', () {
+    final list = parseArmyList(
+      '++ My list - Orc Marauders (v3.1), Goblins (v2) [XYZ 500pts] [2 Units] **Balance Invalid** ++\n\n'
+      '2x Boyz [10] Q4+ D5+ | 200pts | Furious\nHand Weapons (A1)\n',
+    )!;
+    expect(list.gameSystem, 'XYZ');
+    expect(list.faction, 'Orc Marauders');
+    expect(list.entries, [(name: 'Boyz', count: 20)]);
+  });
+
+  test('unrecognised text gives no list', () {
+    for (final text in [
+      '',
+      'Intercessors x10\nCaptain',
+      '+++ New Recruit +++\nBoyz [10] Q4+ D5+ | 200pts |',
+      'GSC rising  (2000 Points)\n\nGenestealer Cults\n',
+    ]) {
+      expect(parseArmyList(text), isNull, reason: text);
+    }
+  });
+}
