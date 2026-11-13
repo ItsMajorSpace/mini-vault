@@ -19,7 +19,12 @@ const _writable = {
     'owned_stage_id': 'uuid',
     'finished_stage_id': 'uuid',
   },
-  'stages': {'workflow_id': 'uuid', 'name': 'text', 'position': 'int'},
+  'stages': {
+    'workflow_id': 'uuid',
+    'name': 'text',
+    'position': 'int',
+    'colour': 'text',
+  },
   'collections': {'name': 'text', 'workflow_id': 'uuid'},
   'units': {
     'collection_id': 'uuid',
@@ -77,6 +82,12 @@ CREATE TABLE IF NOT EXISTS stages (
   name text NOT NULL,
   position integer NOT NULL
 );
+-- `#RRGGBB` (see stageColourFormat). Stages from before colours get Vault.stageColours by their place in the Workflow.
+ALTER TABLE stages ADD COLUMN IF NOT EXISTS colour text;
+UPDATE stages s SET colour = (ARRAY[${Vault.stageColours.map(_quote).join(', ')}])[n.i % ${Vault.stageColours.length} + 1]
+FROM (SELECT id, row_number() OVER (PARTITION BY workflow_id ORDER BY position, id) - 1 AS i FROM stages) n
+WHERE n.id = s.id AND s.colour IS NULL;
+ALTER TABLE stages ALTER COLUMN colour SET NOT NULL;
 CREATE TABLE IF NOT EXISTS collections (
   id uuid PRIMARY KEY,
   owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
@@ -144,13 +155,14 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS \$\$
 DECLARE
   stage_names text[] := ARRAY[${Vault.starterStageNames.map(_quote).join(', ')}];
   stage_ids uuid[] := ARRAY(SELECT gen_random_uuid() FROM unnest(stage_names));
+  stage_colours text[] := ARRAY[${Vault.stageColours.map(_quote).join(', ')}];
   new_workflow_id uuid := gen_random_uuid();
 BEGIN
   -- The Owned Stage is the second Stage and the Finished Stage the last, as the glossary defaults say.
   INSERT INTO workflows (id, owner_id, name, owned_stage_id, finished_stage_id, starter)
   VALUES (new_workflow_id, NEW.id, 'Starter', stage_ids[2], stage_ids[array_length(stage_ids, 1)], true);
-  INSERT INTO stages (id, owner_id, workflow_id, name, position)
-  SELECT stage_ids[i], NEW.id, new_workflow_id, stage_names[i], i - 1
+  INSERT INTO stages (id, owner_id, workflow_id, name, position, colour)
+  SELECT stage_ids[i], NEW.id, new_workflow_id, stage_names[i], i - 1, stage_colours[i]
   FROM generate_subscripts(stage_names, 1) AS i;
   RETURN NEW;
 END
@@ -332,6 +344,11 @@ Future<void> _apply(
     } on ArgumentError catch (e) {
       throw _Rejected(422, '${e.message}');
     }
+  }
+  final colour = data['colour'];
+  if (data.containsKey('colour') &&
+      (colour is! String || !stageColourFormat.hasMatch(colour))) {
+    throw _Rejected(422, 'A Stage colour must be #RRGGBB, not $colour');
   }
   if (table == 'units' && op['op'] == 'PATCH' && counted.contains(id)) {
     data.remove('model_count');

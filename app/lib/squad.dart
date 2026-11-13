@@ -253,6 +253,7 @@ class _SquadScreenState extends State<SquadScreen> {
                       value: squad.modelCount == 0
                           ? 0
                           : g.modelCount / squad.modelCount,
+                      color: stageColour(g.stage.colour),
                     ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
