@@ -206,6 +206,35 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
     await widget.vault.renameCollection(collection.id, name);
   }
 
+  /// Asks first, saying how many Units and models go with the Collection.
+  Future<void> _delete(Collection collection) async {
+    final units = await widget.vault.unitsOf(collection);
+    if (!mounted) return;
+    final models = units.fold(0, (sum, u) => sum + u.modelCount);
+    String count(int n, String noun) => n == 1 ? '1 $noun' : '$n ${noun}s';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${collection.name}?'),
+        content: Text(
+          'Its ${count(units.length, 'Unit')} (${count(models, 'model')}) and their history, '
+          'Tags and photos will be deleted on all your devices.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed ?? false) await widget.vault.deleteCollection(collection.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -285,6 +314,11 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                         icon: const Icon(Icons.edit),
                         tooltip: 'Rename Collection',
                         onPressed: () => _rename(c),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete),
+                        tooltip: 'Delete Collection',
+                        onPressed: () => _delete(c),
                       ),
                     ],
                   ),

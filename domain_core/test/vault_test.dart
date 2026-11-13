@@ -346,6 +346,63 @@ void main() {
       await vault.createCollection('Space Marines');
       await expectation;
     });
+    test('is deleted with its Units and their Tags and Photos, in one upload; another Collection is untouched', () async {
+      await syncStarterWorkflow();
+      final doomed = await vault.createCollection('Space Marines');
+      final kept = await vault.createCollection('Kill Team');
+      Future<Unit> add(Collection c, String name) async {
+        final u = await vault.addUnit(
+          c,
+          name: name,
+          modelCount: 5,
+          stageId: 's0',
+        );
+        await vault.moveUnit(u, 's1');
+        await vault.addTags(u.id, ['Imperium']);
+        await vault.addPhotos(u.id, ['file-$name']);
+        return u;
+      }
+
+      final a = await add(doomed, 'Intercessors');
+      final b = await add(doomed, 'Hellblasters');
+      final c = await add(kept, 'Veterans');
+      await (await db.getCrudBatch(limit: 1000))!.complete();
+
+      expect((await vault.unitsOf(doomed)).length, 2);
+      await vault.deleteCollection(doomed.id);
+      await restart();
+
+      expect((await vault.collections()).map((c) => c.name), ['Kill Team']);
+      expect(await vault.unitsOf(doomed), isEmpty);
+      for (final u in [a, b]) {
+        expect(await vault.tagsOf(u.id), isEmpty);
+        expect(await vault.photosOf(u.id), isEmpty);
+      }
+      expect((await vault.unitsOf(kept)).single.id, c.id);
+      expect(await vault.tagsOf(c.id), ['Imperium']);
+      expect(await vault.photosOf(c.id), hasLength(1));
+      expect(await vault.watchHistory(c.id).first, hasLength(2));
+
+      // One transaction: children first, then the Collection. Stage Changes are append-only: the server deletes them.
+      final tx = (await db.getNextCrudTransaction())!;
+      expect(
+        (await db.getCrudBatch(limit: 1000))!.crud,
+        hasLength(tx.crud.length),
+      );
+      expect(
+        [for (final e in tx.crud) (e.op, e.table)],
+        [
+          (UpdateType.delete, 'unit_tags'),
+          (UpdateType.delete, 'unit_tags'),
+          (UpdateType.delete, 'photos'),
+          (UpdateType.delete, 'photos'),
+          (UpdateType.delete, 'units'),
+          (UpdateType.delete, 'units'),
+          (UpdateType.delete, 'collections'),
+        ],
+      );
+      expect(tx.crud.last.id, doomed.id);
+    });
   });
 
   group('Unit', () {
