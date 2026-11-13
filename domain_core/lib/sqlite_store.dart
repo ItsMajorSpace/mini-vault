@@ -232,6 +232,17 @@ class SqliteVaultStore implements VaultStore {
   Future<void> renameCollection(String id, String name) =>
       _db.execute('UPDATE collections SET name = ? WHERE id = ?', [name, id]);
 
+  // As deleteUnit, for every Unit: Stage Changes are left to the server, and children go first. The server also
+  // deletes Units this device hasn't seen yet when the Collection's delete arrives.
+  @override
+  Future<void> deleteCollection(String id) => _db.writeTransaction((tx) async {
+    const units = 'SELECT id FROM units WHERE collection_id = ?';
+    await tx.execute('DELETE FROM unit_tags WHERE unit_id IN ($units)', [id]);
+    await tx.execute('DELETE FROM photos WHERE unit_id IN ($units)', [id]);
+    await tx.execute('DELETE FROM units WHERE collection_id = ?', [id]);
+    await tx.execute('DELETE FROM collections WHERE id = ?', [id]);
+  });
+
   @override
   Stream<List<Unit>> watchUnits(String collectionId) => _db
       .watch(

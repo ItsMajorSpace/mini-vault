@@ -162,6 +162,7 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 /// Stage Change) or a batch that leaves a Workflow invalid or a Unit at a Stage outside its Collection's Workflow
 /// (nothing is written in those cases), and 204 on success.
 /// Conflicts are the latest write wins per field, and deletes win: a PATCH to a deleted row is ignored.
+/// Deleting a Collection deletes all its Units, including ones the client never saw.
 ///
 /// `/photos/<file id>` stores and serves the user's photo files, kept in [dir]; see [photoRequest].
 Handler writeApi(Pool<void> db, Directory dir, {required String jwtSecret}) =>
@@ -326,6 +327,25 @@ Future<void> _apply(
       ))
         row.first as String,
     ]);
+  }
+  // Deleting a Collection deletes its Units (their Photos first, to collect the files; Stage Changes and Tags go by
+  // foreign-key cascade), including any
+  // the client didn't know of: another device may have added one meanwhile, and deletes win. The FOR UPDATE above
+  // waits for such a batch, which holds the Collection FOR SHARE, so its Unit is seen here; one arriving later is
+  // rejected, as its Collection no longer exists.
+  if (op['op'] == 'DELETE' && table == 'collections') {
+    unlinked.addAll([
+      for (final row in await tx.execute(
+        r'''DELETE FROM photos p USING units u WHERE p.unit_id = u.id AND u.collection_id = $1::uuid
+          AND u.owner_id = $2::uuid RETURNING p.file_id::text''',
+        parameters: [id, owner],
+      ))
+        row.first as String,
+    ]);
+    await tx.execute(
+      r'DELETE FROM units WHERE collection_id = $1::uuid AND owner_id = $2::uuid',
+      parameters: [id, owner],
+    );
   }
   touched.workflows.addAll({
     if (table == 'workflows') id,

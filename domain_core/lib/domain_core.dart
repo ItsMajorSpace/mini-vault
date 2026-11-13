@@ -237,6 +237,9 @@ abstract interface class VaultStore {
   Future<void> insertCollection(Collection collection);
   Future<void> renameCollection(String id, String name);
 
+  /// Deletes the Collection and its Units, with their Tags and Photos, in one transaction.
+  Future<void> deleteCollection(String id);
+
   /// Emits the Collection's Units, by name, now and again whenever they change.
   Stream<List<Unit>> watchUnits(String collectionId);
 
@@ -469,6 +472,14 @@ class Vault {
 
   Future<void> renameCollection(String id, String name) =>
       _store.renameCollection(id, validName(name));
+
+  /// The Collection's Units, by name: what deleting it would delete.
+  Future<List<Unit>> unitsOf(Collection collection) =>
+      _store.watchUnits(collection.id).first;
+
+  /// Deletes the Collection, its Units and their history, Tags and Photos. The server deletes the history with the
+  /// Units, and any Unit another device added meanwhile, and each photo file once no Photo points at it.
+  Future<void> deleteCollection(String id) => _store.deleteCollection(id);
 
   /// What switching [collection] to [target] has to map: each Stage of its Workflow that holds its Units, in Workflow
   /// order, with the Stage of [target] that has the same name (ignoring case and outer spaces), or null.

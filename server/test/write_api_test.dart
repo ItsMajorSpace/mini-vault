@@ -1729,6 +1729,163 @@ void main() {
       );
       expect(count.single.single, 10);
     });
+
+    group('and a deleted Collection', () {
+      /// Adds a Unit to [collectionId] with its starting Stage Change, a Tag and a Photo of a new file;
+      /// returns the Unit id and the file id.
+      Future<(String, String)> addFull(
+        ({String token, String id}) user,
+        String collectionId,
+      ) async {
+        final unitId = await newId();
+        final stageId = await stageOf(user.id, 'Wishlist');
+        final response = await upload(user.token, [
+          putUnit(unitId, collectionId: collectionId, stageId: stageId),
+          {
+            'op': 'PUT',
+            'type': 'stage_changes',
+            'id': await newId(),
+            'data': {
+              'unit_id': unitId,
+              'from_stage_id': null,
+              'to_stage_id': stageId,
+              'model_count': 10,
+              'happened_at': DateTime.now().toUtc().toIso8601String(),
+            },
+          },
+          putTag(unitId, 'Imperium'),
+        ]);
+        expect(response.statusCode, 204, reason: response.body);
+        return (unitId, await addPhoto(user, unitId));
+      }
+
+      /// What the app uploads for deleting [collectionId] while it knows of [units]: their Tags and Photos, the
+      /// Units, then the Collection.
+      Future<List<Map<String, Object?>>> appDelete(
+        String collectionId,
+        List<String> units,
+      ) async => [
+        for (final table in ['unit_tags', 'photos'])
+          for (final row in await db.execute(
+            'SELECT id::text FROM $table WHERE unit_id::text = ANY(\$1)',
+            parameters: [TypedValue(Type.textArray, units)],
+          ))
+            {'op': 'DELETE', 'type': table, 'id': row.first},
+        for (final u in units) {'op': 'DELETE', 'type': 'units', 'id': u},
+        {'op': 'DELETE', 'type': 'collections', 'id': collectionId},
+      ];
+
+      /// The user's rows left of each synced table under a Collection, and Units whose Collection is gone.
+      Future<List<Object?>> leftUnder(
+        String userId,
+        String collectionId,
+      ) async => (await db.execute(
+        r'''SELECT
+              (SELECT count(*) FROM collections WHERE id = $2::uuid),
+              (SELECT count(*) FROM units WHERE collection_id = $2::uuid),
+              (SELECT count(*) FROM stage_changes sc JOIN units u ON u.id = sc.unit_id WHERE u.collection_id = $2::uuid),
+              (SELECT count(*) FROM unit_tags t JOIN units u ON u.id = t.unit_id WHERE u.collection_id = $2::uuid),
+              (SELECT count(*) FROM photos p JOIN units u ON u.id = p.unit_id WHERE u.collection_id = $2::uuid),
+              (SELECT count(*) FROM units u WHERE u.owner_id = $1::uuid
+                AND NOT EXISTS (SELECT FROM collections c WHERE c.id = u.collection_id))''',
+        parameters: [userId, collectionId],
+      )).single.toList();
+
+      Future<int> download(({String token, String id}) user, String id) async =>
+          (await http.get(file(id), headers: auth(user.token))).statusCode;
+
+      test('deletes its Units with their rows and unreferenced files; a file shared with another Collection survives', () async {
+        final user = await signUp();
+        final doomed = await createCollection(user);
+        final kept = await createCollection(user);
+        final (a, fileA) = await addFull(user, doomed);
+        final (b, fileB) = await addFull(user, doomed);
+        final (c, fileC) = await addFull(user, kept);
+        // A Split-style copy: a Unit in the kept Collection shares fileB.
+        expect(
+          (await upload(user.token, [
+            putPhoto(await newId(), c, fileB),
+          ])).statusCode,
+          204,
+        );
+
+        final response = await upload(
+          user.token,
+          await appDelete(doomed, [a, b]),
+        );
+        expect(response.statusCode, 204, reason: response.body);
+
+        expect(await leftUnder(user.id, doomed), [0, 0, 0, 0, 0, 0]);
+        expect(await download(user, fileA), 404);
+        expect(await download(user, fileB), 200);
+        expect(await download(user, fileC), 200);
+        expect(await leftUnder(user.id, kept), [1, 1, 1, 1, 2, 0]);
+      });
+
+      test('a Unit another device added meanwhile is deleted with it, or rejected if it arrives later', () async {
+        final user = await signUp();
+        final collectionId = await createCollection(user);
+        final (known, _) = await addFull(user, collectionId);
+        // This device deletes offline, knowing only [known]; the other device's Unit lands first.
+        final deleteOps = await appDelete(collectionId, [known]);
+        final (added, addedFile) = await addFull(user, collectionId);
+
+        final response = await upload(user.token, deleteOps);
+        expect(response.statusCode, 204, reason: response.body);
+        expect(await leftUnder(user.id, collectionId), [0, 0, 0, 0, 0, 0]);
+        expect(await unit(added), isEmpty);
+        expect(await download(user, addedFile), 404);
+
+        // The other device's Unit arriving after the delete is rejected: no orphan.
+        final late = await upload(user.token, [
+          putUnit(
+            await newId(),
+            collectionId: collectionId,
+            stageId: await stageOf(user.id, 'Wishlist'),
+          ),
+        ]);
+        expect(late.statusCode, 422, reason: late.body);
+        expect(await leftUnder(user.id, collectionId), [0, 0, 0, 0, 0, 0]);
+      });
+
+      test('racing a Unit add at the same instant leaves no orphan, whichever commits first', () async {
+        final user = await signUp();
+        final stageId = await stageOf(user.id, 'Wishlist');
+        for (var i = 0; i < 10; i++) {
+          final collectionId = await createCollection(user);
+          final (known, _) = await addFull(user, collectionId);
+          final deleteOps = await appDelete(collectionId, [known]);
+          final [deleted, added] = await Future.wait([
+            upload(user.token, deleteOps),
+            upload(user.token, [
+              putUnit(
+                await newId(),
+                collectionId: collectionId,
+                stageId: stageId,
+              ),
+            ]),
+          ]);
+          expect(deleted.statusCode, 204, reason: deleted.body);
+          expect(added.statusCode, anyOf(204, 422), reason: added.body);
+          expect(await leftUnder(user.id, collectionId), [0, 0, 0, 0, 0, 0]);
+        }
+      });
+
+      test("of another user can't be deleted", () async {
+        final alice = await signUp();
+        final bob = await signUp();
+        final collectionId = await createCollection(alice);
+        final (unitId, fileId) = await addFull(alice, collectionId);
+
+        final response = await upload(bob.token, [
+          {'op': 'DELETE', 'type': 'collections', 'id': collectionId},
+        ]);
+        expect(response.statusCode, 403, reason: response.body);
+        expect(await leftUnder(alice.id, collectionId), [1, 1, 1, 1, 1, 0]);
+        expect(await unit(unitId), isNotEmpty);
+        expect(await download(alice, fileId), 200);
+      });
+    });
   });
 }
 
