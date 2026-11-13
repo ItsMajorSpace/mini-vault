@@ -181,6 +181,21 @@ class SqliteVaultStore implements VaultStore {
   });
 
   @override
+  Future<void> switchWorkflow(
+    String collectionId,
+    String workflowId,
+    List<StageChange> moves,
+  ) => _db.writeTransaction((tx) async {
+    for (final move in moves) {
+      await _move(tx, move);
+    }
+    await tx.execute('UPDATE collections SET workflow_id = ? WHERE id = ?', [
+      workflowId,
+      collectionId,
+    ]);
+  });
+
+  @override
   Future<List<Unit>> unitsAt(String stageId) async => _toUnits(
     await _db.getAll('SELECT * FROM units WHERE stage_id = ?', [stageId]),
   );
