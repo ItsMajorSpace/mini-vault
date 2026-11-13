@@ -1,7 +1,7 @@
 name: mini_vault
 description: "Mini Vault: track a tabletop miniature collection from wishlist to finished."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.0.0-dev+0
 resolution: workspace
 
 environment:
