@@ -507,6 +507,7 @@ abstract interface class VaultStore {
 
   /// In one transaction: records Merge [id] of Batch [otherId] into Batch [batchId], then copies [history], Tags
   /// ([tagsById]) and [photos] onto [batchId], adds the other Batch's models to its count and deletes the other Batch.
+  /// Does nothing unless both Batches still share Collection, name and Stage, so a repeated Merge changes nothing.
   Future<void> insertMerge(
     String id,
     String batchId,
@@ -1159,6 +1160,25 @@ class Vault {
     );
     return _mergeOnArrival(collection, created);
   }
+
+  /// Keeps a Unit at one Batch per Stage (ADR 0009): whenever Batches change, locally or through sync, Merges each
+  /// Unit's Batches that share a Stage into the one with the lowest id. Every device picks the same survivor, and
+  /// the write API rejects a Merge of a Batch already merged away, so two devices merging the same pair add its
+  /// models once. Emits after each pass; listen for as long as the app runs.
+  Stream<void> keepBatchesMerged() => _store.watchAllBatches().asyncMap((
+    batches,
+  ) async {
+    final byStage = <(String, String, String), List<Batch>>{};
+    for (final b in batches) {
+      byStage.putIfAbsent((b.collectionId, b.name, b.stageId), () => []).add(b);
+    }
+    for (final group in byStage.values) {
+      group.sort((a, b) => a.id.compareTo(b.id));
+      for (final other in group.skip(1)) {
+        await mergeBatches(group.first, other);
+      }
+    }
+  });
 
   /// The Batches [batch] may be Merged with: the others in [batches] in its Collection, with its name, at its Stage.
   static List<Batch> mergeCandidates(Batch batch, Iterable<Batch> batches) => [

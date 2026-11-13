@@ -4,4 +4,4 @@ ADR 0004 merged models automatically when they arrived at a Stage, but kept an e
 
 ## Consequences
 
-Supersedes the explicit-Merge part of ADR 0004. Two Batches that meet through sync, not through a move, must still be merged by the app.
+Supersedes the explicit-Merge part of ADR 0004. Two Batches that meet through sync, not through a move, must still be merged by the app. Each device merges them when it sees them, always into the Batch with the lowest id; the write API rejects a Merge of a Batch already merged away, so when two devices merge the same pair the models are added once.

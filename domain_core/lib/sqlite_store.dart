@@ -559,6 +559,14 @@ class SqliteVaultStore implements VaultStore {
     Map<String, String> tagsById,
     List<Photo> photos,
   ) => _db.writeTransaction((tx) async {
+    // Checked inside the transaction, as the write API does, so a Merge racing another (e.g. a move's Merge on
+    // arrival and the automatic Merge) cannot add the same models twice.
+    final pair = await tx.getAll(
+      'SELECT 1 FROM units a JOIN units b ON b.collection_id = a.collection_id AND b.name = a.name '
+      'AND b.stage_id = a.stage_id AND b.id <> a.id WHERE a.id = ? AND b.id = ?',
+      [batchId, otherId],
+    );
+    if (pair.isEmpty) return;
     await tx.execute(
       'INSERT INTO merges (id, unit_id, merged_unit_id) VALUES (?, ?, ?)',
       [id, batchId, otherId],
