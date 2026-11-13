@@ -1,13 +1,17 @@
+// ignore_for_file: experimental_member_use
+
 import 'dart:io';
 
 import 'package:domain_core/domain_core.dart';
 import 'package:domain_core/sqlite_store.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gotrue/gotrue.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:mini_vault/main.dart';
+import 'package:mini_vault/photos.dart';
 import 'package:mini_vault/unit.dart';
 import 'package:mini_vault/theme.dart';
-import 'package:powersync/powersync.dart';
+import 'package:powersync/attachments/attachments.dart';
+import 'package:powersync/powersync.dart' hide Column;
 
 // shortcut: the database is never closed once the screen has been mounted (see collections_screen_test.dart).
 void main() {
@@ -31,15 +35,17 @@ void main() {
   }
 
   /// Opens the Unit screen on 'Intercessors', a Batch of it per (models, Stage index), in a Workflow of [stages].
+  /// With [photoFiles], the Unit has a photo per file id, not downloaded yet (no files to load in a test).
   Future<(Vault, Collection)> openUnit(
     WidgetTester tester,
     List<String> stages,
-    List<(int, int)> batches,
-  ) async {
-    final (vault, collection) = (await tester.runAsync(() async {
+    List<(int, int)> batches, {
+    List<String>? photoFiles,
+  }) async {
+    final (vault, collection, files) = (await tester.runAsync(() async {
       final dir = await Directory.systemTemp.createTemp('app_test');
       final db = PowerSyncDatabase(
-        schema: SqliteVaultStore.schema,
+        schema: appSchema,
         path: '${dir.path}/vault.db',
       );
       await db.execute(
@@ -61,12 +67,35 @@ void main() {
           stageId: 's$stage',
         );
       }
-      return (vault, collection);
+      if (photoFiles == null) return (vault, collection, null);
+      for (final file in photoFiles) {
+        await SqliteVaultStore.insertPhoto(
+          db,
+          Photo(
+            id: 'p$file',
+            collectionId: collection.id,
+            unit: 'Intercessors',
+            fileId: file,
+          ),
+        );
+        await db.execute(
+          'INSERT INTO ${photoQueueTable.name} (id, filename, local_uri, timestamp, state, has_synced) '
+          'VALUES (?, ?, NULL, 1, ?, 1)',
+          [file, '$file.jpg', AttachmentState.queuedDownload.toInt()],
+        );
+      }
+      final files = PhotoFiles(
+        db,
+        GoTrueClient(url: 'http://localhost'),
+        Directory('${dir.path}/photos'),
+      );
+      return (vault, collection, files);
     }))!;
     await tester.pumpWidget(
       MaterialApp(
         home: UnitScreen(
           vault: vault,
+          photos: files,
           collection: collection,
           name: 'Intercessors',
         ),
@@ -165,9 +194,12 @@ void main() {
       expect(find.text('Merge'), findsNothing);
       expect(find.text('10 models'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Rename Squad'));
+      await tester.tap(find.byTooltip('Edit Unit'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Assault Intercessors');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Name'),
+        'Assault Intercessors',
+      );
       await tapAndWait(tester, find.text('Save'));
       // A rename also carries the Unit's notes, Tags, Photos and Paints, one write each: wait for it to finish.
       for (
@@ -429,7 +461,13 @@ void main() {
       await recount('Primed', '0');
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
-      expect(find.text('Delete the Unit at Primed?'), findsOneWidget);
+      expect(find.text('Delete the models at Primed?'), findsOneWidget);
+      expect(
+        find.text(
+          '5 models and their history will be deleted on all your devices.',
+        ),
+        findsOneWidget,
+      );
       await tapAndWait(tester, find.text('Cancel'));
       expect(await batches(), [('s0', 4), ('s0', 6), ('s2', 5)]);
 
@@ -446,12 +484,9 @@ void main() {
   );
 
   testWidgets(
-    'empty Stages are dimmed and open nothing; Details opens the Stage\'s Batch',
+    'empty Stages are dimmed and open nothing; the Move sheet has no Details',
     (tester) async {
-      final (vault, collection) = await openUnit(tester, stages, [
-        (6, 0),
-        (2, 1),
-      ]);
+      await openUnit(tester, stages, [(6, 0), (2, 1)]);
       double opacity(String stage) => tester
           .widget<Opacity>(
             find.ancestor(of: find.text(stage), matching: find.byType(Opacity)),
@@ -465,21 +500,15 @@ void main() {
 
       await tester.tap(find.text('Wishlist'));
       await tester.pumpAndSettle();
-      await tapAndWait(tester, find.text('Details'));
-      final opened = tester
-          .widget<BatchScreen>(find.byType(BatchScreen))
-          .batchId;
-      final batches = (await tester.runAsync(
-        () => vault.batchesOf(collection),
-      ))!;
-      expect(batches.firstWhere((u) => u.id == opened).modelCount, 6);
+      expect(find.text('Move from Wishlist'), findsOneWidget);
+      expect(find.text('Details'), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
     },
   );
 
   testWidgets(
-    '+ opens New Batch named after the Unit, at the Owned Stage, suggesting Unit names as the Name is typed',
+    'Add models opens named after the Unit, at the Owned Stage, suggesting Unit names as the Name is typed',
     (tester) async {
       final (vault, collection) = await openUnit(tester, stages, [(5, 0)]);
       await tester.runAsync(
@@ -492,8 +521,8 @@ void main() {
       );
       await settle(tester);
 
-      await tapAndWait(tester, find.byTooltip('New Unit'));
-      expect(find.text('New Unit'), findsOneWidget);
+      await tapAndWait(tester, find.byTooltip('Add models'));
+      expect(find.text('Add models'), findsOneWidget);
       final name = find.widgetWithText(TextFormField, 'Name');
       expect(
         tester.widget<TextFormField>(name).controller!.text,
@@ -554,16 +583,189 @@ void main() {
         [(3, 0), (2, 3), (1, 6)],
       );
 
-      expect(
-        tester
-            .state<ScrollableState>(find.byType(Scrollable))
-            .position
-            .maxScrollExtent,
-        0,
-      );
-      expect(find.text('Varnished').hitTestable(), findsOneWidget);
+      // Every Stage on the first screen; photos, Tags, notes, Paints and history may follow below.
+      for (final s in [
+        'Wishlist',
+        'Unassembled',
+        'Assembled',
+        'Primed',
+        'Based',
+        'Painted',
+        'Varnished',
+      ]) {
+        expect(find.text(s).hitTestable(), findsOneWidget, reason: s);
+      }
 
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets(
+    'shows the Tags, notes, Paints and one history of all its models, newest first',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final (vault, collection) = await openUnit(tester, stages, [
+        (5, 0),
+        (2, 2),
+      ]);
+      await tester.runAsync(() async {
+        await vault.addTags(collection.id, 'Intercessors', ['Ultramarines']);
+        await vault.setNotes(collection.id, 'Intercessors', 'Magnetised');
+        final blue = await vault.addPaint(
+          brand: 'Citadel',
+          range: 'Base',
+          name: 'Macragge Blue',
+        );
+        await vault.addUnitPaint(collection.id, 'Intercessors', blue.id);
+      });
+      await settle(tester);
+      // 3 of the 5 at Wishlist on to Unassembled, through the Move sheet.
+      await tester.tap(find.text('Wishlist'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('One fewer'));
+      await tester.tap(find.byTooltip('One fewer'));
+      await tester.pump();
+      await tapAndWait(tester, find.text('Move 3 models to Unassembled'));
+
+      expect(find.widgetWithText(Chip, 'Ultramarines'), findsOneWidget);
+      expect(find.text('Magnetised'), findsOneWidget);
+      expect(find.text('Macragge Blue'), findsOneWidget);
+      // Every Batch's Stage Changes in one list, newest first, after the Stages, Tags, notes and Paints.
+      final order = [
+        'Primed',
+        'Ultramarines',
+        'Magnetised',
+        'Macragge Blue',
+        'History',
+        '3 models Wishlist → Unassembled',
+        '2 models added at Primed',
+        '5 models added at Wishlist',
+      ];
+      final ys = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
+      expect(ys, orderedEquals([...ys]..sort()), reason: '$order');
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'shows the photos below the Stages, with Take and Choose; a photo opens full screen',
+    (tester) async {
+      await openUnit(tester, stages, [(5, 0)], photoFiles: ['a', 'b']);
+      // Each photo is keyed by its id.
+      final first = find.byKey(const ValueKey('pa'));
+      expect(first, findsOneWidget);
+      expect(find.byKey(const ValueKey('pb')), findsOneWidget);
+      expect(
+        tester.getTopLeft(first).dy,
+        greaterThan(tester.getTopLeft(find.text('Primed')).dy),
+      );
+      expect(find.byTooltip('Take a photo'), findsOneWidget);
+      expect(find.byTooltip('Add a photo from the gallery'), findsOneWidget);
+
+      await tester.tap(first);
+      // Not pumpAndSettle: a photo still downloading spins forever.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(InteractiveViewer), findsOneWidget);
+      expect(find.text('1 of 2'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'Edit changes the notes and Tags; tapping the notes opens it too',
+    (tester) async {
+      final (vault, collection) = await openUnit(tester, stages, [(5, 0)]);
+      await tester.runAsync(
+        () => vault.addTags(collection.id, 'Intercessors', ['40k']),
+      );
+      await settle(tester);
+
+      await tester.tap(find.text('Add notes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit Unit'), findsOneWidget);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Notes'),
+        'Magnetised',
+      );
+      await tester.tap(find.byTooltip('Remove Tag 40k'));
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Add Tag'),
+        'Ultramarines',
+      );
+      await tapAndWait(tester, find.text('Save'));
+
+      expect(find.text('Magnetised'), findsOneWidget);
+      expect(find.widgetWithText(Chip, 'Ultramarines'), findsOneWidget);
+      expect(find.widgetWithText(Chip, '40k'), findsNothing);
+      expect(
+        await tester.runAsync(
+          () => vault.tagsOf(collection.id, 'Intercessors'),
+        ),
+        ['Ultramarines'],
+      );
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'Delete Unit says how many models go and asks first; confirmed, it deletes them all',
+    (tester) async {
+      final (vault, collection) = await openUnit(tester, stages, [
+        (5, 0),
+        (2, 2),
+      ]);
+      Future<int> batches() async =>
+          (await tester.runAsync(() => vault.batchesOf(collection)))!.length;
+
+      await tester.tap(find.byTooltip('Delete Unit'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete Intercessors?'), findsOneWidget);
+      expect(
+        find.text(
+          '7 models and their history will be deleted on all your devices.',
+        ),
+        findsOneWidget,
+      );
+      await tapAndWait(tester, find.text('Cancel'));
+      expect(await batches(), 2);
+
+      await tester.tap(find.byTooltip('Delete Unit'));
+      await tester.pumpAndSettle();
+      await tapAndWait(tester, find.text('Delete'));
+      expect(await batches(), 0);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('Add models into an existing name adds to that Unit', (
+    tester,
+  ) async {
+    final (vault, collection) = await openUnit(tester, stages, [(5, 0)]);
+
+    for (final n in ['3', '2']) {
+      await tapAndWait(tester, find.byTooltip('Add models'));
+      await tester.enterText(find.widgetWithText(TextFormField, 'Models'), n);
+      await tapAndWait(tester, find.text('Save'));
+    }
+
+    // Both into this Unit, at the Owned Stage.
+    expect(counts(tester), ['5 models', '5 models', '0 models']);
+    final units = (await tester.runAsync(
+      () => vault.watchUnits(collection).first,
+    ))!;
+    expect(
+      [for (final u in units) (u.name, u.modelCount)],
+      [('Intercessors', 10)],
+    );
+
+    await tester.pumpWidget(const SizedBox());
+  });
 }

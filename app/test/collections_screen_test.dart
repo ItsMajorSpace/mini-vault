@@ -132,7 +132,7 @@ void main() {
     ];
     final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
     expect(tops, [...tops]..sort(), reason: 'in the order $order');
-    // A Batch, but no move yet.
+    // Models, but no move yet.
     expect(find.text('Recently painted'), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
@@ -246,7 +246,7 @@ void main() {
     expect(find.byType(StageBar), findsNWidgets(4));
     // Owned and Finished Stage are both Unassembled: Primed counts as finished, Wishlist as wanted.
     expect(
-      find.text('3 Squads · 11 owned · 11 finished · 10 wanted'),
+      find.text('3 Units · 11 owned · 11 finished · 10 wanted'),
       findsOneWidget,
     );
     // Each Unit's bar: solid owned segments, then wanted ones outlined; together they fill the bar.
@@ -302,7 +302,7 @@ void main() {
       outline.border,
       Border.all(color: stageColour(Vault.stageColours.first)),
     );
-    expect(find.byTooltip('New Unit'), findsOneWidget);
+    expect(find.byTooltip('Add models'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
   });
@@ -690,7 +690,7 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
-      // An empty Collection: what a Batch is, a New Batch button, and the FAB still there.
+      // An empty Collection: what a Unit is, an Add models button, and the FAB still there.
       await tester.runAsync(() => vault.createCollection('Space Marines'));
       await settle();
       expect(bigButton('New Collection'), findsNothing);
@@ -698,13 +698,13 @@ void main() {
       await settle();
       expect(
         find.text(
-          'A Unit is a number of models at the same Stage. Units with the same name form a Squad.',
+          'A Unit is all the models you track under one name, like "Intercessors", wherever they are in your Workflow.',
         ),
         findsOneWidget,
       );
-      expect(find.byTooltip('New Unit'), findsOneWidget);
-      await tapAndWait(bigButton('New Unit'));
-      expect(dialogTitled('New Unit'), findsOneWidget);
+      expect(find.byTooltip('Add models'), findsOneWidget);
+      await tapAndWait(bigButton('Add models'));
+      expect(dialogTitled('Add models'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
     },

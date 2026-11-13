@@ -403,6 +403,19 @@ class SqliteVaultStore implements VaultStore {
       )
       .map(_toStageChanges);
 
+  // Joined on units: a merged-away Batch's Stage Changes linger here until the server deletes them, copied already.
+  @override
+  Stream<List<StageChange>> watchUnitStageChanges(
+    String collectionId,
+    String unit,
+  ) => _db
+      .watch(
+        'SELECT c.* FROM stage_changes c JOIN units u ON u.id = c.unit_id '
+        'WHERE u.collection_id = ? AND u.name = ?',
+        parameters: [collectionId, unit],
+      )
+      .map(_toStageChanges);
+
   // shortcut: reads every move ever made to find the latest few, fine for one person's collection; sort and limit in
   // SQL once happened_at is stored in one text format, if it gets slow.
   @override
