@@ -6,11 +6,13 @@ import 'package:domain_core/domain_core.dart';
 import 'package:domain_core/sqlite_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gotrue/gotrue.dart';
+import 'package:image/image.dart' as img;
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
 import 'package:mini_vault/progress.dart';
 import 'package:mini_vault/theme.dart';
+import 'package:mini_vault/unit.dart';
 import 'package:mini_vault/workflows.dart';
 import 'package:powersync/attachments/attachments.dart';
 import 'package:powersync/powersync.dart';
@@ -405,15 +407,140 @@ void main() {
       // The newest is not downloaded yet: placeholder, not an older photo.
       for (final unit in ['Captain', 'Terminators']) {
         expect(inRow(unit, find.byType(Image)), findsNothing);
-        expect(inRow(unit, find.byIcon(Icons.image_outlined)), findsOneWidget);
+        expect(
+          tester
+              .widget<Icon>(inRow(unit, find.byIcon(Icons.add_a_photo)))
+              .semanticLabel,
+          'Add photo',
+        );
       }
-      // Every row's leading square is the same size.
+      // Every row's leading square is the same size, its own tap target.
       for (final unit in ['Intercessors', 'Captain', 'Terminators']) {
         expect(
           tester.getSize(inRow(unit, find.byType(UnitThumbnail))),
-          const Size.square(48),
+          const Size.square(56),
         );
       }
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'tapping a thumbnail opens its photos at the newest, a placeholder offers Take/Choose; the row opens the Unit',
+    (tester) async {
+      final (db, vault, collection, files) = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's', 's')",
+        );
+        await db.execute(
+          "INSERT INTO stages (id, workflow_id, name, position) VALUES ('s', 'w', 'Wishlist', 0)",
+        );
+        final vault = Vault(SqliteVaultStore(db));
+        final collection = await vault.createCollection('Space Marines');
+        for (final name in ['Intercessors', 'Captain']) {
+          await vault.addBatch(
+            collection,
+            name: name,
+            modelCount: 1,
+            stageId: 's',
+          );
+        }
+        final photosDir = await Directory('${dir.path}/photos').create();
+        // (id, file, queue timestamp): 'new' is the newest, though second by id.
+        for (final (id, file, ts) in [('p0', 'old', 1), ('p1', 'new', 2)]) {
+          await File('${photosDir.path}/$file.jpg')
+              .writeAsBytes(img.encodePng(img.Image(width: 2, height: 2)));
+          await SqliteVaultStore.insertPhoto(
+            db,
+            Photo(
+              id: id,
+              collectionId: collection.id,
+              unit: 'Intercessors',
+              fileId: file,
+            ),
+          );
+          await db.execute(
+            'INSERT INTO ${photoQueueTable.name} (id, filename, local_uri, timestamp, state, has_synced) '
+            'VALUES (?, ?, ?, ?, ?, 1)',
+            [
+              file,
+              '$file.jpg',
+              '$file.jpg',
+              ts,
+              AttachmentState.synced.toInt(),
+            ],
+          );
+        }
+        final files = PhotoFiles(
+          db,
+          GoTrueClient(url: 'http://localhost'),
+          photosDir,
+        );
+        return (db, vault, collection, files);
+      }))!;
+
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      Future<void> tapAndWait(Finder finder) async {
+        await tester.runAsync(() async {
+          await tester.tap(finder);
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        });
+        await settle();
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CollectionScreen(
+            vault: vault,
+            db: db,
+            collection: collection,
+            photos: files,
+          ),
+        ),
+      );
+      await settle();
+      Finder thumbnail(String unit) => find.descendant(
+        of: find.ancestor(of: find.text(unit), matching: find.byType(ListTile)),
+        matching: find.byType(UnitThumbnail),
+      );
+
+      // A photo opens the viewer at the newest, swiping through all the Unit's photos.
+      await tapAndWait(thumbnail('Intercessors'));
+      expect(find.text('2 of 2'), findsOneWidget);
+      expect(find.byTooltip('Remove photo'), findsOneWidget);
+      await tester.tap(find.byType(CloseButton));
+      await settle();
+
+      // The placeholder offers the Unit screen's Take/Choose; cancelling adds nothing.
+      await tapAndWait(thumbnail('Captain'));
+      expect(find.text('Take a photo'), findsOneWidget);
+      expect(find.text('Add a photo from the gallery'), findsOneWidget);
+      expect(find.byType(UnitScreen), findsNothing);
+      await tester.tapAt(const Offset(10, 10));
+      await settle();
+      expect(find.text('Take a photo'), findsNothing);
+      final photos = (await tester.runAsync(
+        () => files.watch(collection.id, 'Captain').first,
+      ))!;
+      expect(photos, isEmpty);
+
+      // The rest of the row still opens the Unit screen.
+      await tapAndWait(find.text('Captain'));
+      expect(find.byType(UnitScreen), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
     },

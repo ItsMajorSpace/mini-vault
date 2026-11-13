@@ -828,6 +828,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                         ListTile(
                           leading: UnitThumbnail(
                             key: ValueKey(unit.name),
+                            vault: widget.vault,
                             files: widget.photos,
                             collectionId: _collection.id,
                             unitName: unit.name,
