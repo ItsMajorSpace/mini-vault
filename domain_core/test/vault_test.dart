@@ -397,6 +397,69 @@ void main() {
       },
     );
 
+    test('has an optional Game System, set, respelled like one in use, cleared, and kept across restarts', () async {
+      await syncStarterWorkflow();
+      final marines = await vault.createCollection(
+        'Space Marines',
+        gameSystem: ' Warhammer 40k ',
+      );
+      final orks = await vault.createCollection(
+        'Orks',
+        gameSystem: 'WARHAMMER 40K',
+      );
+      final party = await vault.createCollection('Party', gameSystem: '  ');
+      await vault.setGameSystem(party.id, 'D&D');
+      await vault.setGameSystem(marines.id, 'warhammer 40k');
+      await restart();
+
+      final byName = {
+        for (final c in await vault.collections()) c.name: c.gameSystem,
+      };
+      expect(byName, {
+        'Orks': 'Warhammer 40k',
+        'Party': 'D&D',
+        'Space Marines': 'Warhammer 40k',
+      });
+      expect(await vault.gameSystems(), ['D&D', 'Warhammer 40k']);
+
+      await vault.setGameSystem(orks.id, '');
+      await vault.setGameSystem(party.id, null);
+      expect((await vault.collections()).map((c) => c.gameSystem), [
+        null,
+        null,
+        'Warhammer 40k',
+      ]);
+      expect(await vault.gameSystems(), ['Warhammer 40k']);
+
+      final ops = (await db.getCrudBatch(limit: 100))!.crud
+          .where((e) => e.table == 'collections' && e.op == UpdateType.patch);
+      expect(ops.last.opData, {'game_system': null});
+    });
+
+    test('are grouped by Game System ignoring case, A–Z, with those without one last', () {
+      Collection c(String name, [String? gameSystem]) => Collection(
+        id: name,
+        name: name,
+        workflowId: 'w',
+        gameSystem: gameSystem,
+      );
+      final groups = groupByGameSystem([
+        c('Kill Team'),
+        c('Orks', 'warhammer'),
+        c('Party', 'D&D'),
+        c('Marines', 'Warhammer'),
+        c('Terrain'),
+      ]);
+      expect(
+        [
+          for (final g in groups)
+            '${g.gameSystem}: ${g.collections.map((c) => c.name).join(', ')}',
+        ],
+        ['D&D: Party', 'warhammer: Orks, Marines', 'null: Kill Team, Terrain'],
+      );
+      expect(groupByGameSystem([]), isEmpty);
+    });
+
     test('are watched: the stream emits again after a change', () async {
       await syncStarterWorkflow();
       final names = vault.watchCollections().map(

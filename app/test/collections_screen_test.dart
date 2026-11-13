@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/progress.dart';
+import 'package:mini_vault/workflows.dart';
 import 'package:powersync/powersync.dart';
 
 // Smoke test: the Collections screen renders what is stored in real SQLite after an app restart,
@@ -69,9 +70,109 @@ void main() {
       );
       expect(find.text('2 changes waiting to sync'), findsOneWidget);
       expect(find.byTooltip('New Collection'), findsOneWidget);
+      expect(
+        find.text('Other'),
+        findsNothing,
+      ); // No Game System yet: no headers.
 
       await tester.pumpWidget(const SizedBox());
       await tester.runAsync(() => dir.delete(recursive: true));
+    },
+  );
+
+  testWidgets('groups Collections under their Game System, A–Z, then Other', (
+    tester,
+  ) async {
+    final dir = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('app_test'),
+    ))!;
+    final db = (await tester.runAsync(() async {
+      final db = PowerSyncDatabase(
+        schema: SqliteVaultStore.schema,
+        path: '${dir.path}/vault.db',
+      );
+      await db.execute(
+        "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's', 's')",
+      );
+      await db.execute(
+        "INSERT INTO stages (id, workflow_id, name, position) VALUES ('s', 'w', 'Wishlist', 0)",
+      );
+      final vault = Vault(SqliteVaultStore(db));
+      await vault.createCollection('Terrain');
+      await vault.createCollection('Ultramarines', gameSystem: 'Warhammer');
+      await vault.createCollection('Party', gameSystem: 'D&D');
+      await vault.createCollection('Orks', gameSystem: 'warhammer');
+      return db;
+    }))!;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CollectionsScreen(vault: Vault(SqliteVaultStore(db)), db: db),
+      ),
+    );
+    for (var i = 0; i < 20; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    final order = [
+      'D&D',
+      'Party',
+      'Warhammer',
+      'Orks',
+      'Ultramarines',
+      'Other',
+      'Terrain',
+    ];
+    final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
+    expect(tops, [...tops]..sort(), reason: 'in the order $order');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(() => dir.delete(recursive: true));
+  });
+
+  testWidgets(
+    'the Collection dialog suggests Game Systems in use and returns the fields',
+    (tester) async {
+      (String, String?, String)? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => result = await showDialog(
+                context: context,
+                builder: (_) => const NewCollectionDialog(
+                  gameSystems: ['D&D', 'Warhammer 40k'],
+                  collection: Collection(
+                    id: 'c',
+                    name: 'Orks',
+                    workflowId: 'w',
+                  ),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit Collection'), findsOneWidget);
+      expect(find.text('Workflow'), findsNothing);
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Game System'),
+        'war',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('D&D'), findsNothing);
+      await tester.tap(find.text('Warhammer 40k'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(result, ('Orks', null, 'Warhammer 40k'));
     },
   );
 
