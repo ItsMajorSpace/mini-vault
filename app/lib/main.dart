@@ -359,7 +359,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
           );
         },
       ),
-      bottomSheet: StreamBuilder(
+      bottomNavigationBar: StreamBuilder(
         stream: _progress,
         builder: (context, progress) => ProgressDrawer(
           count: progress.hasData ? snapshot.data?.length ?? 0 : 0,
@@ -466,7 +466,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
               ],
             ),
           },
-          bottomSheet: StreamBuilder(
+          bottomNavigationBar: StreamBuilder(
             stream: _progress,
             builder: (context, progress) => ProgressDrawer(
               count: progress.hasData ? squads?.length ?? 0 : 0,

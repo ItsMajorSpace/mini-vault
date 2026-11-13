@@ -96,7 +96,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: const SizedBox.expand(),
-          bottomSheet: ProgressDrawer(
+          bottomNavigationBar: ProgressDrawer(
             count: count,
             noun: 'Collection',
             workflows: workflows,
@@ -162,7 +162,7 @@ void main() {
 
       expect(find.byType(StageBar), findsNothing);
       expect(find.textContaining('owned'), findsNothing);
-      expect(tester.getSize(find.byType(BottomSheet)).height, 0);
+      expect(tester.getSize(find.byType(ProgressDrawer)).height, 0);
     });
   });
 }
