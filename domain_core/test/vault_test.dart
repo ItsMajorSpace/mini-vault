@@ -1345,30 +1345,36 @@ void main() {
       );
       final all = [...await units(), elsewhere];
 
-      // At different Stages, nothing; after the rest catch up, each other only.
+      // At different Stages, nothing; a Unit added at the same Stage (as after moves on two devices), each other only.
       expect(Vault.mergeCandidates(await reload(unit.id), all), isEmpty);
-      await vault.moveUnit(await reload(unit.id), 's3');
-      final moved = await reload(unit.id);
+      final twin = await vault.addUnit(
+        collection,
+        name: 'Intercessors',
+        modelCount: 2,
+        stageId: 's3',
+      );
       expect(
-        Vault.mergeCandidates(moved, [...await units(), elsewhere, renamed]),
+        Vault.mergeCandidates(twin, [...await units(), elsewhere, renamed]),
         [isA<Unit>().having((u) => u.id, 'id', split.id)],
       );
-      await expectLater(vault.mergeUnits(moved, renamed), throwsArgumentError);
-      await expectLater(
-        vault.mergeUnits(moved, elsewhere),
-        throwsArgumentError,
-      );
-      // Never automatic: both Units are still there.
-      expect(await units(), hasLength(3));
+      await expectLater(vault.mergeUnits(twin, renamed), throwsArgumentError);
+      await expectLater(vault.mergeUnits(twin, elsewhere), throwsArgumentError);
+      // Units that already share a Stage are Merged only by explicit choice.
+      expect(await units(), hasLength(4));
     });
 
     test('Merge sums the counts, unites the Tags and Photos (up to the cap) and keeps both histories', () async {
-      final split = await vault.splitUnit(unit, 's3', 4);
+      // A second Unit at the same Stage, as after moves on two devices.
+      final split = await vault.addUnit(
+        collection,
+        name: 'Intercessors',
+        modelCount: 4,
+        stageId: 's1',
+      );
       await vault.addTags(split.id, ['Primaris']);
       // 5 + 8 new files is over the cap of 10.
       await vault.addPhotos(unit.id, ['g1', 'g2', 'g3']);
       await vault.addPhotos(split.id, [for (var i = 3; i < 11; i++) 'f$i']);
-      await vault.moveUnit(await reload(unit.id), 's3');
       await db.execute('DELETE FROM ps_crud');
 
       await vault.mergeUnits(await reload(unit.id), await reload(split.id));
@@ -1376,8 +1382,8 @@ void main() {
       expect(await units(), [
         isA<Unit>()
             .having((u) => u.id, 'id', unit.id)
-            .having((u) => u.modelCount, 'modelCount', 10)
-            .having((u) => u.stageId, 'stageId', 's3'),
+            .having((u) => u.modelCount, 'modelCount', 14)
+            .having((u) => u.stageId, 'stageId', 's1'),
       ]);
       expect(await vault.tagsOf(unit.id), ['40k', 'Primaris', 'Ultramarines']);
       final photos = files(await vault.photosOf(unit.id));
@@ -1385,11 +1391,7 @@ void main() {
       expect(photos, containsAll(['f1', 'f2', 'g1', 'g2', 'g3']));
       expect(await vault.tagsOf(split.id), isEmpty);
       expect(await vault.photosOf(split.id), isEmpty);
-      expect(await history(unit.id), [
-        'null -> s1 (10)',
-        's1 -> s3 (4)',
-        's1 -> s3 (6)',
-      ]);
+      expect(await history(unit.id), ['null -> s1 (10)', 'null -> s1 (4)']);
 
       // One batch, the Merge first so the server checks it before anything else.
       final transaction = (await db.getNextCrudTransaction())!;
@@ -1456,6 +1458,182 @@ void main() {
         [('Assault Intercessors', 12), ('Captain', 1)],
       );
       expect(() => vault.renameSquad(squad, '  '), throwsArgumentError);
+    });
+  });
+
+  group('Merge on arrival and Squad moves', () {
+    late Collection collection;
+    setUp(() async {
+      await syncStarterWorkflow();
+      collection = await vault.createCollection('Space Marines');
+    });
+
+    Future<Unit> add(
+      int count,
+      String stageId, {
+      String name = 'Intercessors',
+    }) => vault.addUnit(
+      collection,
+      name: name,
+      modelCount: count,
+      stageId: stageId,
+    );
+    Future<List<(String, String, int)>> squad() async => [
+      for (final u in await vault.unitsOf(collection))
+        (u.id, u.stageId, u.modelCount),
+    ];
+    Future<List<String>> history(String id) async => [
+      for (final c in await vault.watchHistory(id).first)
+        '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
+    ];
+
+    test('moving a whole Unit onto a Stage with a matching Unit Merges it into that Unit, move recorded', () async {
+      final there = await add(3, 's3');
+      await vault.addTags(there.id, ['Ultramarines']);
+      final moving = await add(5, 's1');
+      await vault.addTags(moving.id, ['40k']);
+      await vault.addPhotos(moving.id, ['f1']);
+      await db.execute('DELETE FROM ps_crud');
+
+      await vault.moveUnit(moving, 's3');
+
+      expect(await squad(), [(there.id, 's3', 8)]);
+      expect(await vault.tagsOf(there.id), ['40k', 'Ultramarines']);
+      expect(
+        [for (final p in await vault.photosOf(there.id)) p.fileId],
+        ['f1'],
+      );
+      expect(
+        await history(there.id),
+        unorderedEquals(['null -> s3 (3)', 'null -> s1 (5)', 's1 -> s3 (5)']),
+      );
+      // The move uploads first, so the write API sees both Units at s3 when it checks the Merge.
+      final move = (await db.getNextCrudTransaction())!;
+      expect(move.crud.map((e) => e.table), ['units', 'stage_changes']);
+      await move.complete();
+      expect((await db.getNextCrudTransaction())!.crud.first.table, 'merges');
+    });
+
+    test(
+      'splitting models onto a Stage with a matching Unit adds them to it',
+      () async {
+        final there = await add(3, 's3');
+        final source = await add(10, 's1');
+
+        final into = await vault.splitUnit(source, 's3', 4);
+
+        expect((into.id, into.stageId, into.modelCount), (there.id, 's3', 7));
+        expect(
+          await squad(),
+          unorderedEquals([(there.id, 's3', 7), (source.id, 's1', 6)]),
+        );
+        expect(await history(there.id), contains('s1 -> s3 (4)'));
+      },
+    );
+
+    test('with no matching Unit, a move or Split is unchanged; another name or Collection does not match', () async {
+      await add(2, 's3', name: 'Hellblasters');
+      final elsewhere = await vault.addUnit(
+        await vault.createCollection('Other'),
+        name: 'Intercessors',
+        modelCount: 2,
+        stageId: 's3',
+      );
+      final unit = await add(10, 's1');
+
+      final split = await vault.splitUnit(unit, 's3', 4);
+      expect(split.id, isNot(unit.id));
+      expect((split.stageId, split.modelCount), ('s3', 4));
+      await vault.moveUnit((await vault.unitsAt('s1')).single, 's2');
+
+      expect([
+        for (final (id, stage, n) in await squad())
+          if (n != 2) (id, stage, n),
+      ], unorderedEquals([(unit.id, 's2', 6), (split.id, 's3', 4)]));
+      expect(await vault.unitsAt('s3'), hasLength(3));
+      expect(
+        (await vault.unitsAt('s3')).map((u) => u.id),
+        contains(elsewhere.id),
+      );
+      expect(await history(unit.id), ['null -> s1 (10)', 's1 -> s2 (6)']);
+    });
+
+    test('a Squad move takes N models forward and back, one Stage Change each, Merging on arrival', () async {
+      final unit = await add(10, 's1');
+
+      await vault.moveModels(collection, 'Intercessors', 's1', 's2', 1);
+      await vault.moveModels(collection, 'Intercessors', 's1', 's2', 2);
+      final atS2 = (await vault.unitsAt('s2')).single;
+      expect(
+        await squad(),
+        unorderedEquals([(unit.id, 's1', 7), (atS2.id, 's2', 3)]),
+      );
+      expect(
+        await history(atS2.id),
+        unorderedEquals(['s1 -> s2 (1)', 's1 -> s2 (2)']),
+      );
+
+      // Back: into the Unit at s1; then all of s2, so the Unit there moves whole and nothing is left behind.
+      await vault.moveModels(collection, 'Intercessors', 's2', 's1', 1);
+      expect(
+        await squad(),
+        unorderedEquals([(unit.id, 's1', 8), (atS2.id, 's2', 2)]),
+      );
+      await vault.moveModels(collection, 'Intercessors', 's2', 's1', 2);
+      expect(await squad(), [(unit.id, 's1', 10)]);
+      // Its own creation, the 1-model Split's move, and the whole Unit's history (two moves in, one back) copied.
+      expect(
+        await history(unit.id),
+        unorderedEquals([
+          'null -> s1 (10)',
+          's2 -> s1 (1)',
+          's1 -> s2 (1)',
+          's1 -> s2 (2)',
+          's2 -> s1 (2)',
+        ]),
+      );
+
+      // Any Stages, not just neighbours.
+      await vault.moveModels(collection, 'Intercessors', 's1', 's6', 10);
+      expect(await squad(), [(unit.id, 's6', 10)]);
+    });
+
+    test('a Squad move rejects N under 1 or above what the source Stage holds, and the same Stage', () async {
+      final unit = await add(4, 's1');
+      await add(3, 's1', name: 'Hellblasters');
+      for (final n in [0, -1, 5]) {
+        await expectLater(
+          vault.moveModels(collection, 'Intercessors', 's1', 's2', n),
+          throwsArgumentError,
+        );
+      }
+      await expectLater(
+        vault.moveModels(collection, 'Intercessors', 's2', 's3', 1),
+        throwsArgumentError,
+      );
+      await expectLater(
+        vault.moveModels(collection, 'Intercessors', 's1', 's1', 1),
+        throwsArgumentError,
+      );
+      expect(
+        (await vault.unitsAt('s1')).map((u) => u.modelCount),
+        unorderedEquals([3, 4]),
+      );
+      expect(await history(unit.id), hasLength(1));
+    });
+
+    test('a Squad move takes from the oldest Unit at the source Stage first, then the next', () async {
+      // Two Units at s1, as after moves on two devices; the first-created is the oldest.
+      final oldest = await add(3, 's1');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      final younger = await add(4, 's1');
+
+      await vault.moveModels(collection, 'Intercessors', 's1', 's2', 5);
+
+      expect(
+        await squad(),
+        unorderedEquals([(oldest.id, 's2', 5), (younger.id, 's1', 2)]),
+      );
     });
   });
 }
