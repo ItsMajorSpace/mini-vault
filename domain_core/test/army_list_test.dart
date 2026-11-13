@@ -72,6 +72,103 @@ Sappers [6] Q5+ D5+ | 250pts | Relentless
 6x CCW (A1), 6x Rapid Plasma Rifle (24", A2, AP(4))
 ''';
 
+// A real export from app v2.8.1: points grouped with `.`, an ATTACHED UNITS section.
+const grandMasters = r'''
+Grey Knights (2.000 Points)
+
+Grey Knights
+Warpbane Task Force (3 Detachment Points)
+Purge the Foe
+Strike Force (2.000 Points)
+
+ATTACHED UNITS
+
+Attached unit 1
+
+Castellan Crowe (105 Points)
+  • Attached as: Leader (Character)
+  • Warlord
+  • 1x Black Blade of Antwyr
+  • 1x Purifying Flame
+  • 1x Storm Bolter
+
+Purifier Squad (290 Points)
+  • Attached as: Bodyguard
+  • 1x Knight of the Flame
+     ◦ 1x Nemesis force weapon
+     ◦ 1x Purifying Flame
+     ◦ 1x Storm Bolter
+  • 9x Purifier
+     ◦ 9x Nemesis force weapon
+     ◦ 9x Purifying Flame
+     ◦ 9x Storm Bolter
+
+CHARACTERS
+
+Grand Master in Nemesis Dreadknight (240 Points)
+  • 1x Fragstorm grenade launcher
+  • 1x Heavy psycannon
+  • 1x Nemesis daemon greathammer
+  • 1x Sublimator
+
+Grand Master in Nemesis Dreadknight (240 Points)
+  • 1x Fragstorm grenade launcher
+  • 1x Heavy psycannon
+  • 1x Nemesis daemon greathammer
+  • 1x Sublimator
+
+Grand Master in Nemesis Dreadknight (255 Points)
+  • 1x Fragstorm grenade launcher
+  • 1x Heavy psycannon
+  • 1x Nemesis daemon greathammer
+  • 1x Sublimator
+
+BATTLELINE
+
+Strike Squad (125 Points)
+  • 1x Justicar
+     ◦ 1x Nemesis force weapon
+     ◦ 1x Storm Bolter
+  • 4x Grey Knight
+     ◦ 4x Nemesis force weapon
+     ◦ 4x Storm Bolter
+
+OTHER DATASHEETS
+
+Purifier Squad (290 Points)
+  • 1x Knight of the Flame
+     ◦ 1x Nemesis force weapon
+     ◦ 1x Purifying Flame
+     ◦ 1x Storm Bolter
+  • 9x Purifier
+     ◦ 4x Close Combat Weapon
+     ◦ 5x Nemesis force weapon
+     ◦ 4x Psycannon
+     ◦ 9x Purifying Flame
+     ◦ 5x Storm Bolter
+
+Purifier Squad (155 Points)
+  • 1x Knight of the Flame
+     ◦ 1x Nemesis force weapon
+     ◦ 1x Purifying Flame
+     ◦ 1x Storm Bolter
+  • 4x Purifier
+     ◦ 2x Close Combat Weapon
+     ◦ 2x Nemesis force weapon
+     ◦ 2x Psycannon
+     ◦ 4x Purifying Flame
+     ◦ 2x Storm Bolter
+
+Stormraven Gunship (300 Points)
+  • 1x Armoured hull
+  • 2x Hurricane bolter
+  • 2x Stormstrike missile launcher 
+  • 1x Twin heavy plasma cannon
+  • 1x Twin multi-melta
+
+Exported with App Version: v2.8.1 (1), Data Version: v995
+''';
+
 void main() {
   test('Warhammer 40k app, layout A: wargear under ◦, mixed model types summed, characters and vehicles 1', () {
     final list = parseArmyList(layoutA)!;
@@ -100,6 +197,21 @@ void main() {
       layoutB.replaceFirst('1x Eldritch Lance', '2x Eldritch Lance'),
     )!;
     expect(list.entries.first, (name: 'Illuminor Szeras', count: 1));
+  });
+
+  test('Warhammer 40k app v2.8.1: dotted points, attached leader and bodyguard stay separate', () {
+    final list = parseArmyList(grandMasters)!;
+    expect(list.faction, 'Grey Knights');
+    expect(list.entries, [
+      (name: 'Castellan Crowe', count: 1),
+      (name: 'Purifier Squad', count: 10),
+      for (var i = 0; i < 3; i++)
+        (name: 'Grand Master in Nemesis Dreadknight', count: 1),
+      (name: 'Strike Squad', count: 5),
+      (name: 'Purifier Squad', count: 10),
+      (name: 'Purifier Squad', count: 5),
+      (name: 'Stormraven Gunship', count: 1),
+    ]);
   });
 
   test('Warhammer 40k app: text after the points is dropped', () {

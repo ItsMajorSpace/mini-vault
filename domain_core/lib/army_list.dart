@@ -24,7 +24,8 @@ ArmyList? parseArmyList(String text) {
   return list == null || list.entries.isEmpty ? null : list;
 }
 
-final _gwUnit = RegExp(r'^(\S.*?)\s*\(\d[\d\s]*\s+[Pp]oints\)');
+// Points may be grouped by locale: `2000`, `2 000`, `2.000`, `2,000`.
+final _gwUnit = RegExp(r'^(\S.*?)\s*\(\d[\d\s.,]*\s+[Pp]oints\)');
 
 /// The Warhammer 40k app (10th edition): a title, the faction, the detachment and battle size, then sections.
 ArmyList? _warhammer40k(List<String> lines) {
