@@ -154,14 +154,34 @@ class SqliteVaultStore implements VaultStore {
   }
 
   @override
-  Future<void> deleteStage(String id) =>
-      _db.execute('DELETE FROM stages WHERE id = ?', [id]);
+  Future<void> deleteStage(
+    String workflowId,
+    String id, {
+    List<StageChange> moves = const [],
+    String? ownedStageId,
+    String? finishedStageId,
+  }) => _db.writeTransaction((tx) async {
+    for (final move in moves) {
+      await _move(tx, move);
+    }
+    for (final (column, stageId) in [
+      ('owned_stage_id', ownedStageId),
+      ('finished_stage_id', finishedStageId),
+    ]) {
+      if (stageId != null) {
+        await tx.execute('UPDATE workflows SET $column = ? WHERE id = ?', [
+          stageId,
+          workflowId,
+        ]);
+      }
+    }
+    await tx.execute('DELETE FROM stages WHERE id = ?', [id]);
+  });
 
   @override
-  Future<bool> stageHoldsUnits(String id) async => (await _db.getAll(
-    'SELECT 1 FROM units WHERE stage_id = ? LIMIT 1',
-    [id],
-  )).isNotEmpty;
+  Future<List<Unit>> unitsAt(String stageId) async => _toUnits(
+    await _db.getAll('SELECT * FROM units WHERE stage_id = ?', [stageId]),
+  );
 
   static const _collectionsQuery =
       'SELECT * FROM collections ORDER BY name COLLATE NOCASE';
@@ -201,19 +221,19 @@ class SqliteVaultStore implements VaultStore {
         'SELECT * FROM units WHERE collection_id = ? ORDER BY name COLLATE NOCASE',
         parameters: [collectionId],
       )
-      .map(
-        (rows) => [
-          for (final u in rows)
-            Unit(
-              id: u['id'] as String,
-              collectionId: u['collection_id'] as String,
-              stageId: u['stage_id'] as String,
-              name: u['name'] as String,
-              modelCount: u['model_count'] as int,
-              notes: u['notes'] as String? ?? '',
-            ),
-        ],
-      );
+      .map(_toUnits);
+
+  static List<Unit> _toUnits(Iterable<Map<String, Object?>> rows) => [
+    for (final u in rows)
+      Unit(
+        id: u['id'] as String,
+        collectionId: u['collection_id'] as String,
+        stageId: u['stage_id'] as String,
+        name: u['name'] as String,
+        modelCount: u['model_count'] as int,
+        notes: u['notes'] as String? ?? '',
+      ),
+  ];
 
   @override
   Future<void> insertUnit(Unit unit, StageChange initial) =>
@@ -235,28 +255,42 @@ class SqliteVaultStore implements VaultStore {
   // stage_id is written here only so the move shows at once offline; the server re-derives it from the latest Stage Change.
   @override
   Future<void> insertStageChange(StageChange change) =>
-      _db.writeTransaction((tx) async {
-        await tx.execute('UPDATE units SET stage_id = ? WHERE id = ?', [
-          change.toStageId,
-          change.unitId,
-        ]);
-        await _insertStageChange(tx, change);
-      });
+      _db.writeTransaction((tx) => _move(tx, change));
 
+  static Future<void> _move(SqliteWriteContext tx, StageChange change) async {
+    await tx.execute('UPDATE units SET stage_id = ? WHERE id = ?', [
+      change.toStageId,
+      change.unitId,
+    ]);
+    await _insertStageChange(tx, change);
+  }
+
+  // A new Stage Change must sort after every one this device knows for the Unit, or a device whose clock runs
+  // behind another's could never move it: so it is stamped at least 1 ms after the latest known one.
   static Future<void> _insertStageChange(
     SqliteWriteContext tx,
     StageChange c,
-  ) => tx.execute(
-    'INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [
-      c.id,
-      c.unitId,
-      c.fromStageId,
-      c.toStageId,
-      c.modelCount,
-      c.happenedAt.toUtc().toIso8601String(),
-    ],
-  );
+  ) async {
+    var at = c.happenedAt.toUtc();
+    for (final row in await tx.getAll(
+      'SELECT happened_at FROM stage_changes WHERE unit_id = ?',
+      [c.unitId],
+    )) {
+      final known = DateTime.parse(row['happened_at'] as String).toUtc();
+      if (!at.isAfter(known)) at = known.add(const Duration(milliseconds: 1));
+    }
+    await tx.execute(
+      'INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        c.id,
+        c.unitId,
+        c.fromStageId,
+        c.toStageId,
+        c.modelCount,
+        at.toIso8601String(),
+      ],
+    );
+  }
 
   // Sorted after parsing: synced timestamps come back from Postgres in a different text format than local ones.
   // Ties break on id, as on the server.

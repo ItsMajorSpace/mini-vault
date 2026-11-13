@@ -1131,6 +1131,111 @@ void main() {
       expect((await unit(alice.unitId)).single.last, 'Wishlist');
     });
 
+    /// A Unit created at [stageId] in [collectionId], as the app uploads it.
+    Future<String> createUnitAt(
+      ({String token, String id}) user,
+      String collectionId,
+      String stageId,
+    ) async {
+      final unitId = await newId();
+      final created = await upload(user.token, [
+        putUnit(unitId, collectionId: collectionId, stageId: stageId),
+        putStageChange(
+          await newId(),
+          unitId: unitId,
+          toStageId: stageId,
+          happenedAt: '2026-11-13T09:00:00.000Z',
+        ),
+      ]);
+      expect(created.statusCode, 204, reason: created.body);
+      return unitId;
+    }
+
+    /// One Unit move as the app uploads it: the Unit's stage_id, then the Stage Change.
+    Future<List<Map<String, Object?>>> move(
+      String unitId,
+      String from,
+      String to,
+    ) async => [
+      {
+        'op': 'PATCH',
+        'type': 'units',
+        'id': unitId,
+        'data': {'stage_id': to},
+      },
+      putStageChange(
+        await newId(),
+        unitId: unitId,
+        fromStageId: from,
+        toStageId: to,
+        happenedAt: '2026-11-13T10:00:00.000Z',
+      ),
+    ];
+
+    test('deleting a Stage that holds Units: the app\'s batch of moves, new Owned Stage and delete is accepted', () async {
+      final user = await signUp();
+      final unassembled = await stageOf(user.id, 'Unassembled');
+      final assembled = await stageOf(user.id, 'Assembled');
+      final units = [
+        await createUnitAt(user, await createCollection(user), unassembled),
+        await createUnitAt(user, await createCollection(user), unassembled),
+      ];
+
+      final response = await upload(user.token, [
+        for (final u in units) ...await move(u, unassembled, assembled),
+        {
+          'op': 'PATCH',
+          'type': 'workflows',
+          'id': await workflowOf(user.id),
+          'data': {'owned_stage_id': assembled},
+        },
+        {'op': 'DELETE', 'type': 'stages', 'id': unassembled},
+      ]);
+
+      expect(response.statusCode, 204, reason: response.body);
+      for (final u in units) {
+        expect((await unit(u)).single.last, 'Assembled');
+        expect(await history(u), [
+          'Assembled',
+        ]); // The initial Stage Change's Stage is gone, so the join drops it.
+        final changes = await db.execute(
+          r'SELECT count(*) FROM stage_changes WHERE unit_id = $1::uuid',
+          parameters: [u],
+        );
+        expect(changes.first.first, 2);
+      }
+      final stages = await db.execute(
+        r'SELECT FROM stages WHERE id = $1::uuid',
+        parameters: [unassembled],
+      );
+      expect(stages, isEmpty);
+    });
+
+    test('deleting a Stage is still refused (409) when another device moved a Unit into it meanwhile', () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final wishlist = await stageOf(user.id, 'Wishlist');
+      final primed = await stageOf(user.id, 'Primed');
+      final assembled = await stageOf(user.id, 'Assembled');
+      final known = await createUnitAt(user, collectionId, primed);
+      final other = await createUnitAt(user, collectionId, wishlist);
+
+      // Device B moves the other Unit into Primed while device A is offline, deleting Primed and moving the Unit it knows.
+      final moved = await upload(
+        user.token,
+        await move(other, wishlist, primed),
+      );
+      expect(moved.statusCode, 204, reason: moved.body);
+      final response = await upload(user.token, [
+        ...await move(known, primed, assembled),
+        {'op': 'DELETE', 'type': 'stages', 'id': primed},
+      ]);
+
+      expect(response.statusCode, 409, reason: response.body);
+      expect((await unit(known)).single.last, 'Primed');
+      expect((await unit(other)).single.last, 'Primed');
+    });
+
     test(
       "a move to a Stage outside the Collection's Workflow is rejected",
       () async {
