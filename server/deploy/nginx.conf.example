@@ -1,0 +1,65 @@
+# Mini Vault vhosts for the bingoscape server's nginx (docs/deploy.md).
+# Copy to /etc/nginx/sites-available/minivault, link into sites-enabled, then run certbot, which adds the
+# `listen 443 ssl` lines and certificates and redirects HTTP to HTTPS:
+#   sudo certbot --nginx -d auth.minivault.bingoscape.org -d sync.minivault.bingoscape.org -d api.minivault.bingoscape.org
+# Ports match server/docker-compose.prod.yaml.
+
+# GoTrue (sign-up, sign-in, token refresh, password reset)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name auth.minivault.bingoscape.org;
+
+    location / {
+        proxy_pass http://127.0.0.1:9101;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# PowerSync: long-lived sync streams (HTTP streaming and WebSockets), so no buffering and long timeouts.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name sync.minivault.bingoscape.org;
+
+    location / {
+        proxy_pass http://127.0.0.1:9102;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+}
+
+# Write API (uploads, photos, account deletion, /health)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.minivault.bingoscape.org;
+
+    # Photo uploads: a little over the api's own 10 MiB limit (maxPhotoBytes), so it answers 413 itself.
+    client_max_body_size 11m;
+
+    location / {
+        proxy_pass http://127.0.0.1:9103;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # GoTrue's email template; only GoTrue needs it, over the compose network.
+    location /email/ {
+        return 404;
+    }
+}
