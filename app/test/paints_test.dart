@@ -26,7 +26,7 @@ void main() {
   }
 
   testWidgets(
-    'the home screen opens the Paints, grouped by brand, with a Wanted filter',
+    'the home screen opens the Paints, grouped by brand, with a search and a Wanted filter',
     (tester) async {
       final dir = (await tester.runAsync(
         () => Directory.systemTemp.createTemp('app_test'),
@@ -87,9 +87,30 @@ void main() {
       expect(find.text('Macragge Blue'), findsOneWidget);
       expect(find.text('Flat Blue'), findsOneWidget);
 
+      // Search narrows on brand, range or name, ignoring case, and combines with Wanted.
+      await tester.enterText(find.byType(TextField), 'BLUE');
+      await tester.pump();
+      expect(find.text('Macragge Blue'), findsOneWidget);
+      expect(find.text('Flat Blue'), findsOneWidget);
+      expect(find.text('Calgar Blue'), findsNothing);
+      await tester.enterText(find.byType(TextField), 'base');
+      await tester.pump();
+      expect(find.text('Macragge Blue'), findsOneWidget);
+      expect(find.text('Flat Blue'), findsNothing);
+      await tester.enterText(find.byType(TextField), 'warpaints');
+      await tester.pump();
+      expect(find.text('Matt Black'), findsNothing);
+      expect(find.text('No Paints match.'), findsOneWidget);
+
       await tester.tap(find.widgetWithText(FilterChip, 'Wanted'));
       await tester.pump();
       expect(find.text('Matt Black'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), 'citadel');
+      await tester.pump();
+      expect(find.text('Calgar Blue'), findsOneWidget);
+      expect(find.text('Macragge Blue'), findsOneWidget);
+      expect(find.text('Matt Black'), findsNothing);
+      expect(find.text('Flat Blue'), findsNothing);
 
       await tester.pumpWidget(const SizedBox());
       await tester.runAsync(() => dir.delete(recursive: true));
