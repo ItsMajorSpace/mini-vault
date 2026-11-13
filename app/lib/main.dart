@@ -337,6 +337,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                   ),
                 ),
               ],
+              const PopupMenuItem(enabled: false, child: AppVersion()),
             ],
           ),
         ],
