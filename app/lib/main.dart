@@ -205,6 +205,7 @@ class CollectionsScreen extends StatefulWidget {
 class _CollectionsScreenState extends State<CollectionsScreen> {
   late final _collections = widget.vault.watchCollections();
   late final _progress = widget.vault.watchProgressByWorkflow();
+  late final _recent = widget.vault.watchRecentlyMoved();
   // Kept up to date rather than read on tap, so signing out can warn without waiting on SQLite.
   int _unsynced = 0;
   late final StreamSubscription<int> _unsyncedSubscription;
@@ -403,6 +404,56 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
           final headed = groups.any((g) => g.gameSystem != null);
           return ListView(
             children: [
+              StreamBuilder(
+                stream: _recent,
+                builder: (context, recent) => switch (recent.data) {
+                  null || [] => const SizedBox.shrink(),
+                  final squads => Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                        child: Text(
+                          'Recently painted',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                      for (final r in squads)
+                        ListTile(
+                          title: Text(r.squad.name),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(r.collection.name),
+                              const SizedBox(height: 4),
+                              StageBar(r.squad.progress),
+                            ],
+                          ),
+                          onTap: () => showMoveSheet(
+                            context,
+                            widget.vault,
+                            r.collection,
+                            r.squad,
+                            r.from,
+                            // shortcut: no recount from here, it needs the Squad screen; open it for that.
+                            onDetails: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) => SquadScreen(
+                                  vault: widget.vault,
+                                  photos: widget.photos,
+                                  collection: r.collection,
+                                  name: r.squad.name,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      const Divider(),
+                    ],
+                  ),
+                },
+              ),
               for (final g in groups) ...[
                 if (headed)
                   Padding(

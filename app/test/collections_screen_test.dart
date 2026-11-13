@@ -97,7 +97,8 @@ void main() {
         "INSERT INTO stages (id, workflow_id, name, position) VALUES ('s', 'w', 'Wishlist', 0)",
       );
       final vault = Vault(SqliteVaultStore(db));
-      await vault.createCollection('Terrain');
+      final terrain = await vault.createCollection('Terrain');
+      await vault.addUnit(terrain, name: 'Ruins', modelCount: 2, stageId: 's');
       await vault.createCollection('Ultramarines', gameSystem: 'Warhammer');
       await vault.createCollection('Party', gameSystem: 'D&D');
       await vault.createCollection('Orks', gameSystem: 'warhammer');
@@ -126,6 +127,8 @@ void main() {
     ];
     final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
     expect(tops, [...tops]..sort(), reason: 'in the order $order');
+    // A Unit, but no move yet.
+    expect(find.text('Recently painted'), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(() => dir.delete(recursive: true));
@@ -245,4 +248,88 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'Recently painted lists the last 3 moved Squads, newest first; tapping one opens its Move sheet',
+    (tester) async {
+      final (db, vault) = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's1', 's2')",
+        );
+        for (final (i, name) in ['Wishlist', 'Primed', 'Painted'].indexed) {
+          await db.execute(
+            'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
+            ['s$i', 'w', name, i],
+          );
+        }
+        final vault = Vault(SqliteVaultStore(db));
+        final marines = await vault.createCollection('Space Marines');
+        final orks = await vault.createCollection('Orks');
+        for (final (c, name) in [
+          (marines, 'Intercessors'),
+          (marines, 'Captain'),
+          (orks, 'Boyz'),
+          (orks, 'Nobz'),
+        ]) {
+          await vault.addUnit(c, name: name, modelCount: 5, stageId: 's1');
+        }
+        for (final (c, name) in [
+          (marines, 'Intercessors'),
+          (orks, 'Nobz'),
+          (marines, 'Captain'),
+          (orks, 'Boyz'),
+        ]) {
+          await vault.moveModels(c, name, 's1', 's2', 2);
+        }
+        return (db, vault);
+      }))!;
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CollectionsScreen(vault: vault, db: db),
+        ),
+      );
+      await settle();
+      expect(find.text('Recently painted'), findsOneWidget);
+      final order = ['Recently painted', 'Boyz', 'Captain', 'Nobz'];
+      final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
+      expect(tops, [...tops]..sort(), reason: 'in the order $order');
+      expect(find.text('Intercessors'), findsNothing);
+      // Each with its Collection and Stage bar.
+      final boyz = find.ancestor(
+        of: find.text('Boyz'),
+        matching: find.byType(ListTile),
+      );
+      expect(
+        find.descendant(of: boyz, matching: find.text('Orks')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: boyz, matching: find.byType(StageBar)),
+        findsOneWidget,
+      );
+
+      // Primed, its latest move's from-Stage, still has 3 models: the sheet starts there.
+      await tester.tap(find.text('Captain'));
+      await settle();
+      expect(find.text('Move from Primed'), findsOneWidget);
+      expect(find.text('1 of 3'), findsOneWidget);
+      expect(find.text('Move 1 model to Painted'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 }

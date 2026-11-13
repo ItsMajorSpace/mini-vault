@@ -135,27 +135,15 @@ class _SquadScreenState extends State<SquadScreen> {
     }
   }
 
-  /// The Move sheet for a Stage with models: how many to move and where, or recount them, or open their Unit.
-  Future<void> _sheet(Squad squad, StageGroup g) => showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    builder: (_) => _MoveSheet(
-      from: g,
-      stages: [for (final s in squad.stages) s.stage],
-      onMove: (n, to) => attempt(
-        context,
-        () => widget.vault.moveModels(
-          widget.collection,
-          squad.name,
-          g.stage.id,
-          to.id,
-          n,
-        ),
-      ),
-      // Several Units here: Merge them first, as before.
-      onRecount: g.units.length > 1 ? null : () => _recount(g),
-      onDetails: () => _details(g.units),
-    ),
+  Future<void> _sheet(Squad squad, StageGroup g) => showMoveSheet(
+    context,
+    widget.vault,
+    widget.collection,
+    squad,
+    g,
+    // Several Units here: Merge them first, as before.
+    onRecount: g.units.length > 1 ? null : () => _recount(g),
+    onDetails: () => _details(g.units),
   );
 
   /// Opens the only Unit, or asks which one when there are several.
@@ -274,6 +262,31 @@ class _SquadScreenState extends State<SquadScreen> {
     );
   }
 }
+
+/// The Move sheet for a Stage of [squad] with models: how many to move and where, or recount them ([onRecount], null
+/// to disable), or open their details.
+Future<void> showMoveSheet(
+  BuildContext context,
+  Vault vault,
+  Collection collection,
+  Squad squad,
+  StageGroup from, {
+  VoidCallback? onRecount,
+  required VoidCallback onDetails,
+}) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  builder: (_) => _MoveSheet(
+    from: from,
+    stages: [for (final s in squad.stages) s.stage],
+    onMove: (n, to) => attempt(
+      context,
+      () => vault.moveModels(collection, squad.name, from.stage.id, to.id, n),
+    ),
+    onRecount: onRecount,
+    onDetails: onDetails,
+  ),
+);
 
 /// Moves [from]'s models: a count from 1 to all of them, and a target Stage, the next one to start with.
 class _MoveSheet extends StatefulWidget {
