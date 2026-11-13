@@ -621,7 +621,92 @@ void main() {
       expect(find.text('Delete Ultramarines?'), findsOneWidget);
       await tapAndWait(find.text('Delete'));
       expect(find.byType(CollectionScreen), findsNothing);
-      expect(find.text('No Collections yet'), findsOneWidget);
+      expect(find.text('New Collection'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'empty screens explain what goes there and offer a button that adds the first one',
+    (tester) async {
+      final (db, vault) = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's', 's')",
+        );
+        await db.execute(
+          "INSERT INTO stages (id, workflow_id, name, position) VALUES ('s', 'w', 'Wishlist', 0)",
+        );
+        return (db, Vault(SqliteVaultStore(db)));
+      }))!;
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      // Taps outside the fake-async zone: SQLite I/O started from a tap inside it never completes.
+      Future<void> tapAndWait(Finder finder) async {
+        await tester.runAsync(() async {
+          await tester.tap(finder);
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        });
+        await settle();
+      }
+
+      Finder bigButton(String label) => find.ancestor(
+        of: find.text(label),
+        matching: find.bySubtype<FilledButton>(),
+      );
+      Finder dialogTitled(String title) => find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text(title),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CollectionsScreen(vault: vault, db: db),
+        ),
+      );
+      await settle();
+
+      // No Collections: what a Collection is, a New Collection button, and the FAB still there.
+      expect(
+        find.text(
+          'A Collection is a named set of Units that progress through the same Workflow.',
+        ),
+        findsOneWidget,
+      );
+      expect(bigButton('New Collection'), findsOneWidget);
+      expect(find.byTooltip('New Collection'), findsOneWidget);
+      await tapAndWait(bigButton('New Collection'));
+      expect(find.byType(NewCollectionDialog), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      // An empty Collection: what a Unit is, a New Unit button, and the FAB still there.
+      await tester.runAsync(() => vault.createCollection('Space Marines'));
+      await settle();
+      expect(bigButton('New Collection'), findsNothing);
+      await tester.tap(find.text('Space Marines'));
+      await settle();
+      expect(
+        find.text(
+          'A Unit is a number of models at the same Stage. Units with the same name form a Squad.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('New Unit'), findsOneWidget);
+      await tapAndWait(bigButton('New Unit'));
+      expect(dialogTitled('New Unit'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
     },
