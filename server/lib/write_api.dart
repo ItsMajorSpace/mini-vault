@@ -172,6 +172,15 @@ DO \$\$ DECLARE t text; BEGIN
 END \$\$;
 ''';
 
+/// The password reset email. It carries a code to type into the app rather than a link, so the app needs no deep
+/// links. GoTrue fills in the code.
+const recoveryEmail = '''
+<h2>Reset your Mini Vault password</h2>
+<p>Enter this code in the app to choose a new password:</p>
+<p style="font-size: 24px"><strong>{{ .Token }}</strong></p>
+<p>If you didn't ask for this, you can ignore this email.</p>
+''';
+
 String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 
 /// `POST /upload` with `{"operations": [CrudEntry.toJson(), ...]}` and the user's GoTrue access token.
@@ -185,68 +194,106 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 /// Deleting a Collection deletes all its Units, including ones the client never saw.
 ///
 /// `/photos/<file id>` stores and serves the user's photo files, kept in [dir]; see [photoRequest].
-Handler writeApi(Pool<void> db, Directory dir, {required String jwtSecret}) =>
-    (request) async {
-      final photo = switch (request.url.pathSegments) {
-        ['photos', final id] => id,
-        _ => null,
-      };
-      if (request.url.path != 'upload' && photo == null) {
-        return Response.notFound(null);
-      }
-      if (photo == null && request.method != 'POST') return Response(405);
+///
+/// `DELETE /account` deletes the user's account: every row they own and their GoTrue user, in one transaction,
+/// then their photo files. Answers 204. The app asks the user to confirm first.
+///
+/// A token of a deleted account is rejected (401) by all of these, though it has not expired.
+///
+/// `GET /email/recovery` answers [recoveryEmail], GoTrue's password reset email template (it only loads templates
+/// over HTTP).
+Handler writeApi(
+  Pool<void> db,
+  Directory dir, {
+  required String jwtSecret,
+}) => (request) async {
+  final photo = switch (request.url.pathSegments) {
+    ['photos', final id] => id,
+    _ => null,
+  };
+  if (request.url.path == 'email/recovery' && request.method == 'GET') {
+    return Response.ok(recoveryEmail, headers: {'content-type': 'text/html'});
+  }
+  final account = request.url.path == 'account';
+  if (request.url.path != 'upload' && photo == null && !account) {
+    return Response.notFound(null);
+  }
+  if (photo == null && request.method != (account ? 'DELETE' : 'POST')) {
+    return Response(405);
+  }
 
-      final String owner;
-      try {
-        final header = request.headers['authorization'] ?? '';
-        final jwt = JWT.verify(
-          header.startsWith('Bearer ') ? header.substring(7) : '',
-          SecretKey(jwtSecret),
-          audience: Audience.one('authenticated'),
+  final String owner;
+  try {
+    final header = request.headers['authorization'] ?? '';
+    final jwt = JWT.verify(
+      header.startsWith('Bearer ') ? header.substring(7) : '',
+      SecretKey(jwtSecret),
+      audience: Audience.one('authenticated'),
+    );
+    owner = jwt.subject ?? (throw JWTInvalidException('no sub'));
+  } on JWTException catch (e) {
+    return _error(401, e.message);
+  }
+  final user = await db.execute(
+    r'SELECT FROM auth.users WHERE id = $1::uuid',
+    parameters: [owner],
+  );
+  if (user.isEmpty) return _error(401, 'The account no longer exists');
+  if (account) {
+    await db.runTx((tx) async {
+      for (final table in _writable.keys) {
+        await tx.execute(
+          'DELETE FROM $table WHERE owner_id = \$1::uuid',
+          parameters: [owner],
         );
-        owner = jwt.subject ?? (throw JWTInvalidException('no sub'));
-      } on JWTException catch (e) {
-        return _error(401, e.message);
       }
-      if (photo != null) {
-        return photoRequest(db, dir, owner, photo, request);
-      }
+      // GoTrue's sessions, refresh tokens and identities go with the user by foreign-key cascade.
+      await tx.execute(
+        r'DELETE FROM auth.users WHERE id = $1::uuid',
+        parameters: [owner],
+      );
+    });
+    await deleteAllPhotos(dir, owner);
+    return Response(204);
+  }
+  if (photo != null) {
+    return photoRequest(db, dir, owner, photo, request);
+  }
 
-      final List<Map<String, Object?>> operations;
-      try {
-        final body = jsonDecode(await request.readAsString()) as Map;
-        operations = [
-          for (final op in body['operations'] as List)
-            op as Map<String, Object?>,
-        ];
-      } catch (_) {
-        return _error(400, 'Expected {"operations": [...]}');
-      }
+  final List<Map<String, Object?>> operations;
+  try {
+    final body = jsonDecode(await request.readAsString()) as Map;
+    operations = [
+      for (final op in body['operations'] as List) op as Map<String, Object?>,
+    ];
+  } catch (_) {
+    return _error(400, 'Expected {"operations": [...]}');
+  }
 
-      try {
-        final unlinked = <String>{};
-        await db.runTx((tx) async {
-          final touched = _Touched();
-          final counted = <String>{};
-          for (final op in operations) {
-            await _apply(tx, owner, op, touched, unlinked, counted);
-          }
-          await _checkWorkflows(tx, touched.workflows);
-          await _checkUnitStages(tx, touched);
-        });
-        await deleteUnreferencedPhotos(db, dir, owner, unlinked);
-        return Response(204);
-      } on _Rejected catch (e) {
-        return _error(e.status, e.message);
-      } on ServerException catch (e) {
-        // Class 22 (bad data, e.g. a malformed UUID) and 23 (a constraint, e.g. a missing column) are the client's fault.
-        if (e.code case final code?
-            when code.startsWith('22') || code.startsWith('23')) {
-          return _error(422, e.message);
-        }
-        rethrow;
+  try {
+    final unlinked = <String>{};
+    await db.runTx((tx) async {
+      final touched = _Touched();
+      final counted = <String>{};
+      for (final op in operations) {
+        await _apply(tx, owner, op, touched, unlinked, counted);
       }
-    };
+      await _checkWorkflows(tx, touched.workflows);
+      await _checkUnitStages(tx, touched);
+    });
+    await deleteUnreferencedPhotos(db, dir, owner, unlinked);
+    return Response(204);
+  } on _Rejected catch (e) {
+    return _error(e.status, e.message);
+  } on ServerException catch (e) {
+    // Class 22 (bad data, e.g. a malformed UUID) and 23 (a constraint, e.g. a missing column) are the client's fault.
+    if (e.code case final code?
+        when code.startsWith('22') || code.startsWith('23')) {
+      return _error(422, e.message);
+    }
+    rethrow;
+  }
+};
 
 /// The rows a batch may have changed, to check once the whole batch is applied.
 class _Touched {

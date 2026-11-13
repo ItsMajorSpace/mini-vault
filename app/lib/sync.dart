@@ -51,7 +51,10 @@ void syncWhileSignedIn(
 ) {
   auth.onAuthStateChange.listen((state) async {
     switch (state.event) {
-      case AuthChangeEvent.initialSession || AuthChangeEvent.signedIn
+      // A password reset signs in with passwordRecovery.
+      case AuthChangeEvent.initialSession ||
+              AuthChangeEvent.signedIn ||
+              AuthChangeEvent.passwordRecovery
           when state.session != null:
         // A new connector each time: a connector caches its credentials, which would sync the previous account.
         await db.connect(connector: _ServerConnector(auth));
@@ -63,6 +66,22 @@ void syncWhileSignedIn(
       default:
     }
   });
+}
+
+/// Deletes the signed-in user's account on the server: every row they own, their photos and their GoTrue user.
+/// Throws if that fails, e.g. offline. The caller then signs out, which clears this device.
+Future<void> deleteAccountOnServer(GoTrueClient auth) async {
+  final session = await auth.getSession();
+  if (session == null) throw StateError('Signed out');
+  final response = await http.delete(
+    Uri.parse('$apiUrl/account'),
+    headers: {'authorization': 'Bearer ${session.accessToken}'},
+  );
+  if (response.statusCode != 204) {
+    throw http.ClientException(
+      'Account deletion failed: ${response.statusCode} ${response.body}',
+    );
+  }
 }
 
 class _ServerConnector extends PowerSyncBackendConnector {

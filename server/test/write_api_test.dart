@@ -1450,56 +1450,56 @@ void main() {
     });
   });
 
+  /// A fake JPEG: the write API checks the magic number, not the whole image.
+  final jpeg = [0xff, 0xd8, 0xff, 0xe0, ...List.filled(100, 7)];
+  const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0];
+
+  Uri file(String id) => _upload.resolve('/photos/$id');
+  Map<String, String> auth(String token, [String type = 'image/jpeg']) => {
+    'authorization': 'Bearer $token',
+    'content-type': type,
+  };
+
+  Future<String> addUnit(({String token, String id}) user) async {
+    final id = await newId();
+    final response = await upload(user.token, [
+      putUnit(
+        id,
+        collectionId: await createCollection(user),
+        stageId: await stageOf(user.id, 'Wishlist'),
+      ),
+    ]);
+    expect(response.statusCode, 204, reason: response.body);
+    return id;
+  }
+
+  Map<String, Object?> putPhoto(String id, String unitId, String fileId) => {
+    'op': 'PUT',
+    'type': 'photos',
+    'id': id,
+    'data': {'unit_id': unitId, 'file_id': fileId},
+  };
+
+  /// Adds a Photo row on [unitId] for a new file and uploads [jpeg] as that file; returns the file id.
+  Future<String> addPhoto(
+    ({String token, String id}) user,
+    String unitId,
+  ) async {
+    final fileId = await newId();
+    final row = await upload(user.token, [
+      putPhoto(await newId(), unitId, fileId),
+    ]);
+    expect(row.statusCode, 204, reason: row.body);
+    final put = await http.put(
+      file(fileId),
+      headers: auth(user.token),
+      body: jpeg,
+    );
+    expect(put.statusCode, 204, reason: put.body);
+    return fileId;
+  }
+
   group('Photos', () {
-    /// A fake JPEG: the write API checks the magic number, not the whole image.
-    final jpeg = [0xff, 0xd8, 0xff, 0xe0, ...List.filled(100, 7)];
-    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0];
-
-    Uri file(String id) => _upload.resolve('/photos/$id');
-    Map<String, String> auth(String token, [String type = 'image/jpeg']) => {
-      'authorization': 'Bearer $token',
-      'content-type': type,
-    };
-
-    Future<String> addUnit(({String token, String id}) user) async {
-      final id = await newId();
-      final response = await upload(user.token, [
-        putUnit(
-          id,
-          collectionId: await createCollection(user),
-          stageId: await stageOf(user.id, 'Wishlist'),
-        ),
-      ]);
-      expect(response.statusCode, 204, reason: response.body);
-      return id;
-    }
-
-    Map<String, Object?> putPhoto(String id, String unitId, String fileId) => {
-      'op': 'PUT',
-      'type': 'photos',
-      'id': id,
-      'data': {'unit_id': unitId, 'file_id': fileId},
-    };
-
-    /// Adds a Photo row on [unitId] for a new file and uploads [jpeg] as that file; returns the file id.
-    Future<String> addPhoto(
-      ({String token, String id}) user,
-      String unitId,
-    ) async {
-      final fileId = await newId();
-      final row = await upload(user.token, [
-        putPhoto(await newId(), unitId, fileId),
-      ]);
-      expect(row.statusCode, 204, reason: row.body);
-      final put = await http.put(
-        file(fileId),
-        headers: auth(user.token),
-        body: jpeg,
-      );
-      expect(put.statusCode, 204, reason: put.body);
-      return fileId;
-    }
-
     test('are uploaded and downloaded by their owner, with a token', () async {
       final user = await signUp();
       final fileId = await addPhoto(user, await addUnit(user));
@@ -2140,6 +2140,223 @@ void main() {
         expect([await count(a), await count(b)], [6, 4]);
       },
     );
+  });
+
+  group('Accounts', () {
+    const syncedTables = [
+      'workflows',
+      'stages',
+      'collections',
+      'units',
+      'stage_changes',
+      'unit_tags',
+      'photos',
+      'splits',
+      'merges',
+    ];
+
+    /// How many rows [userId] owns, per synced table.
+    Future<Map<String, int>> rowsOf(String userId) async => {
+      for (final table in syncedTables)
+        table:
+            (await db.execute(
+                  'SELECT count(*) FROM $table WHERE owner_id = \$1::uuid',
+                  parameters: [userId],
+                )).single.single
+                as int,
+    };
+
+    /// Whether [userId]'s photo directory exists inside the API container.
+    Future<bool> hasPhotoDirectory(String userId) async {
+      final out = await Directory.systemTemp.createTemp('photos');
+      try {
+        final copy = await Process.run('docker', [
+          'compose',
+          'cp',
+          'api:/photos/$userId',
+          out.path,
+        ]);
+        return copy.exitCode == 0;
+      } finally {
+        await out.delete(recursive: true);
+      }
+    }
+
+    /// Gives [user] a row in every synced table and a photo file; returns the file id.
+    Future<String> fillAccount(({String token, String id}) user) async {
+      final collectionId = await createCollection(user);
+      final wishlist = await stageOf(user.id, 'Wishlist');
+      final [a, b, c] = [for (var i = 0; i < 3; i++) await newId()];
+      Future<Map<String, Object?>> putStageChange(String unitId) async => {
+        'op': 'PUT',
+        'type': 'stage_changes',
+        'id': await newId(),
+        'data': {
+          'unit_id': unitId,
+          'from_stage_id': null,
+          'to_stage_id': wishlist,
+          'model_count': 5,
+          'happened_at': '2026-11-13T09:00:00Z',
+        },
+      };
+      final response = await upload(user.token, [
+        for (final id in [a, b, c])
+          putUnit(
+            id,
+            collectionId: collectionId,
+            stageId: wishlist,
+            modelCount: 5,
+          ),
+        for (final id in [a, b, c]) await putStageChange(id),
+        putTag(a, 'Necrons'),
+        {
+          'op': 'PUT',
+          'type': 'merges',
+          'id': await newId(),
+          'data': {'unit_id': a, 'merged_unit_id': b},
+        },
+        {'op': 'DELETE', 'type': 'units', 'id': b},
+        {
+          'op': 'PUT',
+          'type': 'splits',
+          'id': await newId(),
+          'data': {'unit_id': a, 'new_unit_id': c, 'model_count': 2},
+        },
+      ]);
+      expect(response.statusCode, 204, reason: response.body);
+      final fileId = await addPhoto(user, a);
+      expect((await rowsOf(user.id)).values, everyElement(isPositive));
+      expect(await hasPhotoDirectory(user.id), isTrue);
+      return fileId;
+    }
+
+    Future<http.Response> deleteAccount(String token) => http.delete(
+      _upload.resolve('/account'),
+      headers: {'authorization': 'Bearer $token'},
+    );
+
+    test("deleting an account removes all its rows, its user and its photos, and nobody else's", () async {
+      final alice = await signUp();
+      final bob = await signUp();
+      await fillAccount(alice);
+      final bobsFile = await fillAccount(bob);
+      final bobsRows = await rowsOf(bob.id);
+
+      final response = await deleteAccount(alice.token);
+      expect(response.statusCode, 204, reason: response.body);
+
+      expect((await rowsOf(alice.id)).values, everyElement(0));
+      expect(
+        await db.execute(
+          r'SELECT FROM auth.users WHERE id = $1::uuid',
+          parameters: [alice.id],
+        ),
+        isEmpty,
+      );
+      expect(await hasPhotoDirectory(alice.id), isFalse);
+
+      expect(await rowsOf(bob.id), bobsRows);
+      final bobsPhoto = await http.get(
+        file(bobsFile),
+        headers: auth(bob.token),
+      );
+      expect(bobsPhoto.statusCode, 200);
+      expect(bobsPhoto.bodyBytes, jpeg);
+    });
+
+    test(
+      "a deleted account's token, though unexpired, can no longer write",
+      () async {
+        final user = await signUp();
+        final unitId = await addUnit(user);
+        expect((await deleteAccount(user.token)).statusCode, 204);
+
+        final write = await upload(user.token, [
+          {
+            'op': 'PUT',
+            'type': 'collections',
+            'id': await newId(),
+            'data': {'name': 'Orks', 'workflow_id': await newId()},
+          },
+        ]);
+        expect(write.statusCode, 401, reason: write.body);
+        final photo = await http.put(
+          file(await newId()),
+          headers: auth(user.token),
+          body: jpeg,
+        );
+        expect(photo.statusCode, 401);
+        expect((await deleteAccount(user.token)).statusCode, 401);
+        expect(await unit(unitId), isEmpty);
+      },
+    );
+
+    test('a password is reset with the code from the reset email', () async {
+      final email =
+          'reset-${DateTime.now().microsecondsSinceEpoch}@example.com';
+      Future<http.Response> post(String path, Object body) => http.post(
+        _auth.resolve(path),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode(body),
+      );
+      Future<int> signIn(String password) async => (await post(
+        '/token?grant_type=password',
+        {'email': email, 'password': password},
+      )).statusCode;
+      expect(
+        (await post('/signup', {
+          'email': email,
+          'password': 'forgotten password',
+        })).statusCode,
+        200,
+      );
+
+      final recover = await post('/recover', {'email': email});
+      expect(recover.statusCode, 200, reason: recover.body);
+
+      // Mailpit's API: https://mailpit.axllent.org/docs/api-v1/
+      final mailpit = Uri.parse('http://localhost:8025/api/v1/');
+      var messages = <Object?>[];
+      for (var i = 0; i < 50 && messages.isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        final search = await http.get(
+          mailpit
+              .resolve('search')
+              .replace(queryParameters: {'query': 'to:"$email"'}),
+        );
+        messages = (jsonDecode(search.body) as Map)['messages'] as List;
+      }
+      expect(messages, hasLength(1), reason: 'the reset email arrived');
+      final message = jsonDecode(
+        (await http.get(
+          mailpit.resolve('message/${(messages.single as Map)['ID']}'),
+        )).body,
+      ) as Map;
+      final text = message['Text'] as String;
+      final code = RegExp(r'\b\d{6}\b').firstMatch(text)?[0];
+      expect(code, isNotNull, reason: text);
+
+      final verified = await post('/verify', {
+        'type': 'recovery',
+        'email': email,
+        'token': code,
+      });
+      expect(verified.statusCode, 200, reason: verified.body);
+      final token =
+          (jsonDecode(verified.body) as Map)['access_token'] as String;
+      final updated = await http.put(
+        _auth.resolve('/user'),
+        headers: {
+          'content-type': 'application/json',
+          'authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'password': 'remembered password'}),
+      );
+      expect(updated.statusCode, 200, reason: updated.body);
+
+      expect(await signIn('remembered password'), 200);
+      expect(await signIn('forgotten password'), 400);
+    });
   });
 }
 
