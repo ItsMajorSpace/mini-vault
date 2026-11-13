@@ -72,8 +72,8 @@ class _SquadScreenState extends State<SquadScreen> {
     }
   });
 
-  /// Sets how many of the Squad's models are at one Stage, without moving any: a recount of the Unit there, a new Unit
-  /// at an empty Stage, or, once confirmed, deleting the Unit when set to 0. Only for a Stage with at most one Unit.
+  /// Sets how many of the Squad's models are at one Stage, without moving any: a recount of the Unit there or, once
+  /// confirmed, deleting it when set to 0. Only for a Stage with exactly one Unit.
   Future<void> _recount(StageGroup g) async {
     final count = TextEditingController(text: '${g.modelCount}');
     final save = await showDialog<bool>(
@@ -103,19 +103,7 @@ class _SquadScreenState extends State<SquadScreen> {
     // Not disposed: the closing dialog's TextField still uses it (as in the Unit screen's move dialog).
     final n = int.tryParse(count.text);
     if (save != true || n == null || n == g.modelCount || !mounted) return;
-    final unit = g.units.firstOrNull;
-    if (unit == null) {
-      // A fresh Unit: no notes or Tags, which belong to the Units they were written on.
-      return attempt(
-        context,
-        () => widget.vault.addUnit(
-          widget.collection,
-          name: _name,
-          modelCount: n,
-          stageId: g.stage.id,
-        ),
-      );
-    }
+    final unit = g.units.single;
     if (n > 0) {
       return attempt(
         context,
@@ -147,44 +135,48 @@ class _SquadScreenState extends State<SquadScreen> {
     }
   }
 
-  /// Tap moves 1 model from [from] to [to]; long-press asks how many.
-  Widget _moveButton(
-    Squad squad,
-    StageGroup from,
-    StageGroup to,
-    IconData icon,
-  ) {
-    final available = from.modelCount;
-    Future<void> move(int n) => attempt(
-      context,
-      () => widget.vault.moveModels(
-        widget.collection,
-        squad.name,
-        from.stage.id,
-        to.stage.id,
-        n,
-      ),
-    );
-    return GestureDetector(
-      onLongPress: available == 0
-          ? null
-          : () async {
-              final n = await showDialog<int>(
-                context: context,
-                builder: (_) => _MoveCountDialog(available: available),
-              );
-              if (n != null && mounted) await move(n);
-            },
-      child: IconButton(
-        icon: Icon(
-          icon,
-          semanticLabel:
-              'Move 1 model from ${from.stage.name} to ${to.stage.name}',
+  /// The Move sheet for a Stage with models: how many to move and where, or recount them, or open their Unit.
+  Future<void> _sheet(Squad squad, StageGroup g) => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => _MoveSheet(
+      from: g,
+      stages: [for (final s in squad.stages) s.stage],
+      onMove: (n, to) => attempt(
+        context,
+        () => widget.vault.moveModels(
+          widget.collection,
+          squad.name,
+          g.stage.id,
+          to.id,
+          n,
         ),
-        color: Theme.of(context).colorScheme.primary,
-        onPressed: available == 0 ? null : () => move(1),
       ),
-    );
+      // Several Units here: Merge them first, as before.
+      onRecount: g.units.length > 1 ? null : () => _recount(g),
+      onDetails: () => _details(g.units),
+    ),
+  );
+
+  /// Opens the only Unit, or asks which one when there are several.
+  Future<void> _details(List<Unit> units) async {
+    final unit = units.length == 1
+        ? units.single
+        : await showDialog<Unit>(
+            context: context,
+            builder: (context) => SimpleDialog(
+              title: const Text('Which Unit?'),
+              children: [
+                for (final u in units)
+                  ListTile(
+                    title: Text(modelCountText(u.modelCount)),
+                    subtitle: u.notes.isEmpty ? null : Text(u.notes),
+                    onTap: () => Navigator.pop(context, u),
+                  ),
+              ],
+            ),
+          );
+    if (unit != null && mounted) await _open(unit);
   }
 
   Future<void> _open(Unit unit) async {
@@ -246,56 +238,34 @@ class _SquadScreenState extends State<SquadScreen> {
                     ),
                   ),
                 ),
-                for (final (i, g) in squad.stages.indexed) ...[
-                  ListTile(
-                    title: Text(g.stage.name),
-                    subtitle: LinearProgressIndicator(
-                      value: squad.modelCount == 0
-                          ? 0
-                          : g.modelCount / squad.modelCount,
-                      color: stageColour(g.stage.colour),
+                for (final g in squad.stages)
+                  // Empty Stages stay in Workflow order, dimmed, with nothing to move.
+                  Opacity(
+                    opacity: g.modelCount == 0 ? 0.38 : 1,
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(
+                        Icons.circle,
+                        size: 12,
+                        color: stageColour(g.stage.colour),
+                      ),
+                      title: Text(g.stage.name),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (g.units.length > 1)
+                            ActionChip(
+                              label: const Text('Merge'),
+                              tooltip: 'Merge the ${g.units.length} Units here',
+                              onPressed: () => _merge(g.units),
+                            ),
+                          const SizedBox(width: 8),
+                          Text(modelCountText(g.modelCount)),
+                        ],
+                      ),
+                      onTap: g.modelCount == 0 ? null : () => _sheet(squad, g),
                     ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (g.units.length > 1)
-                          ActionChip(
-                            label: const Text('Merge'),
-                            tooltip: 'Merge the ${g.units.length} Units here',
-                            onPressed: () => _merge(g.units),
-                          ),
-                        const SizedBox(width: 8),
-                        // Disabled with several Units here: Merge them first.
-                        TextButton(
-                          onPressed: g.units.length > 1
-                              ? null
-                              : () => _recount(g),
-                          child: Text(modelCountText(g.modelCount)),
-                        ),
-                      ],
-                    ),
-                    // shortcut: with several Units at a Stage this opens the first; Merge them to see one.
-                    onTap: g.units.isEmpty ? null : () => _open(g.units.first),
                   ),
-                  if (i + 1 < squad.stages.length)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _moveButton(
-                          squad,
-                          g,
-                          squad.stages[i + 1],
-                          Icons.keyboard_arrow_down,
-                        ),
-                        _moveButton(
-                          squad,
-                          squad.stages[i + 1],
-                          g,
-                          Icons.keyboard_arrow_up,
-                        ),
-                      ],
-                    ),
-                ],
               ],
             ),
           },
@@ -305,59 +275,128 @@ class _SquadScreenState extends State<SquadScreen> {
   }
 }
 
-/// "Move how many?", prefilled with every model at the source Stage; pops the count.
-class _MoveCountDialog extends StatefulWidget {
-  const _MoveCountDialog({required this.available});
+/// Moves [from]'s models: a count from 1 to all of them, and a target Stage, the next one to start with.
+class _MoveSheet extends StatefulWidget {
+  const _MoveSheet({
+    required this.from,
+    required this.stages,
+    required this.onMove,
+    required this.onRecount,
+    required this.onDetails,
+  });
 
-  final int available;
+  final StageGroup from;
+
+  /// The Workflow's Stages, in order.
+  final List<Stage> stages;
+  final void Function(int count, Stage to) onMove;
+  final VoidCallback? onRecount;
+  final VoidCallback onDetails;
 
   @override
-  State<_MoveCountDialog> createState() => _MoveCountDialogState();
+  State<_MoveSheet> createState() => _MoveSheetState();
 }
 
-class _MoveCountDialogState extends State<_MoveCountDialog> {
-  final _form = GlobalKey<FormState>();
-  late final _count = TextEditingController(text: '${widget.available}');
+class _MoveSheetState extends State<_MoveSheet> {
+  int _count = 1;
+  late Stage? _to = () {
+    final i = widget.stages.indexWhere((s) => s.id == widget.from.stage.id);
+    // The last Stage has no next one: preselect the one before it.
+    return widget.stages.elementAtOrNull(i + 1) ??
+        widget.stages.elementAtOrNull(i - 1);
+  }();
 
-  @override
-  void dispose() {
-    _count.dispose();
-    super.dispose();
-  }
+  /// Closes the sheet, then acts on the screen beneath it.
+  VoidCallback _then(VoidCallback action) => () {
+    Navigator.pop(context);
+    action();
+  };
 
   @override
   Widget build(BuildContext context) {
-    void move() {
-      if (_form.currentState!.validate()) {
-        Navigator.pop(context, int.parse(_count.text.trim()));
-      }
-    }
-
-    return AlertDialog(
-      title: const Text('Move how many?'),
-      content: Form(
-        key: _form,
-        child: TextFormField(
-          controller: _count,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Models'),
-          validator: (v) {
-            final n = int.tryParse(v!.trim()) ?? 0;
-            return n < 1 || n > widget.available
-                ? 'From 1 to ${widget.available}'
-                : null;
-          },
-          onFieldSubmitted: (_) => move(),
+    final all = widget.from.modelCount;
+    final to = _to;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Move from ${widget.from.stage.name}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove),
+                  tooltip: 'One fewer',
+                  onPressed: _count > 1 ? () => setState(() => _count--) : null,
+                ),
+                Text(
+                  '$_count of $all',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  tooltip: 'One more',
+                  onPressed: _count < all
+                      ? () => setState(() => _count++)
+                      : null,
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: _count < all
+                      ? () => setState(() => _count = all)
+                      : null,
+                  child: const Text('All'),
+                ),
+              ],
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final s in widget.stages)
+                  if (s.id != widget.from.stage.id)
+                    ChoiceChip(
+                      label: Text(s.name),
+                      selected: s.id == to?.id,
+                      onSelected: (_) => setState(() => _to = s),
+                    ),
+              ],
+            ),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: widget.onRecount == null
+                      ? null
+                      : _then(widget.onRecount!),
+                  child: const Text('Edit count'),
+                ),
+                TextButton(
+                  onPressed: _then(widget.onDetails),
+                  child: const Text('Details'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(56),
+              ),
+              onPressed: to == null
+                  ? null
+                  : _then(() => widget.onMove(_count, to)),
+              child: Text(
+                to == null
+                    ? 'Move'
+                    : 'Move ${modelCountText(_count)} to ${to.name}',
+              ),
+            ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        TextButton(onPressed: move, child: const Text('Move')),
-      ],
     );
   }
 }

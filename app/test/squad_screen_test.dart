@@ -4,6 +4,7 @@ import 'package:domain_core/domain_core.dart';
 import 'package:domain_core/sqlite_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:mini_vault/main.dart';
 import 'package:mini_vault/squad.dart';
 import 'package:mini_vault/theme.dart';
 import 'package:powersync/powersync.dart';
@@ -28,6 +29,60 @@ void main() {
     });
     await settle(tester);
   }
+
+  /// Opens the Squad screen on 'Intercessors', a Unit of it per (models, Stage index), in a Workflow of [stages].
+  Future<(Vault, Collection)> openSquad(
+    WidgetTester tester,
+    List<String> stages,
+    List<(int, int)> units,
+  ) async {
+    final (vault, collection) = (await tester.runAsync(() async {
+      final dir = await Directory.systemTemp.createTemp('app_test');
+      final db = PowerSyncDatabase(
+        schema: SqliteVaultStore.schema,
+        path: '${dir.path}/vault.db',
+      );
+      await db.execute(
+        "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's1', 's1')",
+      );
+      for (final (i, name) in stages.indexed) {
+        await db.execute(
+          'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
+          ['s$i', 'w', name, i],
+        );
+      }
+      final vault = Vault(SqliteVaultStore(db));
+      final collection = await vault.createCollection('Space Marines');
+      for (final (count, stage) in units) {
+        await vault.addUnit(
+          collection,
+          name: 'Intercessors',
+          modelCount: count,
+          stageId: 's$stage',
+        );
+      }
+      return (vault, collection);
+    }))!;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SquadScreen(
+          vault: vault,
+          collection: collection,
+          name: 'Intercessors',
+        ),
+      ),
+    );
+    await settle(tester);
+    return (vault, collection);
+  }
+
+  /// Each Stage row's model count, in Workflow order.
+  List<String?> counts(WidgetTester tester) => [
+    for (final t in tester.widgetList<Text>(find.byType(Text)))
+      if (RegExp(r'^\d+ models?$').hasMatch(t.data ?? '')) t.data,
+  ];
+
+  const stages = ['Wishlist', 'Unassembled', 'Primed'];
 
   testWidgets(
     'shows every Stage with the Squad\'s counts and Tags; renames and Merges',
@@ -77,7 +132,7 @@ void main() {
       );
       await settle(tester);
 
-      // Every Stage in Workflow order, the empty one too, each with the Squad's count and a share bar.
+      // Every Stage in Workflow order, the empty one too, each with the Squad's count, and a dot in its colour.
       final rows = [
         'Wishlist',
         '10 models',
@@ -90,22 +145,11 @@ void main() {
         for (final text in rows) tester.getTopLeft(find.text(text)).dy,
       ];
       expect(ys, orderedEquals([...ys]..sort()));
+      // Each row's dot in its Stage's colour.
       expect(
         [
-          for (final p in tester.widgetList<LinearProgressIndicator>(
-            find.byType(LinearProgressIndicator),
-          ))
-            p.value,
-        ],
-        [10 / 12, 0, 2 / 12],
-      );
-      // Each bar in its Stage's colour.
-      expect(
-        [
-          for (final p in tester.widgetList<LinearProgressIndicator>(
-            find.byType(LinearProgressIndicator),
-          ))
-            p.color,
+          for (final i in tester.widgetList<Icon>(find.byIcon(Icons.circle)))
+            i.color,
         ],
         [for (final c in Vault.stageColours.take(3)) stageColour(c)],
       );
@@ -141,200 +185,180 @@ void main() {
   );
 
   testWidgets(
-    'recounts a Stage: edits its Unit, creates one at an empty Stage, deletes at 0 once confirmed',
+    'tapping a Stage opens the Move sheet, next Stage preselected; Move moves the chosen count',
     (tester) async {
-      final (vault, collection) = (await tester.runAsync(() async {
-        final dir = await Directory.systemTemp.createTemp('app_test');
-        final db = PowerSyncDatabase(
-          schema: SqliteVaultStore.schema,
-          path: '${dir.path}/vault.db',
-        );
-        await db.execute(
-          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's1', 's1')",
-        );
-        for (final (i, name) in ['Wishlist', 'Unassembled', 'Primed'].indexed) {
-          await db.execute(
-            'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
-            ['s$i', 'w', name, i],
-          );
-        }
-        final vault = Vault(SqliteVaultStore(db));
-        final collection = await vault.createCollection('Space Marines');
-        for (final (count, stage) in [(6, 's0'), (4, 's0'), (3, 's2')]) {
-          await vault.addUnit(
-            collection,
-            name: 'Intercessors',
-            modelCount: count,
-            stageId: stage,
-          );
-        }
-        return (vault, collection);
-      }))!;
+      await openSquad(tester, stages, [(5, 0)]);
+      Finder chip(String stage) => find.widgetWithText(ChoiceChip, stage);
+      bool selected(String stage) =>
+          tester.widget<ChoiceChip>(chip(stage)).selected;
+      bool enabled(IconData icon) =>
+          tester
+              .widget<IconButton>(find.widgetWithIcon(IconButton, icon))
+              .onPressed !=
+          null;
+
+      await tester.tap(find.text('Wishlist'));
+      await tester.pumpAndSettle();
+      // The other Stages as chips, the next one preselected; the count starts at 1.
+      expect(chip('Wishlist'), findsNothing);
+      expect(selected('Unassembled'), isTrue);
+      expect(selected('Primed'), isFalse);
+      expect(find.text('1 of 5'), findsOneWidget);
+      expect(enabled(Icons.remove), isFalse);
+      await tester.tap(find.byTooltip('One more'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('One more'));
+      await tester.pump();
+      expect(find.text('3 of 5'), findsOneWidget);
+      await tapAndWait(tester, find.byType(FilledButton));
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(counts(tester), ['2 models', '3 models', '0 models']);
+
+      // All, and back to an earlier Stage.
+      await tester.tap(find.text('Unassembled'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('All'));
+      await tester.tap(chip('Wishlist'));
+      await tester.pump();
+      expect(find.text('3 of 3'), findsOneWidget);
+      expect(enabled(Icons.add), isFalse);
+      await tapAndWait(tester, find.text('Move 3 models to Wishlist'));
+      expect(counts(tester), ['5 models', '0 models', '0 models']);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'Edit count recounts a Stage\'s Unit, deleting it at 0 once confirmed; not with several Units there',
+    (tester) async {
+      final (vault, collection) = await openSquad(tester, stages, [
+        (6, 0),
+        (4, 0),
+        (3, 2),
+      ]);
       Future<List<(String, int)>> units() async => [
         for (final u in (await tester.runAsync(
           () => vault.unitsOf(collection),
         ))!)
           (u.stageId, u.modelCount),
       ]..sort((a, b) => '$a'.compareTo('$b'));
-      Future<void> recount(String from, String to) async {
-        await tester.tap(find.text(from));
+      Future<void> recount(String stage, String to) async {
+        await tester.tap(find.text(stage));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit count'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField), to);
         await tester.pump();
       }
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: SquadScreen(
-            vault: vault,
-            collection: collection,
-            name: 'Intercessors',
-          ),
-        ),
-      );
-      await settle(tester);
-
       // Two Units at Wishlist: their count cannot be edited until Merged.
+      await tester.tap(find.text('Wishlist'));
+      await tester.pumpAndSettle();
       expect(
         tester
-            .widget<TextButton>(find.widgetWithText(TextButton, '10 models'))
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Edit count'))
             .onPressed,
         isNull,
       );
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
 
       // A recount: the Unit at Primed now has 5, no Unit moved.
-      await recount('3 models', '5');
+      await recount('Primed', '5');
       await tapAndWait(tester, find.text('Save'));
-      expect(find.text('5 models'), findsOneWidget);
+      expect(counts(tester), ['10 models', '0 models', '5 models']);
       expect(await units(), [('s0', 4), ('s0', 6), ('s2', 5)]);
 
       // Non-numeric and negative input is rejected as typed.
-      await recount('5 models', '-x');
+      await recount('Primed', '-x');
       expect(find.text('-x'), findsNothing);
       await tapAndWait(tester, find.text('Cancel'));
 
-      // Raising the empty Stage creates a Unit there.
-      await recount('0 models', '2');
-      await tapAndWait(tester, find.text('Save'));
-      expect(find.text('2 models'), findsOneWidget);
-      expect(await units(), [('s0', 4), ('s0', 6), ('s1', 2), ('s2', 5)]);
-
       // 0 asks first; cancelling keeps the Unit.
-      await recount('5 models', '0');
+      await recount('Primed', '0');
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
       expect(find.text('Delete the Unit at Primed?'), findsOneWidget);
       await tapAndWait(tester, find.text('Cancel'));
-      expect(await units(), [('s0', 4), ('s0', 6), ('s1', 2), ('s2', 5)]);
+      expect(await units(), [('s0', 4), ('s0', 6), ('s2', 5)]);
 
       // Confirmed, it deletes the Unit.
-      await recount('5 models', '0');
+      await recount('Primed', '0');
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
       await tapAndWait(tester, find.text('Delete'));
-      expect(await units(), [('s0', 4), ('s0', 6), ('s1', 2)]);
-      expect(find.text('0 models'), findsOneWidget);
+      expect(await units(), [('s0', 4), ('s0', 6)]);
+      expect(counts(tester), ['10 models', '0 models', '0 models']);
 
       await tester.pumpWidget(const SizedBox());
     },
   );
 
-  testWidgets('⌄ and ⌃ move one model; long-press moves a chosen batch', (
-    tester,
-  ) async {
-    final (vault, collection) = (await tester.runAsync(() async {
-      final dir = await Directory.systemTemp.createTemp('app_test');
-      final db = PowerSyncDatabase(
-        schema: SqliteVaultStore.schema,
-        path: '${dir.path}/vault.db',
+  testWidgets(
+    'empty Stages are dimmed and open nothing; Details asks which of several Units to open',
+    (tester) async {
+      final (vault, collection) = await openSquad(tester, stages, [
+        (6, 0),
+        (4, 0),
+        (2, 1),
+      ]);
+      double opacity(String stage) => tester
+          .widget<Opacity>(
+            find.ancestor(of: find.text(stage), matching: find.byType(Opacity)),
+          )
+          .opacity;
+
+      expect([for (final s in stages) opacity(s)], [1, 1, 0.38]);
+      await tester.tap(find.text('Primed'));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+
+      await tester.tap(find.text('Wishlist'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Which Unit?'), findsOneWidget);
+      expect(find.widgetWithText(ListTile, '6 models'), findsOneWidget);
+      await tapAndWait(tester, find.widgetWithText(ListTile, '4 models'));
+      final opened = tester.widget<UnitScreen>(find.byType(UnitScreen)).unitId;
+      final units = (await tester.runAsync(() => vault.unitsOf(collection)))!;
+      expect(units.firstWhere((u) => u.id == opened).modelCount, 4);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'a 7-Stage Squad fits a 1080×2340 phone screen without scrolling',
+    (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.reset);
+      await openSquad(
+        tester,
+        [
+          'Wishlist',
+          'Unassembled',
+          'Assembled',
+          'Primed',
+          'Based',
+          'Painted',
+          'Varnished',
+        ],
+        [(3, 0), (2, 3), (1, 6)],
       );
-      await db.execute(
-        "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's1', 's1')",
+
+      expect(
+        tester
+            .state<ScrollableState>(find.byType(Scrollable))
+            .position
+            .maxScrollExtent,
+        0,
       );
-      for (final (i, name) in ['Wishlist', 'Unassembled', 'Primed'].indexed) {
-        await db.execute(
-          'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
-          ['s$i', 'w', name, i],
-        );
-      }
-      final vault = Vault(SqliteVaultStore(db));
-      final collection = await vault.createCollection('Space Marines');
-      await vault.addUnit(
-        collection,
-        name: 'Intercessors',
-        modelCount: 3,
-        stageId: 's0',
-      );
-      return (vault, collection);
-    }))!;
+      expect(find.text('Varnished').hitTestable(), findsOneWidget);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SquadScreen(
-          vault: vault,
-          collection: collection,
-          name: 'Intercessors',
-        ),
-      ),
-    );
-    await settle(tester);
-
-    List<String?> counts() => [
-      for (final t in tester.widgetList<Text>(find.byType(Text)))
-        if (RegExp(r'^\d+ models?$').hasMatch(t.data ?? '')) t.data,
-    ];
-    Finder button(String from, String to) => find.ancestor(
-      of: find.byWidgetPredicate(
-        (w) => w is Icon && w.semanticLabel == 'Move 1 model from $from to $to',
-      ),
-      matching: find.byType(IconButton),
-    );
-    bool enabled(String from, String to) =>
-        tester.widget<IconButton>(button(from, to)).onPressed != null;
-
-    expect(counts(), ['3 models', '0 models', '0 models']);
-    expect(enabled('Wishlist', 'Unassembled'), isTrue);
-    expect(enabled('Unassembled', 'Wishlist'), isFalse);
-    expect(enabled('Unassembled', 'Primed'), isFalse);
-    expect(enabled('Primed', 'Unassembled'), isFalse);
-
-    await tapAndWait(tester, button('Wishlist', 'Unassembled'));
-    expect(counts(), ['2 models', '1 model', '0 models']);
-    expect(enabled('Unassembled', 'Wishlist'), isTrue);
-    expect(enabled('Unassembled', 'Primed'), isTrue);
-
-    await tapAndWait(tester, button('Unassembled', 'Wishlist'));
-    expect(counts(), ['3 models', '0 models', '0 models']);
-
-    // Long-press: prefilled with every model at the source, refusing more than that.
-    // Held in real time outside the fake-async zone: the move the dialog ends in writes to SQLite.
-    await tester.runAsync(() async {
-      final press = await tester.startGesture(
-        tester.getCenter(button('Wishlist', 'Unassembled')),
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 700));
-      await press.up();
-    });
-    await settle(tester);
-    expect(find.text('Move how many?'), findsOneWidget);
-    expect(
-      tester.widget<TextField>(find.byType(TextField)).controller!.text,
-      '3',
-    );
-    await tester.enterText(find.byType(TextField), '4');
-    await tester.tap(find.text('Move'));
-    await tester.pump();
-    expect(find.text('From 1 to 3'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '2');
-    await tapAndWait(tester, find.text('Move'));
-    expect(find.text('Move how many?'), findsNothing);
-    expect(counts(), ['1 model', '2 models', '0 models']);
-
-    // Disabled buttons ignore long-press too.
-    await tester.longPress(button('Primed', 'Unassembled'));
-    await tester.pumpAndSettle();
-    expect(find.text('Move how many?'), findsNothing);
-
-    await tester.pumpWidget(const SizedBox());
-  });
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 }
