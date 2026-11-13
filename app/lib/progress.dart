@@ -1,6 +1,8 @@
 import 'package:domain_core/domain_core.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'theme.dart';
+
 /// A Collection's progress totals ("86 / 140 finished"), kept live as Units and the Workflow change.
 class ProgressSummary extends StatefulWidget {
   const ProgressSummary({
@@ -36,9 +38,34 @@ class _ProgressSummaryState extends State<ProgressSummary> {
             ].join(' · '),
           ),
           const SizedBox(height: 4),
-          LinearProgressIndicator(value: p.finishedShare),
+          StageBar(p),
         ],
       );
     },
+  );
+}
+
+/// [progress]'s owned models as one segment per Stage, in its colour and sized by model count, the latest Stage
+/// leftmost, so the finished part fills from the left.
+class StageBar extends StatelessWidget {
+  const StageBar(this.progress, {super.key});
+
+  final Progress progress;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 4,
+    child: ColoredBox(
+      color: Theme.of(context).colorScheme.secondaryContainer,
+      child: Row(
+        children: [
+          for (final s in progress.stages.reversed)
+            Expanded(
+              flex: s.models,
+              child: ColoredBox(color: stageColour(s.stage.colour)),
+            ),
+        ],
+      ),
+    ),
   );
 }

@@ -5,6 +5,7 @@ import 'package:domain_core/sqlite_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
+import 'package:mini_vault/progress.dart';
 import 'package:powersync/powersync.dart';
 
 // Smoke test: the Collections screen renders what is stored in real SQLite after an app restart,
@@ -129,7 +130,7 @@ void main() {
     ];
     final ys = [for (final text in rows) tester.getTopLeft(find.text(text)).dy];
     expect(ys, orderedEquals([...ys]..sort()));
-    expect(find.byType(LinearProgressIndicator), findsNWidgets(4));
+    expect(find.byType(StageBar), findsNWidgets(4));
     // Owned and Finished Stage are both Unassembled: Primed counts as finished, Wishlist as wanted.
     expect(find.text('11 / 11 finished · 10 wanted'), findsOneWidget);
     expect(find.byTooltip('New Unit'), findsOneWidget);

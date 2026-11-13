@@ -118,6 +118,66 @@ void main() {
       ]);
     });
 
+    test('a new Stage gets the first colour its Workflow is not using; reordering keeps colours', () async {
+      final w = await vault.createWorkflow('Mine');
+      List<String> colours(Workflow w) => [for (final s in w.stages) s.colour];
+      expect(colours(w), Vault.stageColours.take(7));
+
+      // A colour the Workflow stops using is the first free one again.
+      await vault.setStageColour(w.stages[2].id, Vault.stageColours[0]);
+      final added = await vault.addStage(w.id, 'Washed', 0);
+      expect(added.colour, Vault.stageColours[2]);
+      expect(
+        (await vault.addStage(w.id, 'Shelved', 99)).colour,
+        Vault.stageColours[7],
+      );
+
+      await vault.moveStage(w.id, added.id, 5);
+      await restart();
+      final reloaded = await reload(w.id);
+      expect(
+        {for (final s in reloaded.stages) s.name: s.colour},
+        {
+          'Washed': Vault.stageColours[2],
+          'Wishlist': Vault.stageColours[0],
+          'Unassembled': Vault.stageColours[1],
+          'Assembled': Vault.stageColours[0],
+          'Primed': Vault.stageColours[3],
+          'Painted': Vault.stageColours[4],
+          'Based': Vault.stageColours[5],
+          'Done': Vault.stageColours[6],
+          'Shelved': Vault.stageColours[7],
+        },
+      );
+      expect(names(reloaded)[5], 'Washed');
+    });
+
+    test('with every colour used, a new Stage gets the first one', () async {
+      final w = await vault.createWorkflow('Mine');
+      for (var i = 7; i < Vault.stageColours.length; i++) {
+        expect(
+          (await vault.addStage(w.id, 'S$i', 99)).colour,
+          Vault.stageColours[i],
+        );
+      }
+      expect(
+        (await vault.addStage(w.id, 'One more', 99)).colour,
+        Vault.stageColours.first,
+      );
+    });
+
+    test('a Stage colour must be #RRGGBB', () async {
+      final w = await vault.createWorkflow('Mine');
+      for (final bad in ['#ff7b7b', 'FF7B7B', '#FF7B7', '#FF7B7BAA', 'red']) {
+        expect(
+          () => vault.setStageColour(w.stages[0].id, bad),
+          throwsArgumentError,
+        );
+      }
+      await vault.setStageColour(w.stages[0].id, '#123ABC');
+      expect((await reload(w.id)).stages[0].colour, '#123ABC');
+    });
+
     test(
       'only positions that change are uploaded when a Stage moves',
       () async {
@@ -616,8 +676,15 @@ void main() {
       stageId: stageId,
     );
     Future<Progress> progress() => vault.watchProgress(collection).first;
-    Progress p(int wanted, int owned, int finished) =>
-        Progress(wanted: wanted, owned: owned, finished: finished);
+    Matcher p(int wanted, int owned, int finished) => isA<Progress>()
+        .having((p) => p.wanted, 'wanted', wanted)
+        .having((p) => p.owned, 'owned', owned)
+        .having((p) => p.finished, 'finished', finished);
+
+    /// Progress.stages as "Stage name: models".
+    Future<List<String>> perStage() async => [
+      for (final s in (await progress()).stages) '${s.stage.name}: ${s.models}',
+    ];
 
     test('of an empty Collection is 0 / 0, with no division by zero', () async {
       final empty = await progress();
@@ -638,6 +705,65 @@ void main() {
       final totals = await progress();
       expect(totals, p(5, 19, 7));
       expect(totals.finishedShare, 7 / 19);
+    });
+
+    test('counts owned models per Stage, in Workflow order; the finished ones are the Finished Stage on', () async {
+      await vault.setFinishedStage(workflowId, 's4');
+      await add(5, 's0');
+      await add(10, 's1');
+      await add(2, 's3');
+      await vault.addUnit(
+        collection,
+        name: 'Other',
+        modelCount: 1,
+        stageId: 's3',
+      );
+      await add(3, 's4');
+      await add(4, 's6');
+
+      // Wishlist is wanted, so not counted; Stages without models are left out.
+      expect(await perStage(), [
+        'Unassembled: 10',
+        'Primed: 3',
+        'Painted: 3',
+        'Done: 4',
+      ]);
+      final totals = await progress();
+      expect(totals, p(5, 20, 7));
+      expect(totals.stages.fold(0, (n, s) => n + s.models), totals.owned);
+      expect(
+        totals.stages.skip(2).fold(0, (n, s) => n + s.models),
+        totals.finished,
+      );
+    });
+
+    test('is watched: emits again when models move between Stages with the same totals, or a Stage colour changes', () async {
+      await add(5, 's2');
+      final totals = vault.watchProgress(collection).asBroadcastStream();
+      final moved = expectLater(
+        totals,
+        emitsThrough(
+          isA<Progress>().having(
+            (p) => p.stages.single.stage.id,
+            'Stage',
+            's3',
+          ),
+        ),
+      );
+      await vault.moveUnit((await vault.unitsOf(collection)).single, 's3');
+      await moved;
+      final recoloured = expectLater(
+        totals,
+        emitsThrough(
+          isA<Progress>().having(
+            (p) => p.stages.single.stage.colour,
+            'colour',
+            '#123456',
+          ),
+        ),
+      );
+      await vault.setStageColour('s3', '#123456');
+      await recoloured;
     });
 
     test('with the Owned and Finished Stage the same Stage', () async {
@@ -663,7 +789,7 @@ void main() {
       final totals = vault.watchProgress(collection).asBroadcastStream();
       Future<void> expectAfter(
         Future<void> Function() change,
-        Progress expected,
+        Matcher expected,
       ) async {
         final expectation = expectLater(totals, emitsThrough(expected));
         await change();
@@ -1439,8 +1565,12 @@ void main() {
         );
         expect(intercessors.stages[6].units, hasLength(2));
         expect(
-          intercessors.progress,
-          const Progress(wanted: 0, owned: 12, finished: 6),
+          (
+            intercessors.progress.wanted,
+            intercessors.progress.owned,
+            intercessors.progress.finished,
+          ),
+          (0, 12, 6),
         );
       },
     );

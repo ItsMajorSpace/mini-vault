@@ -25,6 +25,7 @@ class SqliteVaultStore implements VaultStore {
       Column.text('workflow_id'),
       Column.text('name'),
       Column.integer('position'),
+      Column.text('colour'),
     ]),
     Table('collections', [Column.text('name'), Column.text('workflow_id')]),
     Table('units', [
@@ -60,7 +61,7 @@ class SqliteVaultStore implements VaultStore {
   @override
   Future<List<Workflow>> workflows() => _db.readTransaction((tx) async {
     final stages = await tx.getAll(
-      'SELECT id, workflow_id, name FROM stages ORDER BY position, id',
+      'SELECT id, workflow_id, name, colour FROM stages ORDER BY position, id',
     );
     final workflows = await tx.getAll(
       'SELECT * FROM workflows ORDER BY starter IS NOT 1, name COLLATE NOCASE, id',
@@ -73,9 +74,16 @@ class SqliteVaultStore implements VaultStore {
           ownedStageId: w['owned_stage_id'] as String,
           finishedStageId: w['finished_stage_id'] as String,
           stages: [
-            for (final s in stages)
-              if (s['workflow_id'] == w['id'])
-                Stage(id: s['id'] as String, name: s['name'] as String),
+            for (final (i, s)
+                in stages.where((s) => s['workflow_id'] == w['id']).indexed)
+              Stage(
+                id: s['id'] as String,
+                name: s['name'] as String,
+                // Null only on a Stage written before colours, not yet synced: as the server's backfill would.
+                colour:
+                    s['colour'] as String? ??
+                    Vault.stageColours[i % Vault.stageColours.length],
+              ),
           ],
         ),
     ];
@@ -99,8 +107,8 @@ class SqliteVaultStore implements VaultStore {
         );
         for (final (position, stage) in workflow.stages.indexed) {
           await tx.execute(
-            'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
-            [stage.id, workflow.id, stage.name, position],
+            'INSERT INTO stages (id, workflow_id, name, position, colour) VALUES (?, ?, ?, ?, ?)',
+            [stage.id, workflow.id, stage.name, position, stage.colour],
           );
         }
       });
@@ -136,8 +144,8 @@ class SqliteVaultStore implements VaultStore {
     List<String> order,
   ) => _db.writeTransaction((tx) async {
     await tx.execute(
-      'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, 0)',
-      [stage.id, workflowId, stage.name],
+      'INSERT INTO stages (id, workflow_id, name, position, colour) VALUES (?, ?, ?, 0, ?)',
+      [stage.id, workflowId, stage.name, stage.colour],
     );
     await _writeOrder(tx, order);
   });
@@ -145,6 +153,10 @@ class SqliteVaultStore implements VaultStore {
   @override
   Future<void> renameStage(String id, String name) =>
       _db.execute('UPDATE stages SET name = ? WHERE id = ?', [name, id]);
+
+  @override
+  Future<void> setStageColour(String id, String colour) =>
+      _db.execute('UPDATE stages SET colour = ? WHERE id = ?', [colour, id]);
 
   @override
   Future<void> reorderStages(List<String> order) =>
