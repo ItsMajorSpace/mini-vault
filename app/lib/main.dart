@@ -489,6 +489,21 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                                   // shortcut: no recount from here, it needs the Unit screen; open it for that.
                                   r.from,
                                 ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.chevron_right),
+                                  tooltip: 'Open ${r.unit.name}',
+                                  onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => UnitScreen(
+                                        vault: widget.vault,
+                                        photos: widget.photos,
+                                        collection: r.collection,
+                                        name: r.unit.name,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             const Divider(),
                           ],

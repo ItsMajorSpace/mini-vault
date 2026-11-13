@@ -420,7 +420,7 @@ void main() {
   );
 
   testWidgets(
-    'Recently painted lists the last 3 moved Units, newest first; tapping one opens its Move sheet',
+    'Recently painted lists the last 3 moved Units, newest first; tapping one opens its Move sheet, its chevron the Unit',
     (tester) async {
       final (db, vault) = (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('app_test');
@@ -498,6 +498,13 @@ void main() {
       expect(find.text('Move from Primed'), findsOneWidget);
       expect(find.text('3 of 3'), findsOneWidget);
       expect(find.text('Move 3 models to Painted'), findsOneWidget);
+
+      // Its chevron opens the Unit screen instead.
+      Navigator.pop(tester.element(find.text('Move from Primed')));
+      await settle();
+      await tester.tap(find.byTooltip('Open Captain'));
+      await settle();
+      expect(find.byTooltip('Edit Unit'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
     },
