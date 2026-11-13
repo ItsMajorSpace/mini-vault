@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:domain_core/domain_core.dart';
 import 'package:http/http.dart' as http;
@@ -1886,6 +1887,259 @@ void main() {
         expect(await download(alice, fileId), 200);
       });
     });
+  });
+
+  group('Splits and Merges', () {
+    late ({String token, String id}) user;
+    late String collectionId;
+    late String wishlist;
+    late String primed;
+    late String a;
+
+    /// A random v4 UUID, for helpers that can't await [newId].
+    String uuid() {
+      final r = Random();
+      String hex(int n) =>
+          [for (var i = 0; i < n; i++) r.nextInt(16).toRadixString(16)].join();
+      return '${hex(8)}-${hex(4)}-4${hex(3)}-a${hex(3)}-${hex(12)}';
+    }
+
+    Map<String, Object?> putStageChange(
+      String unitId,
+      String? from,
+      String to,
+      int count,
+      String at,
+    ) => {
+      'op': 'PUT',
+      'type': 'stage_changes',
+      'id': uuid(),
+      'data': {
+        'unit_id': unitId,
+        'from_stage_id': from,
+        'to_stage_id': to,
+        'model_count': count,
+        'happened_at': at,
+      },
+    };
+
+    /// The count PATCH the app uploads after a Split or Merge: its local view, which the server ignores.
+    Map<String, Object?> patchCount(String unitId, int count) => {
+      'op': 'PATCH',
+      'type': 'units',
+      'id': unitId,
+      'data': {'model_count': count},
+    };
+
+    /// The app's Split batch: a new Unit at Primed with its Stage Change, the Split, then [source]'s new count.
+    List<Map<String, Object?>> split(
+      String source,
+      String created,
+      int count, {
+      required int localCount,
+      String? collection,
+    }) => [
+      putUnit(
+        created,
+        collectionId: collection ?? collectionId,
+        stageId: primed,
+        modelCount: count,
+      ),
+      putStageChange(created, wishlist, primed, count, '2026-11-13T10:00:00Z'),
+      {
+        'op': 'PUT',
+        'type': 'splits',
+        'id': uuid(),
+        'data': {
+          'unit_id': source,
+          'new_unit_id': created,
+          'model_count': count,
+        },
+      },
+      patchCount(source, localCount),
+    ];
+
+    /// The app's Merge batch: the Merge, then [unitId]'s new count and the delete of [other].
+    List<Map<String, Object?>> merge(
+      String unitId,
+      String other, {
+      required int localCount,
+    }) => [
+      {
+        'op': 'PUT',
+        'type': 'merges',
+        'id': uuid(),
+        'data': {'unit_id': unitId, 'merged_unit_id': other},
+      },
+      patchCount(unitId, localCount),
+      {'op': 'DELETE', 'type': 'units', 'id': other},
+    ];
+
+    Future<int?> count(String unitId) async =>
+        (await unit(unitId)).map((u) => u[2] as int).firstOrNull;
+
+    setUp(() async {
+      user = await signUp();
+      collectionId = await createCollection(user);
+      wishlist = await stageOf(user.id, 'Wishlist');
+      primed = await stageOf(user.id, 'Primed');
+      a = await newId();
+      final created = await upload(user.token, [
+        putUnit(a, collectionId: collectionId, stageId: wishlist),
+        putStageChange(a, null, wishlist, 10, '2026-11-13T09:00:00Z'),
+      ]);
+      expect(created.statusCode, 204, reason: created.body);
+    });
+
+    test('two concurrent offline Splits compose: 10 − 4 − 3 leaves 3, and a retry changes nothing', () async {
+      final (b, c) = (await newId(), await newId());
+      // Both devices saw 10 models, so each uploads its own stale count.
+      final first = split(a, b, 4, localCount: 6);
+      final responses = await Future.wait([
+        upload(user.token, first),
+        upload(user.token, split(a, c, 3, localCount: 7)),
+      ]);
+      for (final r in responses) {
+        expect(r.statusCode, 204, reason: r.body);
+      }
+
+      expect([await count(a), await count(b), await count(c)], [3, 4, 3]);
+      expect((await unit(b)).single[4], 'Primed');
+      expect((await upload(user.token, first)).statusCode, 204);
+      expect([await count(a), await count(b)], [3, 4]);
+    });
+
+    test('deleting a Collection takes its split and merged Units and their records with it', () async {
+      final (b, c) = (await newId(), await newId());
+      for (final batch in [
+        split(a, b, 4, localCount: 6),
+        split(a, c, 2, localCount: 4),
+        merge(b, c, localCount: 6),
+      ]) {
+        final r = await upload(user.token, batch);
+        expect(r.statusCode, 204, reason: r.body);
+      }
+
+      final deleted = await upload(user.token, [
+        {'op': 'DELETE', 'type': 'collections', 'id': collectionId},
+      ]);
+      expect(deleted.statusCode, 204, reason: deleted.body);
+      for (final table in ['units', 'splits', 'merges', 'stage_changes']) {
+        expect(
+          (await db.execute(
+            'SELECT count(*) FROM $table WHERE owner_id = \$1::uuid',
+            parameters: [user.id],
+          )).single.first,
+          0,
+          reason: table,
+        );
+      }
+    });
+
+    test('a Split that would leave fewer than 1 model is rejected, with nothing written', () async {
+      final (b, c, d) = (await newId(), await newId(), await newId());
+      expect(
+        (await upload(user.token, split(a, b, 4, localCount: 6))).statusCode,
+        204,
+      );
+
+      // Another device, still seeing 10, splits 6 off: that would leave 0.
+      final below = await upload(user.token, split(a, c, 6, localCount: 4));
+      expect(below.statusCode, 409, reason: below.body);
+      final all = await upload(user.token, split(a, d, 10, localCount: 1));
+      expect(all.statusCode, 409, reason: all.body);
+
+      expect([await count(a), await count(c), await count(d)], [6, null, null]);
+      final splits = await db.execute(
+        r'SELECT count(*) FROM splits WHERE unit_id = $1::uuid',
+        parameters: [a],
+      );
+      expect(splits.single.single, 1);
+    });
+
+    test(
+      "a Split of another user's Unit is rejected, with nothing written",
+      () async {
+        final bob = await signUp();
+        final bobsCollection = await createCollection(bob);
+        final b = await newId();
+
+        final response = await upload(
+          bob.token,
+          split(a, b, 4, localCount: 6, collection: bobsCollection),
+        );
+        expect(response.statusCode, 403, reason: response.body);
+        expect([await count(a), await count(b)], [10, null]);
+      },
+    );
+
+    test('a Merge adds the counts and deletes the merged Unit; a second Merge of it is rejected', () async {
+      final b = await newId();
+      expect(
+        (await upload(user.token, split(a, b, 4, localCount: 6))).statusCode,
+        204,
+      );
+      final moved = await upload(user.token, [
+        putStageChange(a, wishlist, primed, 6, '2026-11-13T11:00:00Z'),
+      ]);
+      expect(moved.statusCode, 204, reason: moved.body);
+
+      // Two devices Merge the same pair, one each way.
+      final merged = await upload(user.token, merge(a, b, localCount: 10));
+      expect(merged.statusCode, 204, reason: merged.body);
+      final again = await upload(user.token, merge(b, a, localCount: 10));
+      expect(again.statusCode, 422, reason: again.body);
+
+      expect([await count(a), await count(b)], [10, null]);
+      expect((await unit(a)).single[4], 'Primed');
+    });
+
+    test('a Merge racing a Split of the merged Unit counts it as the server has it', () async {
+      final (b, c) = (await newId(), await newId());
+      final atPrimed = await upload(user.token, [
+        ...split(a, b, 4, localCount: 6),
+        putStageChange(a, wishlist, primed, 6, '2026-11-13T11:00:00Z'),
+      ]);
+      expect(atPrimed.statusCode, 204, reason: atPrimed.body);
+
+      // Device X splits 1 of B's 4 back to Wishlist; device Y, offline, Merges B (it still sees 4) into A.
+      final splitOfB = await upload(user.token, [
+        putUnit(
+          c,
+          collectionId: collectionId,
+          stageId: wishlist,
+          modelCount: 1,
+        ),
+        putStageChange(c, primed, wishlist, 1, '2026-11-13T12:00:00Z'),
+        {
+          'op': 'PUT',
+          'type': 'splits',
+          'id': await newId(),
+          'data': {'unit_id': b, 'new_unit_id': c, 'model_count': 1},
+        },
+        patchCount(b, 3),
+      ]);
+      expect(splitOfB.statusCode, 204, reason: splitOfB.body);
+      final merged = await upload(user.token, merge(a, b, localCount: 10));
+      expect(merged.statusCode, 204, reason: merged.body);
+
+      expect([await count(a), await count(b), await count(c)], [9, null, 1]);
+    });
+
+    test(
+      'a Merge is rejected once the Units are no longer at the same Stage',
+      () async {
+        final b = await newId();
+        expect(
+          (await upload(user.token, split(a, b, 4, localCount: 6))).statusCode,
+          204,
+        );
+
+        final response = await upload(user.token, merge(a, b, localCount: 10));
+        expect(response.statusCode, 409, reason: response.body);
+        expect([await count(a), await count(b)], [6, 4]);
+      },
+    );
   });
 }
 

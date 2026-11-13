@@ -37,6 +37,8 @@ const _writable = {
   },
   'unit_tags': {'unit_id': 'uuid', 'name': 'text'},
   'photos': {'unit_id': 'uuid', 'file_id': 'uuid'},
+  'splits': {'unit_id': 'uuid', 'new_unit_id': 'uuid', 'model_count': 'int'},
+  'merges': {'unit_id': 'uuid', 'merged_unit_id': 'uuid'},
 };
 
 /// Columns that point at another synced row, and that row's table. The row must exist and be the user's own.
@@ -48,6 +50,8 @@ const _references = {
   'unit_id': 'units',
   'from_stage_id': 'stages',
   'to_stage_id': 'stages',
+  'new_unit_id': 'units',
+  'merged_unit_id': 'units',
 };
 
 /// Creates the synced tables, the trigger that gives each new account its starter Workflow,
@@ -118,6 +122,21 @@ CREATE TABLE IF NOT EXISTS photos (
 );
 CREATE INDEX IF NOT EXISTS photos_unit_id ON photos (unit_id);
 CREATE INDEX IF NOT EXISTS photos_owner_file ON photos (owner_id, file_id);
+-- Append-only deltas on units.model_count, applied once when first stored (see _applyDelta). A Split takes
+-- model_count models off unit_id into new_unit_id; a Merge adds merged_unit_id's models to unit_id and deletes it.
+CREATE TABLE IF NOT EXISTS splits (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  unit_id uuid NOT NULL REFERENCES units ON DELETE CASCADE,
+  new_unit_id uuid NOT NULL REFERENCES units ON DELETE CASCADE,
+  model_count integer NOT NULL CHECK (model_count >= 1)
+);
+CREATE TABLE IF NOT EXISTS merges (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  unit_id uuid NOT NULL REFERENCES units ON DELETE CASCADE,
+  merged_unit_id uuid NOT NULL
+);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -145,7 +164,7 @@ DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
     CREATE PUBLICATION powersync;
   END IF;
-  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos'])
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges'])
     EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
   LOOP
     EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
@@ -158,8 +177,9 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 /// `POST /upload` with `{"operations": [CrudEntry.toJson(), ...]}` and the user's GoTrue access token.
 /// Applies the operations in one transaction. Answers 401 for a bad token, 403 if any operation touches
 /// or points at another user's row, 409 for deleting a Workflow a Collection uses or a Stage that holds Units,
-/// 422 for an invalid operation (including a reference to a missing row, or a PATCH or DELETE of an append-only
-/// Stage Change) or a batch that leaves a Workflow invalid or a Unit at a Stage outside its Collection's Workflow
+/// a Split that would leave its Unit under 1 model, or a Merge of Units that no longer match, 422 for an invalid
+/// operation (including a reference to a missing row, or a PATCH or DELETE of an append-only Stage Change) or a batch
+/// that leaves a Workflow invalid or a Unit at a Stage outside its Collection's Workflow
 /// (nothing is written in those cases), and 204 on success.
 /// Conflicts are the latest write wins per field, and deletes win: a PATCH to a deleted row is ignored.
 /// Deleting a Collection deletes all its Units, including ones the client never saw.
@@ -207,8 +227,9 @@ Handler writeApi(Pool<void> db, Directory dir, {required String jwtSecret}) =>
         final unlinked = <String>{};
         await db.runTx((tx) async {
           final touched = _Touched();
+          final counted = <String>{};
           for (final op in operations) {
-            await _apply(tx, owner, op, touched, unlinked);
+            await _apply(tx, owner, op, touched, unlinked, counted);
           }
           await _checkWorkflows(tx, touched.workflows);
           await _checkUnitStages(tx, touched);
@@ -237,12 +258,15 @@ class _Touched {
 
 /// Applies [op], adding what it may have changed to [touched].
 /// Adds the photo files of the Photo rows it deletes to [unlinked], to delete once no row points at them.
+/// [counted] holds the Units whose count a Split or Merge earlier in the batch changed by a delta: the absolute
+/// model_count the app uploads for them in the same batch (its local view) is ignored.
 Future<void> _apply(
   TxSession tx,
   String owner,
   Map<String, Object?> op,
   _Touched touched,
   Set<String> unlinked,
+  Set<String> counted,
 ) async {
   final table = op['type'];
   final id = op['id'];
@@ -261,6 +285,9 @@ Future<void> _apply(
     } on ArgumentError catch (e) {
       throw _Rejected(422, '${e.message}');
     }
+  }
+  if (table == 'units' && op['op'] == 'PATCH' && counted.contains(id)) {
+    data.remove('model_count');
   }
 
   final existing = await tx.execute(
@@ -281,6 +308,23 @@ Future<void> _apply(
     if (op['op'] == 'PATCH') throw _Rejected(422, 'Photos cannot be edited');
     // A Photo never changes, so a repeated upload (a retry) changes nothing.
     if (op['op'] == 'PUT' && existing.isNotEmpty) return;
+  }
+  if (table == 'splits' || table == 'merges') {
+    if (op['op'] != 'PUT') throw _Rejected(422, '$table are append-only');
+    if (data['unit_id'] case final String unitId) counted.add(unitId);
+    // A retry: the delta was applied when it was first stored.
+    if (existing.isNotEmpty) return;
+    // Locks both Units in id order before anything reads them, so concurrent Splits and Merges of a Unit apply
+    // one after the other, each to the count the previous one left, without deadlocking.
+    await tx.execute(
+      r'SELECT FROM units WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE',
+      parameters: [
+        TypedValue(Type.textArray, [
+          for (final c in ['unit_id', 'new_unit_id', 'merged_unit_id'])
+            if (data[c] case final String id) id,
+        ]),
+      ],
+    );
   }
 
   // Skipped for a PATCH to a deleted row, which is ignored anyway (deletes win).
@@ -396,6 +440,9 @@ Future<void> _apply(
       throw _Rejected(422, 'Unknown op ${op['op']}');
   }
 
+  if (table == 'splits') await _split(tx, data);
+  if (table == 'merges') await _merge(tx, owner, data, unlinked);
+
   if (table == 'photos' && op['op'] == 'PUT') {
     // FOR UPDATE on the Unit makes concurrent batches adding Photos to it count one after the other.
     await tx.execute(
@@ -465,6 +512,69 @@ Future<void> _checkUnitStages(TxSession tx, _Touched touched) async {
       "${outside.first.first} is not in its Collection's Workflow",
     );
   }
+}
+
+/// Applies a newly stored Split as a delta: its models come off its Unit's count as it is now, so concurrent Splits
+/// add up (10 − 4 − 3 leaves 3). Rejected (409) if that would leave fewer than 1 model: a Split never takes all.
+Future<void> _split(TxSession tx, Map<String, Object?> data) async {
+  final rows = await tx.execute(
+    r'''SELECT a.model_count - $3::int FROM units a JOIN units b ON b.collection_id = a.collection_id AND b.id <> a.id
+      WHERE a.id = $1::uuid AND b.id = $2::uuid''',
+    parameters: [data['unit_id'], data['new_unit_id'], data['model_count']],
+  );
+  if (rows.isEmpty) {
+    throw _Rejected(422, 'A Split makes another Unit in the same Collection');
+  }
+  final left = rows.first.first as int;
+  if (left < 1) {
+    throw _Rejected(
+      409,
+      'Split of ${data['model_count']} would leave Unit ${data['unit_id']} with $left models',
+    );
+  }
+  await tx.execute(
+    r'UPDATE units SET model_count = $2::int WHERE id = $1::uuid',
+    parameters: [data['unit_id'], left],
+  );
+}
+
+/// Applies a newly stored Merge: adds the merged Unit's count as it is now to the Unit and deletes the merged Unit
+/// (its Stage Changes, Tags and Photos go with it; the app's batch copies them over). Rejected (409) unless both
+/// still share Collection, name and Stage, e.g. after a concurrent move; a second Merge of a Unit already merged
+/// away is rejected because the Unit no longer exists (422).
+Future<void> _merge(
+  TxSession tx,
+  String owner,
+  Map<String, Object?> data,
+  Set<String> unlinked,
+) async {
+  final rows = await tx.execute(
+    r'''SELECT b.model_count FROM units a JOIN units b ON b.collection_id = a.collection_id
+        AND b.name = a.name AND b.stage_id = a.stage_id AND b.id <> a.id
+      WHERE a.id = $1::uuid AND b.id = $2::uuid''',
+    parameters: [data['unit_id'], data['merged_unit_id']],
+  );
+  if (rows.isEmpty) {
+    throw _Rejected(
+      409,
+      'Only Units in the same Collection, with the same name, at the same Stage can be Merged',
+    );
+  }
+  await tx.execute(
+    r'UPDATE units SET model_count = model_count + $2::int WHERE id = $1::uuid',
+    parameters: [data['unit_id'], rows.first.first],
+  );
+  unlinked.addAll([
+    for (final row in await tx.execute(
+      r'SELECT file_id::text FROM photos WHERE unit_id = $1::uuid AND owner_id = $2::uuid',
+      parameters: [data['merged_unit_id'], owner],
+    ))
+      row.first as String,
+  ]);
+  await tx.execute(
+    r'DELETE FROM units WHERE id = $1::uuid',
+    parameters: [data['merged_unit_id']],
+  );
 }
 
 /// A Tag is never edited, only added and removed, and its id must be [tagId] of its Unit and name.

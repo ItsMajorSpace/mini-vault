@@ -15,3 +15,5 @@ streams:
       - SELECT * FROM stage_changes WHERE owner_id = auth.user_id()
       - SELECT * FROM unit_tags WHERE owner_id = auth.user_id()
       - SELECT * FROM photos WHERE owner_id = auth.user_id()
+      - SELECT * FROM splits WHERE owner_id = auth.user_id()
+      - SELECT * FROM merges WHERE owner_id = auth.user_id()
