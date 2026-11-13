@@ -5,6 +5,7 @@ import 'package:gotrue/gotrue.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'sync.dart';
+import 'theme.dart';
 
 /// Resets a forgotten password: GoTrue emails a code, which the user types in here with a new password.
 /// A code rather than a link, so the app needs no deep links. Using the code signs in.
@@ -199,6 +200,7 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
           onPressed: matches && widget.email.isNotEmpty
               ? () => Navigator.pop(context, true)
               : null,
+          style: destructive(context),
           child: const Text('Delete account'),
         ),
       ],

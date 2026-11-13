@@ -21,6 +21,7 @@ import 'package:powersync/attachments/io.dart';
 import 'package:powersync/powersync.dart' hide Column;
 
 import 'sync.dart';
+import 'theme.dart';
 import 'workflows.dart';
 
 /// The longest edge, in pixels, of an uploaded photo.
@@ -239,6 +240,7 @@ class _UnitPhotosState extends State<UnitPhotos> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
+            style: destructive(context),
             child: const Text('Remove'),
           ),
         ],
