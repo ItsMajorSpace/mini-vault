@@ -115,27 +115,12 @@ class _SquadScreenState extends State<SquadScreen> {
         () => widget.vault.editUnit(unit.id, modelCount: n),
       );
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete the Unit at ${g.stage.name}?'),
-        content: Text(
-          'Its ${modelCountText(unit.modelCount)}, photos and history will be deleted on all your devices.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: destructive(context),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDeleteUnit(
+      context,
+      'Delete the Unit at ${g.stage.name}?',
+      unit,
     );
-    if ((confirmed ?? false) && mounted) {
+    if (confirmed && mounted) {
       await attempt(context, () => widget.vault.deleteUnit(unit.id));
     }
   }
@@ -144,7 +129,8 @@ class _SquadScreenState extends State<SquadScreen> {
     context,
     widget.vault,
     widget.collection,
-    squad,
+    squad.name,
+    [for (final s in squad.stages) s.stage],
     g,
     // Several Units here: Merge them first, as before.
     onRecount: g.units.length > 1 ? null : () => _recount(g),
@@ -252,7 +238,6 @@ class _SquadScreenState extends State<SquadScreen> {
                   Opacity(
                     opacity: g.modelCount == 0 ? 0.38 : 1,
                     child: ListTile(
-                      dense: true,
                       leading: Icon(
                         Icons.circle,
                         size: 12,
@@ -305,32 +290,62 @@ class _SquadScreenState extends State<SquadScreen> {
   }
 }
 
-/// The Move sheet for a Stage of [squad] with models: how many to move and where, or recount them ([onRecount], null
-/// to disable), or open their details.
+/// Asks whether to delete [unit], titled [title]; true only once confirmed.
+Future<bool> confirmDeleteUnit(
+  BuildContext context,
+  String title,
+  Unit unit,
+) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(
+          'Its ${modelCountText(unit.modelCount)}, photos and history will be deleted on all your devices.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: destructive(context),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    ) ??
+    false;
+
+/// The Move sheet for a Stage of the Squad [name] with models, [stages] being its Workflow's: how many to move and
+/// where, or recount them ([onRecount], null to disable), or open their details ([onDetails], null to disable).
 Future<void> showMoveSheet(
   BuildContext context,
   Vault vault,
   Collection collection,
-  Squad squad,
+  String name,
+  List<Stage> stages,
   StageGroup from, {
   VoidCallback? onRecount,
-  required VoidCallback onDetails,
+  VoidCallback? onDetails,
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
   builder: (_) => _MoveSheet(
     from: from,
-    stages: [for (final s in squad.stages) s.stage],
+    stages: stages,
     onMove: (n, to) => attempt(
       context,
-      () => vault.moveModels(collection, squad.name, from.stage.id, to.id, n),
+      () => vault.moveModels(collection, name, from.stage.id, to.id, n),
     ),
     onRecount: onRecount,
     onDetails: onDetails,
   ),
 );
 
-/// Moves [from]'s models: a count from 1 to all of them, and a target Stage, the next one to start with.
+/// Moves [from]'s models: a count from 1 to all of them, all to start with, and a target Stage, the next one to start
+/// with.
 class _MoveSheet extends StatefulWidget {
   const _MoveSheet({
     required this.from,
@@ -346,14 +361,14 @@ class _MoveSheet extends StatefulWidget {
   final List<Stage> stages;
   final void Function(int count, Stage to) onMove;
   final VoidCallback? onRecount;
-  final VoidCallback onDetails;
+  final VoidCallback? onDetails;
 
   @override
   State<_MoveSheet> createState() => _MoveSheetState();
 }
 
 class _MoveSheetState extends State<_MoveSheet> {
-  int _count = 1;
+  late int _count = widget.from.modelCount;
   late Stage? _to = () {
     final i = widget.stages.indexWhere((s) => s.id == widget.from.stage.id);
     // The last Stage has no next one: preselect the one before it.
@@ -430,7 +445,9 @@ class _MoveSheetState extends State<_MoveSheet> {
                   child: const Text('Edit count'),
                 ),
                 TextButton(
-                  onPressed: _then(widget.onDetails),
+                  onPressed: widget.onDetails == null
+                      ? null
+                      : _then(widget.onDetails!),
                   child: const Text('Details'),
                 ),
               ],

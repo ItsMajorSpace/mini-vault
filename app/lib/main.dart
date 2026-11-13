@@ -426,7 +426,8 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                                   context,
                                   widget.vault,
                                   r.collection,
-                                  r.squad,
+                                  r.squad.name,
+                                  [for (final g in r.squad.stages) g.stage],
                                   r.from,
                                   // shortcut: no recount from here, it needs the Squad screen; open it for that.
                                   onDetails: () => Navigator.push(
@@ -895,48 +896,21 @@ class _UnitScreenState extends State<UnitScreen> {
     );
   }
 
-  /// Moves the whole Unit, or Splits it when fewer models than it has are moved.
-  Future<void> _move(Unit unit, List<Stage> stages) async {
-    final count = TextEditingController(text: '${unit.modelCount}');
-    final stageId = await showDialog<String>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Move to Stage'),
-        children: [
-          if (unit.modelCount > 1)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: TextField(
-                controller: count,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Models to move',
-                  helperText: 'Fewer than ${unit.modelCount} splits the Unit',
-                ),
-              ),
-            ),
-          for (final s in stages)
-            ListTile(
-              leading: Icon(
-                s.id == unit.stageId ? Icons.check : null,
-                semanticLabel: s.id == unit.stageId ? 'Current Stage' : null,
-              ),
-              title: Text(s.name),
-              onTap: () => Navigator.pop(context, s.id),
-            ),
-        ],
-      ),
+  /// The Move sheet for [unit]'s Stage among [groups]: moves some or all of its Squad's models there.
+  Future<void> _move(Unit unit, List<StageGroup> groups) {
+    final here = groups.firstWhere((g) => g.stage.id == unit.stageId);
+    return showMoveSheet(
+      context,
+      widget.vault,
+      widget.collection,
+      unit.name,
+      [for (final g in groups) g.stage],
+      // The Squad's models there, not the Collection's.
+      StageGroup(here.stage, [
+        for (final u in here.units)
+          if (u.name == unit.name) u,
+      ]),
     );
-    // Not disposed: the closing dialog's TextField still uses it; with no listeners left, it is just collected.
-    final n = int.tryParse(count.text.trim()) ?? 0;
-    if (stageId != null && mounted) {
-      await attempt(
-        context,
-        () => n == unit.modelCount
-            ? widget.vault.moveUnit(unit, stageId)
-            : widget.vault.splitUnit(unit, stageId, n),
-      );
-    }
   }
 
   /// Merges a chosen matching Unit into [unit], only on explicit confirmation.
@@ -1020,7 +994,7 @@ class _UnitScreenState extends State<UnitScreen> {
                         : '${unit.modelCount} models',
                   ),
                   trailing: FilledButton(
-                    onPressed: () => _move(unit, stages),
+                    onPressed: () => _move(unit, groups),
                     child: const Text('Move'),
                   ),
                 ),
@@ -1254,7 +1228,16 @@ class _UnitDialogState extends State<_UnitDialog> {
       actions: [
         if (widget.unit != null)
           TextButton(
-            onPressed: () => _close(delete: true),
+            onPressed: () async {
+              if (await confirmDeleteUnit(
+                    context,
+                    'Delete this Unit?',
+                    widget.unit!,
+                  ) &&
+                  mounted) {
+                _close(delete: true);
+              }
+            },
             style: destructive(context),
             child: const Text('Delete'),
           ),

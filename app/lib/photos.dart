@@ -226,7 +226,7 @@ class _WriteApiStorage implements RemoteStorage {
       _check(await http.delete(_url(a), headers: await _headers()), {204, 404});
 }
 
-/// A Unit's photos in a row, with buttons to add one from the camera or gallery. Tapping a photo offers to remove it.
+/// A Unit's photos in a row, with buttons to add one from the camera or gallery. Tapping a photo opens the viewer.
 class UnitPhotos extends StatefulWidget {
   const UnitPhotos({
     super.key,
@@ -261,27 +261,14 @@ class _UnitPhotosState extends State<UnitPhotos> {
     }
   }
 
-  Future<void> _remove(Photo photo, File? file) async {
-    final remove = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: file == null ? null : Image.file(file),
-        title: const Text('Remove this photo?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: destructive(context),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-    if (remove ?? false) await widget.vault.removePhoto(photo.id);
-  }
+  Future<void> _view(List<(Photo, File?)> photos, int index) => Navigator.push(
+    context,
+    MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) =>
+          _PhotoViewer(photos: photos, index: index, vault: widget.vault),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -296,12 +283,12 @@ class _UnitPhotosState extends State<UnitPhotos> {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             children: [
-              for (final (photo, file) in photos)
+              for (final (i, (photo, file)) in photos.indexed)
                 Padding(
                   key: ValueKey(photo.id),
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: InkWell(
-                    onTap: () => _remove(photo, file),
+                    onTap: () => _view(photos, i),
                     child: SizedBox.square(
                       dimension: 96,
                       child: file == null
@@ -332,6 +319,96 @@ class _UnitPhotosState extends State<UnitPhotos> {
           ),
         );
       },
+    );
+  }
+}
+
+/// [photos] full screen from [index]: swipe between them, pinch to zoom, and remove one once confirmed.
+class _PhotoViewer extends StatefulWidget {
+  const _PhotoViewer({
+    required this.photos,
+    required this.index,
+    required this.vault,
+  });
+
+  final List<(Photo, File?)> photos;
+  final int index;
+  final Vault vault;
+
+  @override
+  State<_PhotoViewer> createState() => _PhotoViewerState();
+}
+
+class _PhotoViewerState extends State<_PhotoViewer> {
+  late final _pages = PageController(initialPage: widget.index);
+  late int _index = widget.index;
+
+  @override
+  void dispose() {
+    _pages.dispose();
+    super.dispose();
+  }
+
+  Future<void> _remove() async {
+    final (photo, _) = widget.photos[_index];
+    final remove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove this photo?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: destructive(context),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (!(remove ?? false) || !mounted) return;
+    await attempt(context, () => widget.vault.removePhoto(photo.id));
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text('${_index + 1} of ${widget.photos.length}'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Remove photo',
+            onPressed: _remove,
+          ),
+        ],
+      ),
+      body: PageView(
+        controller: _pages,
+        onPageChanged: (i) => setState(() => _index = i),
+        children: [
+          for (final (photo, file) in widget.photos)
+            InteractiveViewer(
+              key: ValueKey(photo.id),
+              maxScale: 5,
+              child: Center(
+                child: file == null
+                    ? const Icon(
+                        Icons.cloud_download,
+                        color: Colors.white,
+                        semanticLabel: 'Photo not downloaded yet',
+                      )
+                    : Image.file(file, semanticLabel: 'Photo'),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
