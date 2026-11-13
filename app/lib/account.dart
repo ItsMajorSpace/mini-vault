@@ -1,8 +1,9 @@
-/// Password reset and account deletion. Signing out is in the Collections screen's account menu.
+/// Password reset, account deletion and the app version. Signing out is in the Collections screen's account menu.
 library;
 
 import 'package:gotrue/gotrue.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'sync.dart';
 import 'theme.dart';
@@ -206,4 +207,18 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
       ],
     );
   }
+}
+
+/// The app's `version (build)`, e.g. `0.3.0 (42)`, so bug reports say which release they came from.
+class AppVersion extends StatelessWidget {
+  const AppVersion({super.key});
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder(
+    future: PackageInfo.fromPlatform(),
+    builder: (context, snapshot) => Text(switch (snapshot.data) {
+      final info? => '${info.version} (${info.buildNumber})',
+      null => '',
+    }),
+  );
 }

@@ -10,6 +10,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
 import 'package:mini_vault/workflows.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:powersync/attachments/attachments.dart';
 import 'package:powersync/powersync.dart';
 
@@ -107,6 +108,23 @@ void main() {
     await tester.tap(find.text('Delete account'));
     await tester.pumpAndSettle();
     expect(deletes, 1);
+  });
+
+  testWidgets('the account menu shows the app version and build', (
+    tester,
+  ) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'mini_vault',
+      packageName: 'mini_vault',
+      version: '0.0.0-dev',
+      buildNumber: '0',
+      buildSignature: '',
+    );
+    final db = await openDb(tester, waiting: 0);
+    await pumpCollections(tester, db);
+
+    await openMenu(tester);
+    expect(find.text('0.0.0-dev (0)'), findsOneWidget);
   });
 
   testWidgets('the account menu opens Workflows', (tester) async {
