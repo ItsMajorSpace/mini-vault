@@ -143,12 +143,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # Matches JavaVersion.VERSION_17 in app/android/app/build.gradle.kts.
+      # Runs Gradle; AGP 9.3 lint needs JDK 21 (the app still targets Java 17).
       - name: Set up Java
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
