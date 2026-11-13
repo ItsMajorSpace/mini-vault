@@ -147,6 +147,46 @@ class _SquadScreenState extends State<SquadScreen> {
     }
   }
 
+  /// Tap moves 1 model from [from] to [to]; long-press asks how many.
+  Widget _moveButton(
+    Squad squad,
+    StageGroup from,
+    StageGroup to,
+    IconData icon,
+  ) {
+    final available = from.modelCount;
+    Future<void> move(int n) => attempt(
+      context,
+      () => widget.vault.moveModels(
+        widget.collection,
+        squad.name,
+        from.stage.id,
+        to.stage.id,
+        n,
+      ),
+    );
+    return GestureDetector(
+      onLongPress: available == 0
+          ? null
+          : () async {
+              final n = await showDialog<int>(
+                context: context,
+                builder: (_) => _MoveCountDialog(available: available),
+              );
+              if (n != null && mounted) await move(n);
+            },
+      child: IconButton(
+        icon: Icon(
+          icon,
+          semanticLabel:
+              'Move 1 model from ${from.stage.name} to ${to.stage.name}',
+        ),
+        color: Theme.of(context).colorScheme.primary,
+        onPressed: available == 0 ? null : () => move(1),
+      ),
+    );
+  }
+
   Future<void> _open(Unit unit) async {
     await Navigator.push(
       context,
@@ -206,7 +246,7 @@ class _SquadScreenState extends State<SquadScreen> {
                     ),
                   ),
                 ),
-                for (final g in squad.stages) ...[
+                for (final (i, g) in squad.stages.indexed) ...[
                   ListTile(
                     title: Text(g.stage.name),
                     subtitle: LinearProgressIndicator(
@@ -236,14 +276,87 @@ class _SquadScreenState extends State<SquadScreen> {
                     // shortcut: with several Units at a Stage this opens the first; Merge them to see one.
                     onTap: g.units.isEmpty ? null : () => _open(g.units.first),
                   ),
-                  // Room between Stages for the move buttons to come (#36).
-                  const SizedBox(height: 16),
+                  if (i + 1 < squad.stages.length)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _moveButton(
+                          squad,
+                          g,
+                          squad.stages[i + 1],
+                          Icons.keyboard_arrow_down,
+                        ),
+                        _moveButton(
+                          squad,
+                          squad.stages[i + 1],
+                          g,
+                          Icons.keyboard_arrow_up,
+                        ),
+                      ],
+                    ),
                 ],
               ],
             ),
           },
         );
       },
+    );
+  }
+}
+
+/// "Move how many?", prefilled with every model at the source Stage; pops the count.
+class _MoveCountDialog extends StatefulWidget {
+  const _MoveCountDialog({required this.available});
+
+  final int available;
+
+  @override
+  State<_MoveCountDialog> createState() => _MoveCountDialogState();
+}
+
+class _MoveCountDialogState extends State<_MoveCountDialog> {
+  final _form = GlobalKey<FormState>();
+  late final _count = TextEditingController(text: '${widget.available}');
+
+  @override
+  void dispose() {
+    _count.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    void move() {
+      if (_form.currentState!.validate()) {
+        Navigator.pop(context, int.parse(_count.text.trim()));
+      }
+    }
+
+    return AlertDialog(
+      title: const Text('Move how many?'),
+      content: Form(
+        key: _form,
+        child: TextFormField(
+          controller: _count,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Models'),
+          validator: (v) {
+            final n = int.tryParse(v!.trim()) ?? 0;
+            return n < 1 || n > widget.available
+                ? 'From 1 to ${widget.available}'
+                : null;
+          },
+          onFieldSubmitted: (_) => move(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(onPressed: move, child: const Text('Move')),
+      ],
     );
   }
 }
