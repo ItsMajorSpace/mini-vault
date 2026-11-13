@@ -580,7 +580,10 @@ class _UnitPaintsState extends State<_UnitPaints> {
             title: Text(l.paint.name),
             subtitle: Text(
               [
-                '${l.paint.brand} / ${l.paint.range}',
+                [
+                  l.paint.brand,
+                  if (l.paint.range.isNotEmpty) l.paint.range,
+                ].join(' / '),
                 if (l.note.isNotEmpty) l.note,
                 if (!l.paint.owned) 'Wanted',
               ].join(' · '),

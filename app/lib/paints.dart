@@ -82,7 +82,7 @@ class _PaintsScreenState extends State<PaintsScreen> {
       builder: (context) => AlertDialog(
         title: Text('Delete ${paint.name}?'),
         content: Text(
-          '${paint.brand} ${paint.range} ${paint.name} will be removed from your paints on all your devices.'
+          '${paint.label} will be removed from your paints on all your devices.'
           '${units == 0 ? '' : ' ${units == 1 ? '1 Unit uses' : '$units Units use'} it; it will be removed from them.'}',
         ),
         actions: [
@@ -180,7 +180,7 @@ class _PaintsScreenState extends State<PaintsScreen> {
                   ListTile(
                     key: ValueKey(p.id),
                     title: Text(p.name),
-                    subtitle: Text(p.range),
+                    subtitle: p.range.isEmpty ? null : Text(p.range),
                     onTap: () => _edit(p),
                     trailing: ChoiceChip(
                       label: Text(p.owned ? 'Owned' : 'Wanted'),
@@ -432,7 +432,7 @@ class _AddPaintDialogState extends State<AddPaintDialog> {
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 24,
                       ),
-                      title: Text('${p.brand} / ${p.range} / ${p.name}'),
+                      title: Text(p.label),
                       onTap: () => Navigator.pop(context, p),
                     ),
                 ],
