@@ -498,8 +498,8 @@ void main() {
       await tester.tap(find.text('Captain'));
       await settle();
       expect(find.text('Move from Primed'), findsOneWidget);
-      expect(find.text('1 of 3'), findsOneWidget);
-      expect(find.text('Move 1 model to Painted'), findsOneWidget);
+      expect(find.text('3 of 3'), findsOneWidget);
+      expect(find.text('Move 3 models to Painted'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox());
     },
