@@ -332,4 +332,126 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets(
+    'Collection actions live in the Collection screen menu, not on the rows',
+    (tester) async {
+      final (db, vault) = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        for (final w in ['w', 'w2']) {
+          await db.execute(
+            "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES (?, ?, 's$w', 's$w')",
+            [w, w == 'w' ? 'Starter' : 'Speed Paint'],
+          );
+          await db.execute(
+            "INSERT INTO stages (id, workflow_id, name, position) VALUES ('s$w', ?, 'Wishlist', 0)",
+            [w],
+          );
+        }
+        final vault = Vault(SqliteVaultStore(db));
+        final c = await vault.createCollection(
+          'Space Marines',
+          workflowId: 'w',
+        );
+        await vault.addUnit(c, name: 'Captain', modelCount: 1, stageId: 'sw');
+        return (db, vault);
+      }))!;
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      // Taps outside the fake-async zone: SQLite I/O started from a tap inside it never completes.
+      Future<void> tapAndWait(Finder finder) async {
+        await tester.runAsync(() async {
+          await tester.tap(finder);
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        });
+        await settle();
+      }
+
+      Future<void> openMenu() async {
+        await tester.tap(find.byTooltip('Collection'));
+        await tester.pumpAndSettle();
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CollectionsScreen(vault: vault, db: db),
+        ),
+      );
+      await settle();
+
+      // The row shows only its name and Progress.
+      final row = find.ancestor(
+        of: find.text('Space Marines'),
+        matching: find.byType(ListTile),
+      );
+      expect(
+        find.descendant(of: row, matching: find.byType(IconButton)),
+        findsNothing,
+      );
+      for (final tip in [
+        'Switch Workflow',
+        'Edit Collection',
+        'Delete Collection',
+      ]) {
+        expect(find.byTooltip(tip), findsNothing);
+      }
+
+      await tester.tap(row);
+      await settle();
+      await openMenu();
+      final order = ['Edit Collection', 'Switch Workflow', 'Delete Collection'];
+      final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
+      expect(tops, [...tops]..sort(), reason: 'in the order $order');
+      expect(find.byType(PopupMenuDivider), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byType(PopupMenuDivider)).dy,
+        inExclusiveRange(tops[1], tops[2]),
+      );
+
+      // Edit: a rename shows in the title.
+      await tapAndWait(find.text('Edit Collection'));
+      expect(find.byType(NewCollectionDialog), findsOneWidget);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Name'),
+        'Ultramarines',
+      );
+      await tapAndWait(find.text('Save'));
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('Ultramarines'),
+        ),
+        findsOneWidget,
+      );
+
+      // Switch Workflow offers the other Workflow.
+      await openMenu();
+      await tapAndWait(find.text('Switch Workflow'));
+      expect(find.text('Switch Ultramarines to'), findsOneWidget);
+      expect(find.text('Speed Paint'), findsOneWidget);
+      await tester.tapAt(const Offset(5, 5)); // Dismisses it.
+      await tester.pumpAndSettle();
+
+      // Delete asks, then goes back to the Collections screen.
+      await openMenu();
+      await tapAndWait(find.text('Delete Collection'));
+      expect(find.text('Delete Ultramarines?'), findsOneWidget);
+      await tapAndWait(find.text('Delete'));
+      expect(find.byType(CollectionScreen), findsNothing);
+      expect(find.text('No Collections yet'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 }

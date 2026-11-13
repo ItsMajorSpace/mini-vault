@@ -191,7 +191,7 @@ class CollectionsScreen extends StatefulWidget {
   /// The signed-in user's, shown atop the account menu.
   final String? email;
 
-  /// Null hides the account menu.
+  /// Null hides Sign out and Delete account.
   final VoidCallback? onSignOut;
   final VoidCallback? onDeleteAccount;
 
@@ -286,57 +286,6 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
     }
   }
 
-  Future<void> _edit(Collection collection) async {
-    final gameSystems = await widget.vault.gameSystems();
-    if (!mounted) return;
-    final edited = await showDialog<(String, String?, String)>(
-      context: context,
-      builder: (_) =>
-          NewCollectionDialog(gameSystems: gameSystems, collection: collection),
-    );
-    if (edited case (final name, _, final gameSystem) when mounted) {
-      // Only changed fields, so an edit to the other field on another device is kept.
-      await attempt(context, () async {
-        if (name.trim() != collection.name) {
-          await widget.vault.renameCollection(collection.id, name);
-        }
-        if (validGameSystem(gameSystem) != collection.gameSystem) {
-          await widget.vault.setGameSystem(collection.id, gameSystem);
-        }
-      });
-    }
-  }
-
-  /// Asks first, saying how many Units and models go with the Collection.
-  Future<void> _delete(Collection collection) async {
-    final units = await widget.vault.unitsOf(collection);
-    if (!mounted) return;
-    final models = units.fold(0, (sum, u) => sum + u.modelCount);
-    String count(int n, String noun) => n == 1 ? '1 $noun' : '$n ${noun}s';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete ${collection.name}?'),
-        content: Text(
-          'Its ${count(units.length, 'Unit')} (${count(models, 'model')}) and their history, '
-          'Tags and photos will be deleted on all your devices.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: destructive(context),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed ?? false) await widget.vault.deleteCollection(collection.id);
-  }
-
   @override
   Widget build(BuildContext context) => StreamBuilder(
     stream: _collections,
@@ -344,41 +293,40 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
       appBar: AppBar(
         title: const Text('Collections'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.account_tree),
-            tooltip: 'Workflows',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => WorkflowsScreen(vault: widget.vault),
+          PopupMenuButton<VoidCallback>(
+            tooltip: 'Account',
+            onSelected: (action) => action(),
+            itemBuilder: (context) => [
+              if (widget.email case final email?)
+                PopupMenuItem(enabled: false, child: Text(email)),
+              PopupMenuItem(
+                value: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => WorkflowsScreen(vault: widget.vault),
+                  ),
+                ),
+                child: const Text('Workflows'),
               ),
-            ),
-          ),
-          if (widget.onSignOut case final signOut?)
-            PopupMenuButton<VoidCallback>(
-              tooltip: 'Account',
-              onSelected: (action) => action(),
-              itemBuilder: (context) => [
-                if (widget.email case final email?)
-                  PopupMenuItem(enabled: false, child: Text(email)),
+              if (widget.onSignOut case final signOut?)
                 PopupMenuItem(
                   value: () => _signOut(signOut),
                   child: const Text('Sign out'),
                 ),
-                if (widget.onDeleteAccount case final delete?) ...[
-                  const PopupMenuDivider(),
-                  PopupMenuItem(
-                    value: delete,
-                    child: Text(
-                      'Delete account',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+              if (widget.onDeleteAccount case final delete?) ...[
+                const PopupMenuDivider(),
+                PopupMenuItem(
+                  value: delete,
+                  child: Text(
+                    'Delete account',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
                     ),
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
+          ),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(32),
@@ -485,28 +433,6 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                         ),
                       ),
                     ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.swap_horiz),
-                          tooltip: 'Switch Workflow',
-                          onPressed: () =>
-                              switchWorkflow(context, widget.vault, c),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit),
-                          tooltip: 'Edit Collection',
-                          onPressed: () => _edit(c),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete),
-                          tooltip: 'Delete Collection',
-                          style: destructive(context),
-                          onPressed: () => _delete(c),
-                        ),
-                      ],
-                    ),
                   ),
               ],
             ],
@@ -554,10 +480,87 @@ class CollectionScreen extends StatefulWidget {
 }
 
 class _CollectionScreenState extends State<CollectionScreen> {
-  late final _squads = widget.vault.watchSquads(widget.collection);
-  late final _progress = widget.vault.watchProgressByWorkflow(
-    widget.collection,
-  );
+  // Kept current, so a rename shows in the title and a Workflow switch restarts the watches below.
+  late var _collection = widget.collection;
+  late var _squads = widget.vault.watchSquads(_collection);
+  late var _progress = widget.vault.watchProgressByWorkflow(_collection);
+  late final StreamSubscription<List<Collection>> _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscription = widget.vault.watchCollections().listen((collections) {
+      for (final c in collections) {
+        if (c.id != _collection.id) continue;
+        setState(() {
+          if (c.workflowId != _collection.workflowId) {
+            _squads = widget.vault.watchSquads(c);
+            _progress = widget.vault.watchProgressByWorkflow(c);
+          }
+          _collection = c;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+
+  Future<void> _edit(Collection collection) async {
+    final gameSystems = await widget.vault.gameSystems();
+    if (!mounted) return;
+    final edited = await showDialog<(String, String?, String)>(
+      context: context,
+      builder: (_) =>
+          NewCollectionDialog(gameSystems: gameSystems, collection: collection),
+    );
+    if (edited case (final name, _, final gameSystem) when mounted) {
+      // Only changed fields, so an edit to the other field on another device is kept.
+      await attempt(context, () async {
+        if (name.trim() != collection.name) {
+          await widget.vault.renameCollection(collection.id, name);
+        }
+        if (validGameSystem(gameSystem) != collection.gameSystem) {
+          await widget.vault.setGameSystem(collection.id, gameSystem);
+        }
+      });
+    }
+  }
+
+  /// Asks first, saying how many Units and models go with the Collection; back to the Collections once deleted.
+  Future<void> _delete(Collection collection) async {
+    final units = await widget.vault.unitsOf(collection);
+    if (!mounted) return;
+    final models = units.fold(0, (sum, u) => sum + u.modelCount);
+    String count(int n, String noun) => n == 1 ? '1 $noun' : '$n ${noun}s';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete ${collection.name}?'),
+        content: Text(
+          'Its ${count(units.length, 'Unit')} (${count(models, 'model')}) and their history, '
+          'Tags and photos will be deleted on all your devices.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: destructive(context),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (!(confirmed ?? false)) return;
+    await widget.vault.deleteCollection(collection.id);
+    if (mounted) Navigator.pop(context);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -567,7 +570,34 @@ class _CollectionScreenState extends State<CollectionScreen> {
         final squads = snapshot.data;
         return Scaffold(
           appBar: AppBar(
-            title: Text(widget.collection.name),
+            title: Text(_collection.name),
+            actions: [
+              PopupMenuButton<VoidCallback>(
+                tooltip: 'Collection',
+                onSelected: (action) => action(),
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: () => _edit(_collection),
+                    child: const Text('Edit Collection'),
+                  ),
+                  PopupMenuItem(
+                    value: () =>
+                        switchWorkflow(context, widget.vault, _collection),
+                    child: const Text('Switch Workflow'),
+                  ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: () => _delete(_collection),
+                    child: Text(
+                      'Delete Collection',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(32),
               child: SyncStatusBar(db: widget.db, onSyncNow: widget.onSyncNow),
@@ -593,7 +623,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                         builder: (_) => SquadScreen(
                           vault: widget.vault,
                           photos: widget.photos,
-                          collection: widget.collection,
+                          collection: _collection,
                           name: squad.name,
                         ),
                       ),
@@ -613,12 +643,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
           floatingActionButton: squads == null
               ? null
               : FloatingActionButton(
-                  onPressed: () => addUnit(
-                    context,
-                    widget.vault,
-                    widget.collection,
-                    [for (final s in squads) s.name],
-                  ),
+                  onPressed: () => addUnit(context, widget.vault, _collection, [
+                    for (final s in squads) s.name,
+                  ]),
                   tooltip: 'New Unit',
                   child: const Icon(Icons.add),
                 ),
