@@ -154,10 +154,11 @@ void main() {
         ['Starter', 'Unassembled', 'Done', true],
       ]);
       final stages = await db.execute(
-        r'SELECT name FROM stages WHERE owner_id = $1::uuid ORDER BY position',
+        r'SELECT name, colour FROM stages WHERE owner_id = $1::uuid ORDER BY position',
         parameters: [user.id],
       );
       expect(stages.map((r) => r.first), Vault.starterStageNames);
+      expect(stages.map((r) => r.last), Vault.stageColours.take(7));
     },
   );
 
@@ -422,8 +423,8 @@ void main() {
       parameters: [otherWorkflow, otherStage, user.id],
     );
     await db.execute(
-      r'''INSERT INTO stages (id, owner_id, workflow_id, name, position)
-        VALUES ($2::uuid, $3::uuid, $1::uuid, 'Elsewhere', 0)''',
+      r'''INSERT INTO stages (id, owner_id, workflow_id, name, position, colour)
+        VALUES ($2::uuid, $3::uuid, $1::uuid, 'Elsewhere', 0, '#FF7B7B')''',
       parameters: [otherWorkflow, otherStage, user.id],
     );
     final id = await newId();
@@ -743,7 +744,12 @@ void main() {
         'op': 'PUT',
         'type': 'stages',
         'id': stageId,
-        'data': {'workflow_id': id, 'name': 'Stage $i', 'position': i},
+        'data': {
+          'workflow_id': id,
+          'name': 'Stage $i',
+          'position': i,
+          'colour': Vault.stageColours[i],
+        },
       },
   ];
 
@@ -795,6 +801,56 @@ void main() {
     expect(edited.statusCode, 204, reason: edited.body);
     expect(await stagesOf(id), ['Stage 2', 'Stage 1']);
   });
+
+  test(
+    'a Stage colour is set per field; one not #RRGGBB is rejected',
+    () async {
+      final user = await signUp();
+      final primed = await stageOf(user.id, 'Primed');
+      Future<Object?> colour() async => (await db.execute(
+        r'SELECT colour FROM stages WHERE id = $1::uuid',
+        parameters: [primed],
+      )).single.first;
+      Map<String, Object?> patch(Object? colour) => {
+        'op': 'PATCH',
+        'type': 'stages',
+        'id': primed,
+        'data': {'colour': colour},
+      };
+
+      final set = await upload(user.token, [patch('#12AB9F')]);
+      expect(set.statusCode, 204, reason: set.body);
+      expect(await colour(), '#12AB9F');
+
+      for (final bad in [
+        '#12ab9f',
+        '12AB9F',
+        '#12AB9',
+        '#12AB9F00',
+        'red',
+        '',
+        null,
+        42,
+      ]) {
+        final response = await upload(user.token, [patch(bad)]);
+        expect(response.statusCode, 422, reason: '$bad: ${response.body}');
+      }
+      final missing = await upload(user.token, [
+        {
+          'op': 'PUT',
+          'type': 'stages',
+          'id': await newId(),
+          'data': {
+            'workflow_id': await workflowOf(user.id),
+            'name': 'Uncoloured',
+            'position': 9,
+          },
+        },
+      ]);
+      expect(missing.statusCode, 422, reason: missing.body);
+      expect(await colour(), '#12AB9F');
+    },
+  );
 
   test(
     'a batch that leaves a Workflow invalid is rejected as a whole',

@@ -444,9 +444,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
                 for (final squad in squads)
                   ListTile(
                     title: Text(squad.name),
-                    subtitle: LinearProgressIndicator(
-                      value: squad.progress.finishedShare,
-                    ),
+                    subtitle: StageBar(squad.progress),
                     trailing: Text(modelCountText(squad.modelCount)),
                     onTap: () => Navigator.push(
                       context,

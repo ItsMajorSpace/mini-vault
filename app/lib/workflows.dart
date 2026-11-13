@@ -134,6 +134,32 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
         await attempt(context, () => vault.setOwnedStage(id, stage.id));
       case _StageAction.finished:
         await attempt(context, () => vault.setFinishedStage(id, stage.id));
+      case _StageAction.colour:
+        final colour = await showDialog<String>(
+          context: context,
+          builder: (context) => SimpleDialog(
+            title: Text('Colour of ${stage.name}'),
+            contentPadding: const EdgeInsets.all(16),
+            children: [
+              Wrap(
+                children: [
+                  for (final c in Vault.stageColours)
+                    IconButton(
+                      tooltip: c,
+                      icon: Icon(
+                        c == stage.colour ? Icons.check_circle : Icons.circle,
+                        color: stageColour(c),
+                      ),
+                      onPressed: () => Navigator.pop(context, c),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        );
+        if (colour != null && mounted) {
+          await attempt(context, () => vault.setStageColour(stage.id, colour));
+        }
       case _StageAction.delete:
         await _deleteStage(stage);
     }
@@ -259,6 +285,7 @@ enum _StageAction {
   addBelow('Add Stage below'),
   owned('Set as Owned Stage'),
   finished('Set as Finished Stage'),
+  colour('Set colour'),
   delete('Delete');
 
   const _StageAction(this.label);

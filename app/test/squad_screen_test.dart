@@ -5,6 +5,7 @@ import 'package:domain_core/sqlite_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/squad.dart';
+import 'package:mini_vault/theme.dart';
 import 'package:powersync/powersync.dart';
 
 // shortcut: the database is never closed once the screen has been mounted (see collections_screen_test.dart).
@@ -97,6 +98,16 @@ void main() {
             p.value,
         ],
         [10 / 12, 0, 2 / 12],
+      );
+      // Each bar in its Stage's colour.
+      expect(
+        [
+          for (final p in tester.widgetList<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          ))
+            p.color,
+        ],
+        [for (final c in Vault.stageColours.take(3)) stageColour(c)],
       );
       // The union of its Units' Tags, read-only; not the Captain's.
       expect(find.widgetWithText(Chip, '40k'), findsOneWidget);

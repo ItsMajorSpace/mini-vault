@@ -8,10 +8,23 @@ import 'package:uuid/uuid.dart';
 
 /// One step in a [Workflow].
 class Stage {
-  const Stage({required this.id, required this.name});
+  const Stage({required this.id, required this.name, required this.colour});
 
   final String id;
   final String name;
+
+  /// `#RRGGBB`, one of [Vault.stageColours] unless set elsewhere; see [validColour].
+  final String colour;
+
+  @override
+  bool operator ==(Object other) =>
+      other is Stage &&
+      other.id == id &&
+      other.name == name &&
+      other.colour == colour;
+
+  @override
+  int get hashCode => Object.hash(id, name, colour);
 }
 
 /// An ordered, linear list of [Stage]s, reusable across Collections.
@@ -165,6 +178,7 @@ class Progress {
     required this.wanted,
     required this.owned,
     required this.finished,
+    required this.stages,
   });
 
   /// Models before the Owned Stage.
@@ -176,6 +190,9 @@ class Progress {
   /// Models at the Finished Stage or later; always part of [owned].
   final int finished;
 
+  /// The owned models per Stage: each Stage from the Owned Stage on that has models, in Workflow order.
+  final List<({Stage stage, int models})> stages;
+
   /// [finished] as a share of [owned], 0 when nothing is owned.
   double get finishedShare => owned == 0 ? 0 : finished / owned;
 
@@ -184,10 +201,13 @@ class Progress {
       other is Progress &&
       other.wanted == wanted &&
       other.owned == owned &&
-      other.finished == finished;
+      other.finished == finished &&
+      other.stages.length == stages.length &&
+      stages.indexed.every((e) => other.stages[e.$1] == e.$2);
 
   @override
-  int get hashCode => Object.hash(wanted, owned, finished);
+  int get hashCode =>
+      Object.hash(wanted, owned, finished, Object.hashAll(stages));
 
   @override
   String toString() => '$finished / $owned finished, $wanted wanted';
@@ -200,14 +220,24 @@ Progress progressOf(Workflow workflow, Iterable<Unit> units) {
   final owned = index[workflow.ownedStage.id]!;
   final finished = index[workflow.finishedStage.id]!;
   var (w, o, f) = (0, 0, 0);
+  final perStage = List.filled(workflow.stages.length, 0);
   for (final u in units) {
     final i = index[u.stageId];
     if (i == null) continue;
     if (i < owned) w += u.modelCount;
     if (i >= owned) o += u.modelCount;
     if (i >= finished) f += u.modelCount;
+    perStage[i] += u.modelCount;
   }
-  return Progress(wanted: w, owned: o, finished: f);
+  return Progress(
+    wanted: w,
+    owned: o,
+    finished: f,
+    stages: [
+      for (final (i, s) in workflow.stages.indexed)
+        if (i >= owned && perStage[i] > 0) (stage: s, models: perStage[i]),
+    ],
+  );
 }
 
 /// The narrow storage interface the domain core talks to.
@@ -231,6 +261,7 @@ abstract interface class VaultStore {
   /// Inserts [stage] into the Workflow and stores [order] (all its Stage ids, the new one included) as the Stage order.
   Future<void> insertStage(String workflowId, Stage stage, List<String> order);
   Future<void> renameStage(String id, String name);
+  Future<void> setStageColour(String id, String colour);
 
   /// Stores [order] (all of a Workflow's Stage ids) as its Stage order.
   Future<void> reorderStages(List<String> order);
@@ -353,10 +384,23 @@ class Vault {
 
   Stream<List<Workflow>> watchWorkflows() => _store.watchWorkflows();
 
+  /// The swatches a Stage's colour is picked from: 12 hues, then 4 neutrals. Each reaches AA contrast (>= 4.5:1)
+  /// on the app's gunmetal background. A new Workflow's Stages, and the server's backfill, take them by position.
+  static const stageColours = [
+    '#FF7B7B', '#FF9E5E', '#FFC24D', '#F2E05C', '#B5E061', '#6FD98A', //
+    '#4FD1C0', '#5CC8EB', '#7FB2FF', '#A3A3FF', '#C79BFF', '#F28AD2', //
+    '#F2F2F2', '#C4C9CE', '#9AA1A8', '#C2B59B', //
+  ];
+
   /// Creates a Workflow with the starter Stages, the second Stage Owned and the last Finished.
   Future<Workflow> createWorkflow(String name) async {
     final stages = [
-      for (final name in starterStageNames) Stage(id: _newId(), name: name),
+      for (final (i, name) in starterStageNames.indexed)
+        Stage(
+          id: _newId(),
+          name: name,
+          colour: stageColours[i % stageColours.length],
+        ),
     ];
     final workflow = Workflow(
       id: _newId(),
@@ -394,10 +438,19 @@ class Vault {
     await _store.setFinishedStage(workflowId, stageId);
   }
 
-  /// Adds a Stage at [index] (0 is first; clamped to the end).
+  /// Adds a Stage at [index] (0 is first; clamped to the end), coloured with the first of [stageColours] the
+  /// Workflow isn't using yet (the first one once all are used).
   Future<Stage> addStage(String workflowId, String name, int index) async {
     final w = await _workflow(workflowId);
-    final stage = Stage(id: _newId(), name: validName(name));
+    final used = {for (final s in w.stages) s.colour};
+    final stage = Stage(
+      id: _newId(),
+      name: validName(name),
+      colour: stageColours.firstWhere(
+        (c) => !used.contains(c),
+        orElse: () => stageColours.first,
+      ),
+    );
     final order = [for (final s in w.stages) s.id]
       ..insert(index.clamp(0, w.stages.length), stage.id);
     await _store.insertStage(workflowId, stage, order);
@@ -406,6 +459,10 @@ class Vault {
 
   Future<void> renameStage(String id, String name) =>
       _store.renameStage(id, validName(name));
+
+  /// Sets the Stage's colour, `#RRGGBB`. Other Stages may share it.
+  Future<void> setStageColour(String id, String colour) =>
+      _store.setStageColour(id, validColour(colour));
 
   /// Moves a Stage to [index] in the Workflow's order.
   /// Throws an [ArgumentError] if that would put the Owned Stage after the Finished Stage.
@@ -986,6 +1043,14 @@ String validName(String name) {
   }
   return trimmed;
 }
+
+/// A Stage colour: `#RRGGBB`, upper-case hex. The write API checks uploads against it.
+final stageColourFormat = RegExp(r'^#[0-9A-F]{6}$');
+
+/// Returns [colour] if it matches [stageColourFormat], else throws an [ArgumentError].
+String validColour(String colour) => stageColourFormat.hasMatch(colour)
+    ? colour
+    : throw ArgumentError.value(colour, 'colour', 'must be #RRGGBB');
 
 final _random = Random.secure();
 

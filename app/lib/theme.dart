@@ -8,6 +8,10 @@ const _amber = Color(0xFFFFA000);
 // Rust light enough for AA (>= 4.5:1) on gunmetal and the dialog steel.
 const _rust = Color(0xFFF4876A);
 
+/// A Stage colour, stored as `#RRGGBB`.
+Color stageColour(String hex) =>
+    Color(0xFF000000 | int.parse(hex.substring(1), radix: 16));
+
 /// Rust foreground for destructive actions (delete, remove, sign out).
 /// Disabled buttons keep the default greyed-out colour.
 ButtonStyle destructive(BuildContext context) =>

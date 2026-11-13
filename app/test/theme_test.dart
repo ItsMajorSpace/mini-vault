@@ -1,3 +1,4 @@
+import 'package:domain_core/domain_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/theme.dart';
@@ -53,4 +54,20 @@ void main() {
       theme.colorScheme.error,
     );
   });
+
+  test(
+    'every Stage colour swatch reaches AA contrast (>= 4.5:1) on gunmetal',
+    () {
+      final background = grimdarkTheme.colorScheme.surface.computeLuminance();
+      expect(Vault.stageColours, hasLength(16));
+      for (final c in Vault.stageColours) {
+        final l = stageColour(c).computeLuminance();
+        expect(
+          (l + 0.05) / (background + 0.05),
+          greaterThanOrEqualTo(4.5),
+          reason: c,
+        );
+      }
+    },
+  );
 }
