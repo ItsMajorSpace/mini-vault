@@ -12,19 +12,19 @@ The tabletop game a Collection belongs to (e.g. Warhammer 40k, D&D), named freel
 _Avoid_: System, game, franchise, category
 
 **Unit**:
-A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection. Not the same as a unit in game rules: one in-game unit may be several Units here while its models are at different Stages.
-_Avoid_: Batch, entry, kit, box
+All the models in a Collection that a person tracks under one name (e.g. "Intercessors"); its models may be spread across Stages. Not necessarily a unit in game rules: it is whatever a person chose to name alike. A Unit has notes, Tags and photos and may use Paints, each with an optional note on where or how (e.g. "armour base"); renaming the Unit keeps them, and its Paints stay with the name even while it has no models.
+_Avoid_: Squad, group, kit, box, entry
 
-**Squad**:
-All the Units in a Collection that share a name; its models are spread across Stages. Not a game-rules unit either: it is whatever a person chose to name alike. A Squad may use Paints, each with an optional note on where or how (e.g. "armour base"); renaming the Squad keeps them, and they stay with the name even while no Unit has it.
-_Avoid_: Group, line, entry
+**Batch**:
+The models of one Unit that are at the same Stage; a Unit has at most one Batch per Stage. People rarely see the word: they see "models at a Stage".
+_Avoid_: Unit (for this meaning), lot, group
 
 **Workflow**:
 An ordered, linear list of Stages, reusable across Collections; changing it changes it for every Collection that uses it.
 _Avoid_: Pipeline, process, status list
 
 **Stage**:
-One step in a Workflow (e.g. Wishlist, Unassembled, Primed). Each Unit is at exactly one Stage at a time and may move to any other Stage in its Workflow, forward or back.
+One step in a Workflow (e.g. Wishlist, Unassembled, Primed). Each model is at exactly one Stage at a time and may move to any other Stage in its Workflow, forward or back.
 _Avoid_: Status, state, step
 
 **Owned Stage**:
@@ -39,17 +39,17 @@ How far a Collection, or several Collections together, has come: how many models
 _Avoid_: Stats, statistics, completion
 
 **Stage Change**:
-A record that a Unit moved from one Stage to another, and when. A Unit's Stage Changes form its history.
+A record that some of a Unit's models moved from one Stage to another, how many, and when. A Unit's Stage Changes form its history.
 _Avoid_: Event, log entry, transition
 
 **Split**:
-Moving only some of a Unit's models to another Stage, which creates a new Unit for those models.
+Moving only some of a Unit's models at one Stage to another Stage, which starts a new Batch there unless one exists.
 
 **Merge**:
-Combining two Units that share a Collection, name and Stage into one Unit. Happens automatically when models are moved onto a Stage where such a Unit already exists; Units that already share a Stage are Merged only by explicit choice.
+Combining a Unit's models that arrive at a Stage with its Batch already there. Always automatic, so a Unit never has two Batches at one Stage.
 
 **Army List**:
-A list of game-rules units made in another app (e.g. the Warhammer 40k app, Army Forge) for one faction of one Game System. Importing it adds one Unit per entry, all at one chosen Stage, to a single Collection; it never changes or removes Units already there.
+A list of game-rules units made in another app (e.g. the Warhammer 40k app, Army Forge) for one faction of one Game System. Importing it adds each entry's models, all at one chosen Stage, to the Unit of that name in a single Collection, creating the Unit if needed; it never removes models already there.
 _Avoid_: Roster, list, army
 
 **Tag**:
