@@ -90,6 +90,45 @@ List<({String? gameSystem, List<Collection> collections})> groupByGameSystem(
   ];
 }
 
+/// One product from one manufacturer in a person's paint library, independent of any Collection.
+class Paint {
+  const Paint({
+    required this.id,
+    required this.brand,
+    required this.range,
+    required this.name,
+    required this.owned,
+  });
+
+  final String id;
+  final String brand;
+  final String range;
+  final String name;
+
+  /// Owned, or else wanted (on the shopping list).
+  final bool owned;
+}
+
+/// Groups [paints] by brand (ignoring case and outer spaces, as [tagKey]), A–Z; inside a brand, by range then name,
+/// ignoring case. Each brand is spelled as its first Paint spells it.
+List<({String brand, List<Paint> paints})> groupByBrand(
+  Iterable<Paint> paints,
+) {
+  final byKey = <String, List<Paint>>{};
+  for (final p in paints) {
+    (byKey[tagKey(p.brand)] ??= []).add(p);
+  }
+  int compare(Paint a, Paint b) =>
+      switch (tagKey(a.range).compareTo(tagKey(b.range))) {
+        0 => tagKey(a.name).compareTo(tagKey(b.name)),
+        final c => c,
+      };
+  return [
+    for (final k in byKey.keys.toList()..sort())
+      (brand: byKey[k]!.first.brand, paints: [...byKey[k]!]..sort(compare)),
+  ];
+}
+
 /// A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection.
 class Unit {
   const Unit({
@@ -377,6 +416,13 @@ abstract interface class VaultStore {
 
   /// Deletes the Unit, its Tags and its Photos.
   Future<void> deleteUnit(String id);
+
+  /// Emits the paint library now and again whenever it changes.
+  Stream<List<Paint>> watchPaints();
+  Future<void> insertPaint(Paint paint);
+  Future<void> updatePaint(Paint paint);
+  Future<void> setPaintOwned(String id, bool owned);
+  Future<void> deletePaint(String id);
 
   /// Emits the Unit's Tags, by name, now and again whenever they change.
   Stream<List<String>> watchTags(String unitId);
@@ -1179,6 +1225,58 @@ class Vault {
       ).entries)
         if (k.startsWith(key)) name,
     ]..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  }
+
+  /// The paint library, emitted again whenever it changes; see [groupByBrand].
+  Stream<List<Paint>> watchPaints() => _store.watchPaints();
+
+  /// Adds a Paint to the library. Throws an [ArgumentError] if a field is blank, or a [StateError] if the library
+  /// already has a Paint with the same brand, range and name (ignoring case).
+  Future<Paint> addPaint({
+    required String brand,
+    required String range,
+    required String name,
+    bool owned = true,
+  }) async {
+    final paint = await _checkedPaint(
+      Paint(id: _newId(), brand: brand, range: range, name: name, owned: owned),
+    );
+    await _store.insertPaint(paint);
+    return paint;
+  }
+
+  /// Saves [paint]'s brand, range, name and owned, checked as [addPaint] checks them.
+  Future<void> editPaint(Paint paint) async =>
+      _store.updatePaint(await _checkedPaint(paint));
+
+  Future<void> setPaintOwned(String id, bool owned) =>
+      _store.setPaintOwned(id, owned);
+
+  Future<void> deletePaint(String id) => _store.deletePaint(id);
+
+  /// [paint] trimmed, with brand and range spelled as another Paint already spells them (ignoring case).
+  Future<Paint> _checkedPaint(Paint paint) async {
+    final others = (await _store.watchPaints().first).where(
+      (p) => p.id != paint.id,
+    );
+    String known(String value, Iterable<String> used) =>
+        used.where((u) => tagKey(u) == tagKey(value)).firstOrNull ?? value;
+    final brand = known(validName(paint.brand), others.map((p) => p.brand));
+    final sameBrand = others.where((p) => tagKey(p.brand) == tagKey(brand));
+    final range = known(validName(paint.range), sameBrand.map((p) => p.range));
+    final name = validName(paint.name);
+    if (sameBrand.any(
+      (p) => tagKey(p.range) == tagKey(range) && tagKey(p.name) == tagKey(name),
+    )) {
+      throw StateError('$brand $range $name is already in your paints');
+    }
+    return Paint(
+      id: paint.id,
+      brand: brand,
+      range: range,
+      name: name,
+      owned: paint.owned,
+    );
   }
 
   /// The most Photos a Unit may have. The write API enforces the same limit.
