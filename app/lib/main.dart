@@ -12,6 +12,7 @@ import 'account.dart';
 import 'photos.dart';
 import 'progress.dart';
 import 'sync.dart';
+import 'theme.dart';
 import 'workflows.dart';
 
 Future<void> main() async {
@@ -45,6 +46,7 @@ class MiniVaultApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Mini Vault',
+      theme: grimdarkTheme,
       home: StreamBuilder(
         stream: auth.onAuthStateChange,
         builder: (context, _) => auth.currentSession == null
@@ -245,6 +247,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
+            style: destructive(context),
             child: const Text('Delete'),
           ),
         ],
@@ -273,12 +276,14 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
             IconButton(
               icon: const Icon(Icons.logout),
               tooltip: 'Sign out',
+              style: destructive(context),
               onPressed: signOut,
             ),
           if (widget.onDeleteAccount case final delete?)
             IconButton(
               icon: const Icon(Icons.person_remove),
               tooltip: 'Delete account',
+              style: destructive(context),
               onPressed: delete,
             ),
         ],
@@ -342,6 +347,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                       IconButton(
                         icon: const Icon(Icons.delete),
                         tooltip: 'Delete Collection',
+                        style: destructive(context),
                         onPressed: () => _delete(c),
                       ),
                     ],
@@ -862,6 +868,7 @@ class _UnitDialogState extends State<_UnitDialog> {
         if (widget.unit != null)
           TextButton(
             onPressed: () => _close(delete: true),
+            style: destructive(context),
             child: const Text('Delete'),
           ),
         TextButton(
