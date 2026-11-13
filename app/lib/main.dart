@@ -516,12 +516,26 @@ class _UnitScreenState extends State<UnitScreen> {
     );
   }
 
+  /// Moves the whole Unit, or Splits it when fewer models than it has are moved.
   Future<void> _move(Unit unit, List<Stage> stages) async {
+    final count = TextEditingController(text: '${unit.modelCount}');
     final stageId = await showDialog<String>(
       context: context,
       builder: (context) => SimpleDialog(
         title: const Text('Move to Stage'),
         children: [
+          if (unit.modelCount > 1)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: TextField(
+                controller: count,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Models to move',
+                  helperText: 'Fewer than ${unit.modelCount} splits the Unit',
+                ),
+              ),
+            ),
           for (final s in stages)
             ListTile(
               leading: Icon(
@@ -534,8 +548,37 @@ class _UnitScreenState extends State<UnitScreen> {
         ],
       ),
     );
+    // Not disposed: the closing dialog's TextField still uses it; with no listeners left, it is just collected.
+    final n = int.tryParse(count.text.trim()) ?? 0;
     if (stageId != null && mounted) {
-      await attempt(context, () => widget.vault.moveUnit(unit, stageId));
+      await attempt(
+        context,
+        () => n == unit.modelCount
+            ? widget.vault.moveUnit(unit, stageId)
+            : widget.vault.splitUnit(unit, stageId, n),
+      );
+    }
+  }
+
+  /// Merges a chosen matching Unit into [unit], only on explicit confirmation.
+  Future<void> _merge(Unit unit, List<Unit> candidates) async {
+    final other = await showDialog<Unit>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Merge into this Unit'),
+        children: [
+          for (final u in candidates)
+            ListTile(
+              title: Text(u.name),
+              subtitle: Text(u.notes),
+              trailing: Text('${u.modelCount}'),
+              onTap: () => Navigator.pop(context, u),
+            ),
+        ],
+      ),
+    );
+    if (other != null && mounted) {
+      await attempt(context, () => widget.vault.mergeUnits(unit, other));
     }
   }
 
@@ -593,6 +636,24 @@ class _UnitScreenState extends State<UnitScreen> {
                     child: const Text('Move'),
                   ),
                 ),
+                // Always one slot, so the History StreamBuilder below keeps its place and its single subscription.
+                switch (Vault.mergeCandidates(
+                  unit,
+                  groups.expand((g) => g.units),
+                )) {
+                  [] => const SizedBox.shrink(),
+                  final candidates => ListTile(
+                    title: Text(
+                      candidates.length == 1
+                          ? '1 matching Unit at this Stage'
+                          : '${candidates.length} matching Units at this Stage',
+                    ),
+                    trailing: OutlinedButton(
+                      onPressed: () => _merge(unit, candidates),
+                      child: const Text('Merge'),
+                    ),
+                  ),
+                },
                 if (unit.notes.isNotEmpty) ListTile(title: Text(unit.notes)),
                 ListTile(
                   title: Text(

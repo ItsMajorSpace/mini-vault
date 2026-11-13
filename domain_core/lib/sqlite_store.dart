@@ -45,6 +45,14 @@ class SqliteVaultStore implements VaultStore {
     Table('unit_tags', [Column.text('unit_id'), Column.text('name')]),
     // file_id is the image file's PowerSync attachment id; a Split's copy of a Photo shares it.
     Table('photos', [Column.text('unit_id'), Column.text('file_id')]),
+    // Append-only deltas the write API applies to model_count: a Split takes model_count models off unit_id into
+    // new_unit_id, and a Merge adds merged_unit_id's models to unit_id and deletes it.
+    Table('splits', [
+      Column.text('unit_id'),
+      Column.text('new_unit_id'),
+      Column.integer('model_count'),
+    ]),
+    Table('merges', [Column.text('unit_id'), Column.text('merged_unit_id')]),
   ]);
 
   // Stage order is (position, id): concurrent reorders on two devices can merge into equal positions, and the id
@@ -448,4 +456,94 @@ class SqliteVaultStore implements VaultStore {
   @override
   Future<void> deletePhoto(String id) =>
       _db.execute('DELETE FROM photos WHERE id = ?', [id]);
+
+  // The new Unit's rows come first, so the Split's reference to it resolves on the server. The count changes
+  // relatively here too; their uploaded absolute values are ignored by the write API, which applies the delta.
+  @override
+  Future<void> insertSplit(
+    String id,
+    String sourceId,
+    Unit created,
+    StageChange move,
+    Map<String, String> tagsById,
+    List<Photo> photos,
+  ) => _db.writeTransaction((tx) async {
+    await tx.execute(
+      'INSERT INTO units (id, collection_id, stage_id, name, model_count, notes) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        created.id,
+        created.collectionId,
+        created.stageId,
+        created.name,
+        created.modelCount,
+        created.notes,
+      ],
+    );
+    await _insertStageChange(tx, move);
+    await _copy(tx, created.id, tagsById, photos);
+    await tx.execute(
+      'INSERT INTO splits (id, unit_id, new_unit_id, model_count) VALUES (?, ?, ?, ?)',
+      [id, sourceId, created.id, created.modelCount],
+    );
+    await tx.execute(
+      'UPDATE units SET model_count = model_count - ? WHERE id = ?',
+      [created.modelCount, sourceId],
+    );
+  });
+
+  // The Merge comes first, so the write API checks it against the Units as they were before anything else in it.
+  // The copied Stage Changes keep their timestamps (no clock-skew bump): they are history, not new moves.
+  @override
+  Future<void> insertMerge(
+    String id,
+    String unitId,
+    String otherId,
+    List<StageChange> history,
+    Map<String, String> tagsById,
+    List<Photo> photos,
+  ) => _db.writeTransaction((tx) async {
+    await tx.execute(
+      'INSERT INTO merges (id, unit_id, merged_unit_id) VALUES (?, ?, ?)',
+      [id, unitId, otherId],
+    );
+    for (final c in history) {
+      await tx.execute(
+        'INSERT INTO stage_changes (id, unit_id, from_stage_id, to_stage_id, model_count, happened_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [
+          c.id,
+          c.unitId,
+          c.fromStageId,
+          c.toStageId,
+          c.modelCount,
+          c.happenedAt.toUtc().toIso8601String(),
+        ],
+      );
+    }
+    await _copy(tx, unitId, tagsById, photos);
+    await tx.execute(
+      'UPDATE units SET model_count = model_count + (SELECT model_count FROM units WHERE id = ?) WHERE id = ?',
+      [otherId, unitId],
+    );
+    await tx.execute('DELETE FROM unit_tags WHERE unit_id = ?', [otherId]);
+    await tx.execute('DELETE FROM photos WHERE unit_id = ?', [otherId]);
+    await tx.execute('DELETE FROM units WHERE id = ?', [otherId]);
+  });
+
+  static Future<void> _copy(
+    SqliteWriteContext tx,
+    String unitId,
+    Map<String, String> tagsById,
+    List<Photo> photos,
+  ) async {
+    for (final MapEntry(key: id, value: name) in tagsById.entries) {
+      await tx.execute(
+        'INSERT INTO unit_tags (id, unit_id, name) SELECT ?, ?, ? '
+        'WHERE NOT EXISTS (SELECT 1 FROM unit_tags WHERE id = ?)',
+        [id, unitId, name, id],
+      );
+    }
+    for (final p in photos) {
+      await insertPhoto(tx, p);
+    }
+  }
 }

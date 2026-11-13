@@ -277,6 +277,29 @@ abstract interface class VaultStore {
   Stream<List<Photo>> watchPhotos(String unitId);
   Future<void> insertPhotos(List<Photo> photos);
   Future<void> deletePhoto(String id);
+
+  /// In one transaction, so it uploads as one batch the write API applies whole or not at all: inserts [created]
+  /// with [move] (its first Stage Change), its Tags ([tagsById]) and [photos], then records Split [id] of
+  /// [created]'s models off Unit [sourceId] and takes them off that Unit's count.
+  Future<void> insertSplit(
+    String id,
+    String sourceId,
+    Unit created,
+    StageChange move,
+    Map<String, String> tagsById,
+    List<Photo> photos,
+  );
+
+  /// In one transaction: records Merge [id] of Unit [otherId] into Unit [unitId], then copies [history], Tags
+  /// ([tagsById]) and [photos] onto [unitId], adds the other Unit's models to its count and deletes the other Unit.
+  Future<void> insertMerge(
+    String id,
+    String unitId,
+    String otherId,
+    List<StageChange> history,
+    Map<String, String> tagsById,
+    List<Photo> photos,
+  );
 }
 
 /// The domain operations a collector can perform.
@@ -617,6 +640,105 @@ class Vault {
     await _store.insertStageChange(_stageChange(unit, unit.stageId, stageId));
   }
 
+  /// Splits [unit]: moves [modelCount] of its models, at least 1 and fewer than all (all is [moveUnit]), to another
+  /// Stage of its Collection's Workflow. The new Unit holding them copies the name, notes, Tags and Photos, and its
+  /// history starts with this move. The Split uploads as a delta (N models off [unit]), never as [unit]'s new count,
+  /// so Splits made on other devices add up; the write API rejects one that would leave [unit] under 1 model.
+  Future<Unit> splitUnit(Unit unit, String stageId, int modelCount) async {
+    if (modelCount < 1 || modelCount >= unit.modelCount) {
+      throw ArgumentError.value(
+        modelCount,
+        'modelCount',
+        'must be at least 1 and fewer than the Unit has',
+      );
+    }
+    final collection = (await _store.collections()).firstWhere(
+      (c) => c.id == unit.collectionId,
+      orElse: () => throw StateError('The Collection has not synced yet'),
+    );
+    if (stageId == unit.stageId ||
+        !(await workflowOf(collection)).stages.any((s) => s.id == stageId)) {
+      throw ArgumentError.value(
+        stageId,
+        'stageId',
+        "is not another Stage of the Collection's Workflow",
+      );
+    }
+    final created = Unit(
+      id: _newId(),
+      collectionId: unit.collectionId,
+      stageId: stageId,
+      name: unit.name,
+      modelCount: modelCount,
+      notes: unit.notes,
+    );
+    await _store.insertSplit(
+      _newId(),
+      unit.id,
+      created,
+      _stageChange(created, unit.stageId, stageId),
+      {for (final t in await tagsOf(unit.id)) tagId(created.id, t): t},
+      [
+        for (final p in await photosOf(unit.id))
+          Photo(id: _newId(), unitId: created.id, fileId: p.fileId),
+      ],
+    );
+    return created;
+  }
+
+  /// The Units [unit] may be Merged with: the others in [units] in its Collection, with its name, at its Stage.
+  static List<Unit> mergeCandidates(Unit unit, Iterable<Unit> units) => [
+    for (final u in units)
+      if (u.id != unit.id &&
+          u.collectionId == unit.collectionId &&
+          u.name == unit.name &&
+          u.stageId == unit.stageId)
+        u,
+  ];
+
+  /// Merges [other] into [unit], only ever by explicit choice. [unit] gets both counts, the union of their Tags,
+  /// [other]'s Photos up to [maxPhotos], and a copy of [other]'s Stage Changes in its history (Stage Changes are
+  /// append-only, so they are copied, not moved); [other] is deleted. The write API adds [other]'s count as it is
+  /// on the server, and rejects the Merge if either Unit is gone or they no longer share Collection, name and Stage.
+  /// Throws an [ArgumentError] unless [other] is one of [mergeCandidates].
+  Future<void> mergeUnits(Unit unit, Unit other) async {
+    if (mergeCandidates(unit, [other]).isEmpty) {
+      throw ArgumentError.value(
+        other.id,
+        'other',
+        'must be another Unit in the same Collection, with the same name, at the same Stage',
+      );
+    }
+    final tags = {for (final t in await tagsOf(unit.id)) tagKey(t)};
+    final files = {for (final p in await photosOf(unit.id)) p.fileId};
+    await _store.insertMerge(
+      _newId(),
+      unit.id,
+      other.id,
+      [
+        for (final c in await _store.watchStageChanges(other.id).first)
+          StageChange(
+            id: _newId(),
+            unitId: unit.id,
+            fromStageId: c.fromStageId,
+            toStageId: c.toStageId,
+            modelCount: c.modelCount,
+            happenedAt: c.happenedAt,
+          ),
+      ],
+      {
+        for (final t in await tagsOf(other.id))
+          if (!tags.contains(tagKey(t))) tagId(unit.id, t): t,
+      },
+      [
+        for (final f in {
+          for (final p in await photosOf(other.id)) p.fileId,
+        }.difference(files).take(max(0, maxPhotos - files.length)))
+          Photo(id: _newId(), unitId: unit.id, fileId: f),
+      ],
+    );
+  }
+
   /// The Unit's history, oldest first, emitted again whenever it changes.
   Stream<List<StageChange>> watchHistory(String unitId) =>
       _store.watchStageChanges(unitId);
@@ -631,7 +753,8 @@ class Vault {
         happenedAt: DateTime.now().toUtc(),
       );
 
-  /// Changes only the given fields of a Unit.
+  /// Changes only the given fields of a Unit. A new [modelCount] is a recount: it sets the absolute count, and the
+  /// latest write wins, unlike a Split or Merge (deltas). A Split uploaded after it still takes its models off.
   Future<void> editUnit(
     String id, {
     String? name,
