@@ -99,6 +99,13 @@ Future<void> deleteUnreferencedPhotos(
   }
 }
 
+/// Deletes [owner]'s photo directory with every file in it, once their account is deleted.
+Future<void> deleteAllPhotos(Directory photos, String owner) async {
+  if (!_uuid.hasMatch(owner)) return;
+  final directory = Directory('${photos.path}/$owner');
+  if (await directory.exists()) await directory.delete(recursive: true);
+}
+
 Future<bool> _referenced(Pool<void> db, String owner, String fileId) async =>
     (await db.execute(
       r'SELECT FROM photos WHERE owner_id = $1::uuid AND file_id = $2::uuid LIMIT 1',

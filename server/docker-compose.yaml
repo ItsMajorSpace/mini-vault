@@ -6,6 +6,7 @@
 #   PowerSync       http://localhost:8080
 #   Write API       http://localhost:8000
 #   Postgres        localhost:5432 (for the server tests)
+#   Mailpit         http://localhost:8025 (dev only: catches GoTrue's emails)
 
 services:
   postgres:
@@ -48,6 +49,15 @@ services:
       GOTRUE_DISABLE_SIGNUP: "false"
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_MAILER_AUTOCONFIRM: ${MAILER_AUTOCONFIRM}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      GOTRUE_SMTP_SENDER_NAME: Mini Vault
+      # A code to type into the app, not a link (write_api.dart's recoveryEmail), fetched when an email is sent.
+      GOTRUE_MAILER_TEMPLATES_RECOVERY: http://api:8000/email/recovery
+      GOTRUE_MAILER_SUBJECTS_RECOVERY: Your Mini Vault password reset code
     ports:
       - "127.0.0.1:9999:9999"
     healthcheck:
@@ -55,6 +65,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Dev only (COMPOSE_PROFILES=dev): catches every email GoTrue sends, readable at :8025 and over its HTTP API.
+  mailpit:
+    image: axllent/mailpit:v1.27.11
+    profiles: [dev]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
 
   # One-shot: creates the synced tables, the starter-Workflow trigger and the publication, then exits.
   migrate:
