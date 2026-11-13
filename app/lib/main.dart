@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:powersync/powersync.dart' hide Column;
 
+import 'account.dart';
 import 'photos.dart';
 import 'progress.dart';
 import 'sync.dart';
@@ -53,6 +54,7 @@ class MiniVaultApp extends StatelessWidget {
                 db: db,
                 photos: photos,
                 onSignOut: auth.signOut,
+                onDeleteAccount: () => deleteAccount(context, auth),
               ),
       ),
     );
@@ -144,6 +146,20 @@ class _SignInScreenState extends State<SignInScreen> {
             onPressed: _busy ? null : () => _submit(signUp: true),
             child: const Text('Create account'),
           ),
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => ResetPasswordScreen(
+                        auth: widget.auth,
+                        email: _email.text.trim(),
+                      ),
+                    ),
+                  ),
+            child: const Text('Forgot password?'),
+          ),
         ],
       ),
     );
@@ -157,6 +173,7 @@ class CollectionsScreen extends StatefulWidget {
     required this.db,
     this.photos,
     this.onSignOut,
+    this.onDeleteAccount,
   });
 
   final Vault vault;
@@ -167,6 +184,7 @@ class CollectionsScreen extends StatefulWidget {
   /// Null hides Units' photos.
   final PhotoFiles? photos;
   final VoidCallback? onSignOut;
+  final VoidCallback? onDeleteAccount;
 
   @override
   State<CollectionsScreen> createState() => _CollectionsScreenState();
@@ -256,6 +274,12 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
               icon: const Icon(Icons.logout),
               tooltip: 'Sign out',
               onPressed: signOut,
+            ),
+          if (widget.onDeleteAccount case final delete?)
+            IconButton(
+              icon: const Icon(Icons.person_remove),
+              tooltip: 'Delete account',
+              onPressed: delete,
             ),
         ],
         bottom: PreferredSize(
