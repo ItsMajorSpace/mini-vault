@@ -348,9 +348,14 @@ void main() {
       Finder chip(String stage) => find.widgetWithText(ChoiceChip, stage);
       bool selected(String stage) =>
           tester.widget<ChoiceChip>(chip(stage)).selected;
-      bool enabled(IconData icon) =>
+      bool enabled(String tooltip) =>
           tester
-              .widget<IconButton>(find.widgetWithIcon(IconButton, icon))
+              .widget<IconButton>(
+                find.ancestor(
+                  of: find.byTooltip(tooltip),
+                  matching: find.byType(IconButton),
+                ),
+              )
               .onPressed !=
           null;
 
@@ -361,7 +366,7 @@ void main() {
       expect(selected('Unassembled'), isTrue);
       expect(selected('Primed'), isFalse);
       expect(find.text('5 of 5'), findsOneWidget);
-      expect(enabled(Icons.add), isFalse);
+      expect(enabled('One more'), isFalse);
       await tester.tap(find.byTooltip('One fewer'));
       await tester.pump();
       await tester.tap(find.byTooltip('One fewer'));
@@ -381,7 +386,7 @@ void main() {
       await tester.tap(chip('Wishlist'));
       await tester.pump();
       expect(find.text('3 of 3'), findsOneWidget);
-      expect(enabled(Icons.add), isFalse);
+      expect(enabled('One more'), isFalse);
       await tapAndWait(tester, find.text('Move 3 models to Wishlist'));
       expect(counts(tester), ['5 models', '0 models', '0 models']);
 
@@ -632,19 +637,86 @@ void main() {
       expect(find.widgetWithText(Chip, 'Ultramarines'), findsOneWidget);
       expect(find.text('Magnetised'), findsOneWidget);
       expect(find.text('Macragge Blue'), findsOneWidget);
-      // Every Batch's Stage Changes in one list, newest first, after the Stages, Tags, notes and Paints.
+      // Every Batch's Stage Changes in one list, newest first, after the Tags, Stages, notes and Paints.
       final order = [
-        'Primed',
         'Ultramarines',
+        'Primed',
         'Magnetised',
         'Macragge Blue',
-        'History',
+        'HISTORY',
         '3 models Wishlist → Unassembled',
         '2 models added at Primed',
         '5 models added at Wishlist',
       ];
       final ys = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
       expect(ys, orderedEquals([...ys]..sort()), reason: '$order');
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'Tags sit under the app bar, then a Models, Photos, Notes, Paints and History section, an empty one with a hint',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final (vault, collection) = await openUnit(tester, stages, [
+        (5, 0),
+        (2, 2),
+      ], photoFiles: []);
+      await tester.runAsync(
+        () => vault.addTags(collection.id, 'Intercessors', ['Ultramarines']),
+      );
+      await settle(tester);
+
+      // The app bar names the Collection and the Unit's model count.
+      expect(find.text('Space Marines · 7 models'), findsOneWidget);
+      // Tags directly under the app bar, above every section.
+      final tag = find.widgetWithText(Chip, 'Ultramarines');
+      expect(
+        tester.getTopLeft(tag).dy -
+            tester.getBottomLeft(find.byType(AppBar)).dy,
+        lessThan(16),
+      );
+      final order = [
+        'Ultramarines',
+        'MODELS',
+        'Wishlist',
+        'Primed',
+        'PHOTOS',
+        'No photos yet',
+        'NOTES',
+        'No notes yet',
+        'PAINTS',
+        'No Paints yet',
+        'HISTORY',
+        '2 models added at Primed',
+      ];
+      final ys = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
+      expect(ys, orderedEquals([...ys]..sort()), reason: '$order');
+      // The Models header counts every model.
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('MODELS'),
+            matching: find.byType(Row),
+          ),
+          matching: find.text('7'),
+        ),
+        findsOneWidget,
+      );
+      // Taking and choosing photos are the Photos header's actions, beside its title.
+      for (final action in ['Take a photo', 'Add a photo from the gallery']) {
+        expect(
+          tester.getCenter(find.byTooltip(action)).dy,
+          moreOrLessEquals(
+            tester.getCenter(find.text('PHOTOS')).dy,
+            epsilon: 1,
+          ),
+          reason: action,
+        );
+      }
 
       await tester.pumpWidget(const SizedBox());
     },
@@ -685,7 +757,7 @@ void main() {
       );
       await settle(tester);
 
-      await tester.tap(find.text('Add notes'));
+      await tester.tap(find.text('No notes yet'));
       await tester.pumpAndSettle();
       expect(find.text('Edit Unit'), findsOneWidget);
       await tester.enterText(
