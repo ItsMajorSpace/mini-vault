@@ -345,6 +345,107 @@ class _DeleteStageDialogState extends State<_DeleteStageDialog> {
   }
 }
 
+/// Switches [collection] to another Workflow: asks which one, then where the Units at each held Stage go.
+Future<void> switchWorkflow(
+  BuildContext context,
+  Vault vault,
+  Collection collection,
+) async {
+  final others = [
+    for (final w in await vault.workflows())
+      if (w.id != collection.workflowId) w,
+  ];
+  if (!context.mounted) return;
+  if (others.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Create another Workflow first')),
+    );
+    return;
+  }
+  final target = await showDialog<Workflow>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: Text('Switch ${collection.name} to'),
+      children: [
+        for (final w in others)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, w),
+            child: Text(w.name),
+          ),
+      ],
+    ),
+  );
+  if (target == null || !context.mounted) return;
+  final mapping = await vault.stageMapping(collection, target);
+  if (!context.mounted) return;
+  final moveTo = await showDialog<Map<String, String>>(
+    context: context,
+    builder: (_) => _MapStagesDialog(target: target, mapping: mapping),
+  );
+  if (moveTo == null || !context.mounted) return;
+  await attempt(
+    context,
+    () => vault.switchWorkflow(collection, target.id, moveTo),
+  );
+}
+
+/// One target Stage picker per old Stage that holds Units, pre-set to the same-name Stage or else the first.
+class _MapStagesDialog extends StatefulWidget {
+  const _MapStagesDialog({required this.target, required this.mapping});
+
+  final Workflow target;
+  final List<({Stage from, Stage? to})> mapping;
+
+  @override
+  State<_MapStagesDialog> createState() => _MapStagesDialogState();
+}
+
+class _MapStagesDialogState extends State<_MapStagesDialog> {
+  late final _moveTo = {
+    for (final m in widget.mapping)
+      m.from.id: (m.to ?? widget.target.stages.first).id,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Switch to ${widget.target.name}?'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.mapping.isEmpty
+                  ? 'This Collection has no Units to move.'
+                  : 'Move the Units at each Stage to:',
+            ),
+            for (final m in widget.mapping)
+              DropdownButtonFormField<String>(
+                initialValue: _moveTo[m.from.id],
+                decoration: InputDecoration(labelText: m.from.name),
+                items: [
+                  for (final s in widget.target.stages)
+                    DropdownMenuItem(value: s.id, child: Text(s.name)),
+                ],
+                onChanged: (id) => setState(() => _moveTo[m.from.id] = id!),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _moveTo),
+          child: const Text('Switch'),
+        ),
+      ],
+    );
+  }
+}
+
 class NameDialog extends StatefulWidget {
   const NameDialog({super.key, required this.title, required this.initial});
 

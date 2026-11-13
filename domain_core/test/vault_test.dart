@@ -873,6 +873,144 @@ void main() {
     );
   });
 
+  group('Switching a Collection to another Workflow', () {
+    late Workflow starter, target;
+    late Collection marines;
+    late Unit a, b, c;
+    setUp(() async {
+      await syncStarterWorkflow();
+      starter = (await vault.starterWorkflow())!;
+      // Stages: Wishlist, Unassembled, Assembled, Primed, Painted, Based, Done. Renamed to test the matching; the
+      // untrimmed name stands in for one synced from elsewhere (the app trims names it stores).
+      target = await vault.createWorkflow('Speed painting');
+      await db.execute("UPDATE stages SET name = '  WISHLIST ' WHERE id = ?", [
+        target.stages[0].id,
+      ]);
+      await vault.renameStage(target.stages[3].id, 'Sprayed');
+      target = (await vault.workflows()).firstWhere((w) => w.id == target.id);
+      marines = await vault.createCollection('Marines');
+      a = await vault.addUnit(marines, name: 'A', modelCount: 5, stageId: 's0');
+      b = await vault.addUnit(marines, name: 'B', modelCount: 3, stageId: 's3');
+      c = await vault.addUnit(marines, name: 'C', modelCount: 1, stageId: 's3');
+      // A Unit of another Collection on the same Workflow stays where it is.
+      await vault.addUnit(
+        await vault.createCollection('Orks'),
+        name: 'Boyz',
+        modelCount: 10,
+        stageId: 's5',
+      );
+    });
+
+    Future<List<String>> history(Unit u) async => [
+      for (final c in await vault.watchHistory(u.id).first)
+        '${c.fromStageId} -> ${c.toStageId} (${c.modelCount})',
+    ];
+
+    test('asks only about Stages that hold Units, pre-matching same-name Stages ignoring case and outer spaces', () async {
+      final mapping = await vault.stageMapping(marines, target);
+
+      expect(
+        [for (final m in mapping) (m.from.name, m.to?.name)],
+        [('Wishlist', '  WISHLIST '), ('Primed', null)],
+      );
+    });
+
+    test('moves every Unit to its mapped Stage with a Stage Change, and points the Collection at the new Workflow', () async {
+      final [wishlist, ..., sprayed, _, _, _] = target.stages;
+      await vault.switchWorkflow(marines, target.id, {
+        's0': wishlist.id,
+        's3': sprayed.id,
+      });
+      await restart();
+
+      final switched = (await vault.collections()).firstWhere(
+        (x) => x.id == marines.id,
+      );
+      expect(switched.workflowId, target.id);
+      final groups = await vault.watchStageGroups(switched).first;
+      expect(
+        {
+          for (final g in groups)
+            if (g.units.isNotEmpty)
+              g.stage.name: [for (final u in g.units) u.name],
+        },
+        {
+          '  WISHLIST ': ['A'],
+          'Sprayed': ['B', 'C'],
+        },
+      );
+      expect(await history(a), ['null -> s0 (5)', 's0 -> ${wishlist.id} (5)']);
+      expect(await history(b), ['null -> s3 (3)', 's3 -> ${sprayed.id} (3)']);
+      expect(await history(c), ['null -> s3 (1)', 's3 -> ${sprayed.id} (1)']);
+      final orks = (await vault.collections()).firstWhere(
+        (x) => x.name == 'Orks',
+      );
+      expect(orks.workflowId, starter.id);
+    });
+
+    test(
+      'uploads as one transaction: the moves, then the Collection',
+      () async {
+        await db.execute('DELETE FROM ps_crud');
+        await vault.switchWorkflow(marines, target.id, {
+          's0': target.stages[0].id,
+          's3': target.stages[3].id,
+        });
+
+        final transaction = (await db.getNextCrudTransaction())!;
+        expect(transaction.crud.map((e) => (e.op, e.table)), [
+          for (var i = 0; i < 3; i++) ...[
+            (UpdateType.patch, 'units'),
+            (UpdateType.put, 'stage_changes'),
+          ],
+          (UpdateType.patch, 'collections'),
+        ]);
+        expect(transaction.crud.last.opData, {'workflow_id': target.id});
+        await transaction.complete();
+        expect(await db.getNextCrudTransaction(), isNull);
+      },
+    );
+
+    test('every held Stage must map to a Stage of the new Workflow; nothing changes otherwise', () async {
+      for (final moveTo in [
+        {'s0': target.stages[0].id}, // Primed unmapped
+        {'s0': target.stages[0].id, 's3': 's4'}, // a Stage of the old Workflow
+        {'s0': target.stages[0].id, 's3': 'nowhere'},
+      ]) {
+        await expectLater(
+          vault.switchWorkflow(marines, target.id, moveTo),
+          throwsArgumentError,
+          reason: '$moveTo',
+        );
+      }
+      await expectLater(
+        vault.switchWorkflow(marines, 'no-such-workflow', {}),
+        throwsArgumentError,
+      );
+
+      final read = (await vault.collections()).firstWhere(
+        (x) => x.id == marines.id,
+      );
+      expect(read.workflowId, starter.id);
+      expect(await history(b), hasLength(1));
+    });
+
+    test(
+      'a Collection without Units has nothing to map and just switches',
+      () async {
+        final empty = await vault.createCollection('Empty');
+        expect(await vault.stageMapping(empty, target), isEmpty);
+
+        await vault.switchWorkflow(empty, target.id, {});
+
+        final read = (await vault.collections()).firstWhere(
+          (x) => x.id == empty.id,
+        );
+        expect(read.workflowId, target.id);
+      },
+    );
+  });
+
   group('Tags', () {
     late Collection collection;
     late Unit unit;

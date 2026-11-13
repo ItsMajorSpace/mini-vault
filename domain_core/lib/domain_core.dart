@@ -222,6 +222,14 @@ abstract interface class VaultStore {
   /// The Units at the Stage, in every Collection.
   Future<List<Unit>> unitsAt(String stageId);
 
+  /// In one transaction, so it uploads as one batch: appends [moves] and sets each Unit's Stage, then points the
+  /// Collection at the Workflow. The write API checks Units against their Collection's Workflow after the whole batch.
+  Future<void> switchWorkflow(
+    String collectionId,
+    String workflowId,
+    List<StageChange> moves,
+  );
+
   Future<List<Collection>> collections();
 
   /// Emits the Collections now and again whenever they change, locally or through sync.
@@ -461,6 +469,50 @@ class Vault {
 
   Future<void> renameCollection(String id, String name) =>
       _store.renameCollection(id, validName(name));
+
+  /// What switching [collection] to [target] has to map: each Stage of its Workflow that holds its Units, in Workflow
+  /// order, with the Stage of [target] that has the same name (ignoring case and outer spaces), or null.
+  Future<List<({Stage from, Stage? to})>> stageMapping(
+    Collection collection,
+    Workflow target,
+  ) async {
+    String key(Stage s) => s.name.trim().toLowerCase();
+    final units = await _store.watchUnits(collection.id).first;
+    return [
+      for (final g in groupByStage(await workflowOf(collection), units))
+        if (g.units.isNotEmpty)
+          (
+            from: g.stage,
+            to: target.stages.where((s) => key(s) == key(g.stage)).firstOrNull,
+          ),
+    ];
+  }
+
+  /// Switches [collection] to Workflow [workflowId] in one transaction: each of its Units moves to the Stage that
+  /// [moveTo] maps its current Stage to (see [stageMapping]), recording a Stage Change. Does nothing if the Collection
+  /// already uses the Workflow. Throws an [ArgumentError] if there is no such Workflow, or a Unit's Stage is not
+  /// mapped to a Stage of it.
+  Future<void> switchWorkflow(
+    Collection collection,
+    String workflowId,
+    Map<String, String> moveTo,
+  ) async {
+    final target = await _workflow(workflowId);
+    if (target.id == collection.workflowId) return;
+    final moves = [
+      for (final u in await _store.watchUnits(collection.id).first)
+        if (moveTo[u.stageId] case final to?
+            when target.stages.any((s) => s.id == to))
+          _stageChange(u, u.stageId, to)
+        else
+          throw ArgumentError.value(
+            moveTo[u.stageId],
+            'moveTo[${u.stageId}]',
+            'must be a Stage of the new Workflow',
+          ),
+    ];
+    await _store.switchWorkflow(collection.id, target.id, moves);
+  }
 
   /// The Workflow [collection] uses. Throws a [StateError] if it has not synced.
   Future<Workflow> workflowOf(Collection collection) async =>

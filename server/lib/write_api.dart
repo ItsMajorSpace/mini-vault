@@ -159,7 +159,7 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 /// Applies the operations in one transaction. Answers 401 for a bad token, 403 if any operation touches
 /// or points at another user's row, 409 for deleting a Workflow a Collection uses or a Stage that holds Units,
 /// 422 for an invalid operation (including a reference to a missing row, or a PATCH or DELETE of an append-only
-/// Stage Change) or a batch that leaves a Workflow invalid
+/// Stage Change) or a batch that leaves a Workflow invalid or a Unit at a Stage outside its Collection's Workflow
 /// (nothing is written in those cases), and 204 on success.
 /// Conflicts are the latest write wins per field, and deletes win: a PATCH to a deleted row is ignored.
 ///
@@ -205,11 +205,12 @@ Handler writeApi(Pool<void> db, Directory dir, {required String jwtSecret}) =>
       try {
         final unlinked = <String>{};
         await db.runTx((tx) async {
-          final touched = <String>{};
+          final touched = _Touched();
           for (final op in operations) {
-            touched.addAll(await _apply(tx, owner, op, unlinked));
+            await _apply(tx, owner, op, touched, unlinked);
           }
-          await _checkWorkflows(tx, touched);
+          await _checkWorkflows(tx, touched.workflows);
+          await _checkUnitStages(tx, touched);
         });
         await deleteUnreferencedPhotos(db, dir, owner, unlinked);
         return Response(204);
@@ -225,12 +226,21 @@ Handler writeApi(Pool<void> db, Directory dir, {required String jwtSecret}) =>
       }
     };
 
-/// Applies [op] and returns the ids of the Workflows it may have changed, to check once the batch is applied.
+/// The rows a batch may have changed, to check once the whole batch is applied.
+class _Touched {
+  final workflows = <String>{};
+  final collections = <String>{};
+  final units = <String>{};
+  final stageChanges = <String>{};
+}
+
+/// Applies [op], adding what it may have changed to [touched].
 /// Adds the photo files of the Photo rows it deletes to [unlinked], to delete once no row points at them.
-Future<Set<String>> _apply(
+Future<void> _apply(
   TxSession tx,
   String owner,
   Map<String, Object?> op,
+  _Touched touched,
   Set<String> unlinked,
 ) async {
   final table = op['type'];
@@ -264,12 +274,12 @@ Future<Set<String>> _apply(
       throw _Rejected(422, 'Stage Changes are append-only');
     }
     // A repeated upload of a Stage Change already stored (a retry) changes nothing.
-    if (existing.isNotEmpty) return {};
+    if (existing.isNotEmpty) return;
   }
   if (table == 'photos') {
     if (op['op'] == 'PATCH') throw _Rejected(422, 'Photos cannot be edited');
     // A Photo never changes, so a repeated upload (a retry) changes nothing.
-    if (op['op'] == 'PUT' && existing.isNotEmpty) return {};
+    if (op['op'] == 'PUT' && existing.isNotEmpty) return;
   }
 
   // Skipped for a PATCH to a deleted row, which is ignored anyway (deletes win).
@@ -317,7 +327,7 @@ Future<Set<String>> _apply(
         row.first as String,
     ]);
   }
-  final touched = {
+  touched.workflows.addAll({
     if (table == 'workflows') id,
     if (table == 'stages') ...[
       for (final row in await tx.execute(
@@ -327,7 +337,10 @@ Future<Set<String>> _apply(
         row.first as String,
       if (data['workflow_id'] case final String workflowId) workflowId,
     ],
-  };
+  });
+  if (table == 'collections' && data.containsKey('workflow_id')) {
+    touched.collections.add(id);
+  }
 
   // Column names come from _writable, never from the payload, so interpolating them is safe.
   final columns = data.keys.toList();
@@ -384,7 +397,7 @@ Future<Set<String>> _apply(
     'stage_changes' => data['unit_id'],
     _ => null,
   };
-  if (unitId != null) {
+  if (unitId is String) {
     await tx.execute(
       r'''UPDATE units u SET stage_id = latest.to_stage_id
         FROM (SELECT to_stage_id FROM stage_changes WHERE unit_id = $1::uuid
@@ -392,37 +405,46 @@ Future<Set<String>> _apply(
         WHERE u.id = $1::uuid AND u.stage_id <> latest.to_stage_id''',
       parameters: [unitId],
     );
+    touched.units.add(unitId);
   }
-  if (table == 'stage_changes') {
-    final outside = await tx.execute(
-      'SELECT FROM stage_changes sc JOIN units u ON u.id = sc.unit_id '
-      'JOIN collections c ON c.id = u.collection_id JOIN stages s ON s.id = sc.to_stage_id '
-      'WHERE sc.id = \$1::uuid AND s.workflow_id <> c.workflow_id',
-      parameters: [id],
-    );
-    if (outside.isNotEmpty) {
-      throw _Rejected(
-        422,
-        "Stage Change $id: its to-Stage is not in its Unit's Collection's Workflow",
-      );
-    }
-  }
+  if (table == 'stage_changes') touched.stageChanges.add(id);
+}
 
-  // Checked after the write, so it holds whichever of the two columns changed. The transaction rolls back if not.
-  if (unitId != null) {
-    final mismatched = await tx.execute(
-      'SELECT FROM units u JOIN collections c ON c.id = u.collection_id JOIN stages s ON s.id = u.stage_id '
-      'WHERE u.id = \$1::uuid AND s.workflow_id <> c.workflow_id',
-      parameters: [unitId],
-    );
-    if (mismatched.isNotEmpty) {
-      throw _Rejected(
-        422,
-        "Unit $unitId's Stage is not in its Collection's Workflow",
-      );
-    }
+/// Rejects the batch if it leaves a Unit at a Stage outside its Collection's Workflow, or appended a Stage Change to
+/// such a Stage. Checked after the whole batch, not per operation: switching a Collection to another Workflow changes
+/// the Collection and moves its Units, and no order of those writes is valid in between. It also covers a Unit the
+/// batch doesn't mention, such as one another device added to the Collection meanwhile.
+Future<void> _checkUnitStages(TxSession tx, _Touched touched) async {
+  if (touched.units.isEmpty &&
+      touched.collections.isEmpty &&
+      touched.stageChanges.isEmpty) {
+    return;
   }
-  return touched;
+  final outside = await tx.execute(
+    r'''SELECT 'Stage Change ' || sc.id || ': its to-Stage' FROM stage_changes sc
+        JOIN units u ON u.id = sc.unit_id JOIN collections c ON c.id = u.collection_id
+        JOIN stages s ON s.id = sc.to_stage_id
+      WHERE sc.id::text = ANY($3) AND s.workflow_id <> c.workflow_id
+      UNION ALL
+      SELECT 'Unit ' || u.id || ': its Stage' FROM units u
+        JOIN collections c ON c.id = u.collection_id JOIN stages s ON s.id = u.stage_id
+      WHERE (u.id::text = ANY($1) OR u.collection_id::text = ANY($2)) AND s.workflow_id <> c.workflow_id
+      LIMIT 1''',
+    parameters: [
+      for (final ids in [
+        touched.units,
+        touched.collections,
+        touched.stageChanges,
+      ])
+        TypedValue(Type.textArray, ids.toList()),
+    ],
+  );
+  if (outside.isNotEmpty) {
+    throw _Rejected(
+      422,
+      "${outside.first.first} is not in its Collection's Workflow",
+    );
+  }
 }
 
 /// A Tag is never edited, only added and removed, and its id must be [tagId] of its Unit and name.

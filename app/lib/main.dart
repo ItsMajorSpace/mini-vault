@@ -255,7 +255,12 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                 ListTile(
                   key: ValueKey(c.id),
                   title: Text(c.name),
-                  subtitle: ProgressSummary(vault: widget.vault, collection: c),
+                  // Keyed by Workflow, so switching it restarts the watch on the new one.
+                  subtitle: ProgressSummary(
+                    key: ValueKey(c.workflowId),
+                    vault: widget.vault,
+                    collection: c,
+                  ),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute<void>(
@@ -267,10 +272,21 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                       ),
                     ),
                   ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.edit),
-                    tooltip: 'Rename Collection',
-                    onPressed: () => _rename(c),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.swap_horiz),
+                        tooltip: 'Switch Workflow',
+                        onPressed: () =>
+                            switchWorkflow(context, widget.vault, c),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit),
+                        tooltip: 'Rename Collection',
+                        onPressed: () => _rename(c),
+                      ),
+                    ],
                   ),
                 ),
             ],

@@ -1274,6 +1274,179 @@ void main() {
         expect((await unit(user.unitId)).single.last, 'Wishlist');
       },
     );
+
+    group('switching a Collection to another Workflow', () {
+      Map<String, Object?> switchTo(String collectionId, String workflowId) => {
+        'op': 'PATCH',
+        'type': 'collections',
+        'id': collectionId,
+        'data': {'workflow_id': workflowId},
+      };
+      Future<String?> workflowOfCollection(String id) async =>
+          (await db.execute(
+                r'SELECT workflow_id::text FROM collections WHERE id = $1::uuid',
+                parameters: [id],
+              )).first.first
+              as String?;
+
+      /// A user with a Collection holding a Unit at Wishlist and one at Primed, and a second Workflow.
+      Future<_Switch> setUpSwitch() async {
+        final user = await signUp();
+        final collectionId = await createCollection(user);
+        final units = [
+          await createUnitAt(
+            user,
+            collectionId,
+            await stageOf(user.id, 'Wishlist'),
+          ),
+          await createUnitAt(
+            user,
+            collectionId,
+            await stageOf(user.id, 'Primed'),
+          ),
+        ];
+        final workflowId = await newId();
+        final stages = [await newId(), await newId(), await newId()];
+        final created = await upload(
+          user.token,
+          newWorkflow(workflowId, stages),
+        );
+        expect(created.statusCode, 204, reason: created.body);
+        return (
+          user: user,
+          collectionId: collectionId,
+          units: units,
+          workflowId: workflowId,
+          stages: stages,
+        );
+      }
+
+      /// The app's batch: each Unit's move (Unit stage_id, then Stage Change), then the Collection's workflow_id.
+      Future<List<Map<String, Object?>>> appBatch(_Switch s) async => [
+        ...await move(
+          s.units[0],
+          await stageOf(s.user.id, 'Wishlist'),
+          s.stages[0],
+        ),
+        ...await move(
+          s.units[1],
+          await stageOf(s.user.id, 'Primed'),
+          s.stages[2],
+        ),
+        switchTo(s.collectionId, s.workflowId),
+      ];
+
+      test("the app's batch is accepted and leaves every Unit at a Stage of the new Workflow", () async {
+        final s = await setUpSwitch();
+
+        final response = await upload(s.user.token, await appBatch(s));
+
+        expect(response.statusCode, 204, reason: response.body);
+        expect(await workflowOfCollection(s.collectionId), s.workflowId);
+        expect((await unit(s.units[0])).single.last, 'Stage 0');
+        expect((await unit(s.units[1])).single.last, 'Stage 2');
+        expect(await history(s.units[1]), ['Primed', 'Stage 2']);
+      });
+
+      test("switching to another user's Workflow is rejected", () async {
+        final s = await setUpSwitch();
+        final other = await signUp();
+
+        final response = await upload(s.user.token, [
+          switchTo(s.collectionId, await workflowOf(other.id)),
+        ]);
+
+        expect(response.statusCode, 403, reason: response.body);
+        expect(
+          await workflowOfCollection(s.collectionId),
+          await workflowOf(s.user.id),
+        );
+      });
+
+      test('switching without moving every Unit is rejected', () async {
+        final s = await setUpSwitch();
+
+        final response = await upload(s.user.token, [
+          ...(await appBatch(s)).skip(2), // The first Unit's move left out.
+        ]);
+
+        expect(response.statusCode, 422, reason: response.body);
+        expect(
+          await workflowOfCollection(s.collectionId),
+          await workflowOf(s.user.id),
+        );
+        expect((await unit(s.units[1])).single.last, 'Primed');
+      });
+
+      test('the batch is rejected as a whole when another device added a Unit to the Collection meanwhile', () async {
+        final s = await setUpSwitch();
+        final batch = await appBatch(s); // Made offline, before the add.
+        final added = await createUnitAt(
+          s.user,
+          s.collectionId,
+          await stageOf(s.user.id, 'Painted'),
+        );
+
+        final response = await upload(s.user.token, batch);
+
+        expect(response.statusCode, 422, reason: response.body);
+        expect(
+          await workflowOfCollection(s.collectionId),
+          await workflowOf(s.user.id),
+        );
+        expect((await unit(s.units[0])).single.last, 'Wishlist');
+        expect((await unit(added)).single.last, 'Painted');
+        expect(await history(s.units[0]), ['Wishlist']);
+      });
+
+      test('the batch is rejected as a whole when another device moved a Unit later than the switch', () async {
+        final s = await setUpSwitch();
+        final batch = await appBatch(s); // Its moves are stamped 10:00.
+        final moved = await upload(s.user.token, [
+          putStageChange(
+            await newId(),
+            unitId: s.units[1],
+            fromStageId: await stageOf(s.user.id, 'Primed'),
+            toStageId: await stageOf(s.user.id, 'Done'),
+            happenedAt: '2026-11-13T11:00:00.000Z',
+          ),
+        ]);
+        expect(moved.statusCode, 204, reason: moved.body);
+
+        final response = await upload(s.user.token, batch);
+
+        expect(response.statusCode, 422, reason: response.body);
+        expect(
+          await workflowOfCollection(s.collectionId),
+          await workflowOf(s.user.id),
+        );
+        expect((await unit(s.units[1])).single.last, 'Done');
+        expect(await history(s.units[1]), ['Primed', 'Done']);
+      });
+
+      test(
+        "once switched, another device's move to an old Stage is rejected",
+        () async {
+          final s = await setUpSwitch();
+          expect(
+            (await upload(s.user.token, await appBatch(s))).statusCode,
+            204,
+          );
+
+          final response = await upload(
+            s.user.token,
+            await move(
+              s.units[0],
+              await stageOf(s.user.id, 'Wishlist'),
+              await stageOf(s.user.id, 'Done'),
+            ),
+          );
+
+          expect(response.statusCode, 422, reason: response.body);
+          expect((await unit(s.units[0])).single.last, 'Stage 0');
+        },
+      );
+    });
   });
 
   group('Photos', () {
@@ -1558,3 +1731,12 @@ void main() {
     });
   });
 }
+
+/// A user with a Collection holding two Units, and a second Workflow with three Stages.
+typedef _Switch = ({
+  ({String token, String id}) user,
+  String collectionId,
+  List<String> units,
+  String workflowId,
+  List<String> stages,
+});
