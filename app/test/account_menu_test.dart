@@ -13,7 +13,7 @@ import 'package:mini_vault/workflows.dart';
 import 'package:powersync/attachments/attachments.dart';
 import 'package:powersync/powersync.dart';
 
-// The account menu, the sign-out warning and Sync now on the Collections screen, against real SQLite.
+// The account menu, the sign-out warning, and the sync icon and banner, against real SQLite.
 // The database is never connected; a connected status is set by hand.
 // shortcut: the database is never closed once the screen has been mounted, as in collections_screen_test.dart.
 
@@ -185,7 +185,7 @@ void main() {
     var signOuts = 0;
     await pumpCollections(tester, db, onSignOut: () => signOuts++);
 
-    expect(find.text('1 change waiting to sync'), findsOneWidget);
+    expect(find.byTooltip('1 change waiting to sync'), findsOneWidget);
 
     await openMenu(tester);
     await tester.tap(find.text('Sign out'));
@@ -197,9 +197,55 @@ void main() {
     expect(signOuts, 0);
   });
 
-  testWidgets(
-    'Sync now shows only when connected with changes waiting, and syncs',
-    (tester) async {
+  group('the sync icon', () {
+    Finder badge(String count) =>
+        find.descendant(of: find.byType(Badge), matching: find.text(count));
+
+    testWidgets('is a plain cloud when everything is synced', (tester) async {
+      final db = await openDb(tester, waiting: 0);
+      await pumpCollections(tester, db);
+      connect(db);
+      await settle(tester);
+
+      expect(find.byTooltip('All changes synced'), findsOneWidget);
+      expect(find.byIcon(Icons.cloud), findsOneWidget);
+      expect(find.text('0'), findsNothing); // No badge.
+      expect(find.byType(SyncBanner), findsOneWidget);
+      expect(find.textContaining('sync'), findsNothing); // No bar, no banner.
+    });
+
+    testWidgets('counts the changes waiting in a badge', (tester) async {
+      final db = await openDb(tester, waiting: 2);
+      await pumpCollections(tester, db);
+      connect(db);
+      await settle(tester);
+
+      expect(find.byTooltip('2 changes waiting to sync'), findsOneWidget);
+      expect(find.byIcon(Icons.cloud), findsOneWidget);
+      expect(badge('2'), findsOneWidget);
+      expect(find.textContaining('sync'), findsNothing); // No banner.
+    });
+
+    testWidgets('is crossed out offline, still counting', (tester) async {
+      final db = await openDb(tester, waiting: 2);
+      await pumpCollections(tester, db);
+
+      expect(find.byTooltip('2 changes waiting to sync'), findsOneWidget);
+      expect(find.byIcon(Icons.cloud_off), findsOneWidget);
+      expect(badge('2'), findsOneWidget);
+      expect(find.textContaining('sync'), findsNothing); // No banner.
+
+      await tester.runAsync(() async => (await db.getCrudBatch())!.complete());
+      await settle(tester);
+      expect(find.byTooltip('Offline'), findsOneWidget);
+      expect(find.byIcon(Icons.cloud_off), findsOneWidget);
+      expect(find.byType(Badge), findsOneWidget);
+      expect(find.text('2'), findsNothing);
+    });
+
+    testWidgets('syncs now on a tap when connected, with a spinner', (
+      tester,
+    ) async {
       final db = await openDb(tester, waiting: 2);
       var syncs = 0;
       var sync = Completer<void>();
@@ -211,66 +257,112 @@ void main() {
           return sync.future;
         },
       );
+      const tooltip = '2 changes waiting to sync';
 
-      expect(find.text('2 changes waiting to sync'), findsOneWidget);
-      expect(find.text('Sync now'), findsNothing); // Offline.
+      await tester.tap(find.byTooltip(tooltip)); // Offline: nothing.
+      await tester.pump();
+      expect(syncs, 0);
 
-      // ignore: invalid_use_of_protected_member, deprecated_member_use, no server to connect to here.
-      db.setStatus(db.currentStatus.copyWith(connected: true));
+      connect(db);
       await settle(tester);
-      await tester.tap(find.text('Sync now'));
+      await tester.tap(find.byTooltip(tooltip));
       await tester.pump();
       expect(syncs, 1);
-      expect(find.text('Sync now'), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byIcon(Icons.cloud), findsNothing);
+      await tester.tap(find.byTooltip(tooltip)); // Already syncing.
+      await tester.pump();
+      expect(syncs, 1);
 
-      // A failed sync: no popup, the count and button stay.
+      // A failed sync: no popup, the count stays.
       sync.completeError(Exception('offline'));
       await tester.pump();
-      expect(find.text('Sync now'), findsOneWidget);
-      expect(find.text('2 changes waiting to sync'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(badge('2'), findsOneWidget);
       expect(find.byType(AlertDialog), findsNothing);
       expect(find.byType(SnackBar), findsNothing);
 
       sync = Completer<void>()..complete();
-      await tester.tap(find.text('Sync now'));
+      await tester.tap(find.byTooltip(tooltip));
       await tester.pump();
       expect(syncs, 2);
-    },
-  );
+    });
 
-  testWidgets('Sync now is hidden when connected with nothing waiting', (
-    tester,
-  ) async {
-    final db = await openDb(tester, waiting: 0);
-    await pumpCollections(tester, db, onSyncNow: () async {});
-    // ignore: invalid_use_of_protected_member, deprecated_member_use, no server to connect to here.
-    db.setStatus(db.currentStatus.copyWith(connected: true));
-    await settle(tester);
+    testWidgets('also syncs from a Collection\'s own screen', (tester) async {
+      final db = await openDb(tester, waiting: 0);
+      await tester.runAsync(
+        () => db.execute(
+          "INSERT INTO collections (id, name, workflow_id) VALUES ('c', 'Crimson Fists', 'w')",
+        ),
+      );
+      var syncs = 0;
+      await pumpCollections(tester, db, onSyncNow: () async => syncs++);
+      connect(db);
+      await tester.tap(find.text('Crimson Fists'));
+      await settle(tester);
 
-    expect(find.text('All changes synced'), findsOneWidget);
-    expect(find.text('Sync now'), findsNothing);
+      expect(find.byType(CollectionScreen), findsOneWidget);
+      await tester.tap(
+        find.byTooltip('1 change waiting to sync'),
+      ); // The new Collection.
+      await tester.pump();
+      expect(syncs, 1);
+    });
   });
 
-  testWidgets('Sync now also shows on a Collection\'s own screen', (
-    tester,
-  ) async {
-    final db = await openDb(tester, waiting: 0);
-    await tester.runAsync(
-      () => db.execute(
-        "INSERT INTO collections (id, name, workflow_id) VALUES ('c', 'Crimson Fists', 'w')",
-      ),
-    );
-    var syncs = 0;
-    await pumpCollections(tester, db, onSyncNow: () async => syncs++);
-    // ignore: invalid_use_of_protected_member, deprecated_member_use, no server to connect to here.
-    db.setStatus(db.currentStatus.copyWith(connected: true));
-    await tester.tap(find.text('Crimson Fists'));
-    await settle(tester);
+  group('the sync banner', () {
+    testWidgets('shows a sync error, on both screens', (tester) async {
+      final db = await openDb(tester, waiting: 0);
+      await tester.runAsync(
+        () => db.execute(
+          "INSERT INTO collections (id, name, workflow_id) VALUES ('c', 'Crimson Fists', 'w')",
+        ),
+      );
+      await pumpCollections(tester, db);
+      // ignore: invalid_use_of_protected_member, deprecated_member_use, no server to fail here.
+      db.setStatus(db.currentStatus.copyWith(uploadError: Exception('boom')));
+      await settle(tester);
+      expect(find.text('Sync failed: Exception: boom'), findsOneWidget);
 
-    expect(find.text('Sync now'), findsOneWidget);
-    await tester.tap(find.text('Sync now'));
-    await tester.pump();
-    expect(syncs, 1);
+      await tester.tap(find.text('Crimson Fists'));
+      await settle(tester);
+      expect(find.byType(CollectionScreen), findsOneWidget);
+      expect(find.text('Sync failed: Exception: boom'), findsOneWidget);
+    });
+
+    testWidgets('shows once changes have waited for over a day', (
+      tester,
+    ) async {
+      final db = await openDb(tester, waiting: 2);
+      var now = DateTime(2026, 11, 13, 9);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SyncBanner(db: db, now: () => now),
+          ),
+        ),
+      );
+      await settle(tester);
+      const stale =
+          "Changes haven't synced for over a day. Connect to the internet to keep them.";
+      expect(find.text(stale), findsNothing);
+
+      now = now.add(const Duration(hours: 23));
+      await tester.pump(const Duration(hours: 23));
+      expect(find.text(stale), findsNothing);
+
+      now = now.add(const Duration(hours: 1));
+      await tester.pump(const Duration(hours: 1)); // Nothing else changes.
+      expect(find.text(stale), findsOneWidget);
+
+      // Synced: the banner goes.
+      await tester.runAsync(() async => (await db.getCrudBatch())!.complete());
+      await settle(tester);
+      expect(find.text(stale), findsNothing);
+    });
   });
 }
+
+void connect(PowerSyncDatabase db) =>
+    // ignore: invalid_use_of_protected_member, deprecated_member_use, no server to connect to here.
+    db.setStatus(db.currentStatus.copyWith(connected: true));
