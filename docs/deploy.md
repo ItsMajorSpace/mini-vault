@@ -23,8 +23,10 @@ api too. Photo files live in the `mini-vault_photos` volume and are not in these
 
 1. **DNS**: A records (and AAAA if the server has IPv6) for `auth.minivault.bingoscape.org`,
    `sync.minivault.bingoscape.org` and `api.minivault.bingoscape.org`, pointing at the bingoscape server.
-2. **nginx**: copy `server/deploy/nginx.conf.example` to `/etc/nginx/sites-available/minivault`, then
-   `sudo ln -s /etc/nginx/sites-available/minivault /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx`.
+2. **nginx**: on the server, fetch the example config (it is not on the server yet), enable it, test and reload:
+   `sudo curl -fsSL https://raw.githubusercontent.com/ItsMajorSpace/mini-vault/main/server/deploy/nginx.conf.example -o /etc/nginx/sites-available/minivault`,
+   then `sudo ln -s /etc/nginx/sites-available/minivault /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx`.
+   A symlink without the file breaks `nginx -t` for every site on the server, Bingoscape's too.
    The sync vhost turns off proxy buffering, sets 1 h read/send timeouts and passes WebSocket upgrade headers,
    which PowerSync's streams need.
 3. **TLS**: `sudo certbot --nginx -d auth.minivault.bingoscape.org -d sync.minivault.bingoscape.org -d api.minivault.bingoscape.org`.
