@@ -8,7 +8,7 @@ library;
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:domain_core/domain_core.dart';
+import 'package:domain_core/domain_core.dart' hide Paint;
 import 'package:domain_core/sqlite_store.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gotrue/gotrue.dart';
@@ -267,34 +267,17 @@ class _UnitPhotosState extends State<UnitPhotos> {
     }
   }
 
-  Future<void> _add(ImageSource source) async {
-    try {
-      await attempt(
-        context,
-        () => widget.files.add(
-          widget.vault,
-          widget.collectionId,
-          widget.unit,
-          source,
-        ),
-      );
-    } on FormatException {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not read that image')),
-        );
-      }
-    }
-  }
-
-  Future<void> _view(List<(Photo, File?)> photos, int index) => Navigator.push(
+  Future<void> _add(ImageSource source) => _addPhoto(
     context,
-    MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (_) =>
-          _PhotoViewer(photos: photos, index: index, vault: widget.vault),
-    ),
+    widget.vault,
+    widget.files,
+    widget.collectionId,
+    widget.unit,
+    source,
   );
+
+  Future<void> _view(List<(Photo, File?)> photos, int index) =>
+      _viewPhotos(context, widget.vault, photos, index);
 
   @override
   Widget build(BuildContext context) {
@@ -356,6 +339,39 @@ class _UnitPhotosState extends State<UnitPhotos> {
     );
   }
 }
+
+/// Adds a photo from [source] to the Unit, showing a refusal or an unreadable image as a snack bar.
+Future<void> _addPhoto(
+  BuildContext context,
+  Vault vault,
+  PhotoFiles files,
+  String collectionId,
+  String unit,
+  ImageSource source,
+) async {
+  try {
+    await attempt(context, () => files.add(vault, collectionId, unit, source));
+  } on FormatException {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not read that image')),
+      );
+    }
+  }
+}
+
+Future<void> _viewPhotos(
+  BuildContext context,
+  Vault vault,
+  List<(Photo, File?)> photos,
+  int index,
+) => Navigator.push(
+  context,
+  MaterialPageRoute<void>(
+    fullscreenDialog: true,
+    builder: (_) => _PhotoViewer(photos: photos, index: index, vault: vault),
+  ),
+);
 
 /// [photos] full screen from [index]: swipe between them, pinch to zoom, and remove one once confirmed.
 class _PhotoViewer extends StatefulWidget {
@@ -447,15 +463,18 @@ class _PhotoViewerState extends State<_PhotoViewer> {
   }
 }
 
-/// A Unit row's leading square: the Unit's newest photo on this device, or a placeholder.
+/// A Unit row's leading square, its own tap target: the Unit's newest photo on this device, opening the viewer there,
+/// or a placeholder offering to take or choose one.
 class UnitThumbnail extends StatefulWidget {
   const UnitThumbnail({
     super.key,
+    required this.vault,
     required this.files,
     required this.collectionId,
     required this.unitName,
   });
 
+  final Vault vault;
   final PhotoFiles? files;
   final String collectionId;
   final String unitName;
@@ -470,31 +489,124 @@ class _UnitThumbnailState extends State<UnitThumbnail> {
     widget.unitName,
   );
 
-  @override
-  Widget build(BuildContext context) {
-    final placeholder = Icon(
-      Icons.image_outlined,
-      color: Theme.of(context).colorScheme.outline,
-      semanticLabel: 'No photo',
-    );
-    return SizedBox.square(
-      dimension: 48,
-      child: StreamBuilder(
-        stream: _newest,
-        builder: (context, snapshot) => switch (snapshot.data) {
-          final file? => ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Image.file(
-              file,
-              fit: BoxFit.cover,
-              cacheWidth: 96,
-              semanticLabel: 'Photo',
-              errorBuilder: (_, _, _) => placeholder,
+  Future<void> _view(PhotoFiles files, File newest) async {
+    final photos = await files
+        .watch(widget.collectionId, widget.unitName)
+        .first;
+    final index = photos.indexWhere((p) => p.$2?.path == newest.path);
+    if (mounted) {
+      await _viewPhotos(context, widget.vault, photos, index < 0 ? 0 : index);
+    }
+  }
+
+  Future<void> _add(PhotoFiles files) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
             ),
-          ),
-          null => placeholder,
-        },
+            ListTile(
+              leading: const Icon(Icons.add_photo_alternate),
+              title: const Text('Add a photo from the gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
       ),
     );
+    if (source != null && mounted) {
+      await _addPhoto(
+        context,
+        widget.vault,
+        files,
+        widget.collectionId,
+        widget.unitName,
+        source,
+      );
+    }
   }
+
+  @override
+  Widget build(BuildContext context) {
+    final colours = Theme.of(context).colorScheme;
+    final placeholder = CustomPaint(
+      painter: _DashedOutline(colours.outline),
+      child: Center(
+        child: Icon(
+          Icons.add_a_photo,
+          size: 22,
+          color: colours.onSurfaceVariant,
+          semanticLabel: 'Add photo',
+        ),
+      ),
+    );
+    final files = widget.files;
+    return StreamBuilder(
+      stream: _newest,
+      builder: (context, snapshot) {
+        final file = snapshot.data;
+        return InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: switch ((files, file)) {
+            (final files?, final file?) => () => _view(files, file),
+            (final files?, null) => () => _add(files),
+            _ => null,
+          },
+          child: SizedBox.square(
+            dimension: 56,
+            child: Center(
+              child: SizedBox.square(
+                dimension: 48,
+                child: file == null
+                    ? placeholder
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: Image.file(
+                          file,
+                          fit: BoxFit.cover,
+                          cacheWidth: 96,
+                          semanticLabel: 'Photo',
+                          errorBuilder: (_, _, _) => placeholder,
+                        ),
+                      ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A dashed rounded outline around its child: the empty thumbnail's "add one here".
+class _DashedOutline extends CustomPainter {
+  _DashedOutline(this.colour);
+
+  final Color colour;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = colour
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final outline = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(6)),
+      );
+    for (final metric in outline.computeMetrics()) {
+      for (var d = 0.0; d < metric.length; d += 8) {
+        canvas.drawPath(metric.extractPath(d, d + 4), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedOutline old) => old.colour != colour;
 }
