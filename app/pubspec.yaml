@@ -24,6 +24,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
@@ -31,3 +32,14 @@ flutter:
     - family: BlackOpsOne
       fonts:
         - asset: assets/fonts/BlackOpsOne-Regular.ttf
+
+# Regenerate with: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: assets/icon/app_icon.png
+  android: true
+  min_sdk_android: 21
+  adaptive_icon_background: "#16181B"
+  adaptive_icon_foreground: assets/icon/app_icon.png
+  ios: true
+  remove_alpha_ios: true
+  background_color_ios: "#16181B"
