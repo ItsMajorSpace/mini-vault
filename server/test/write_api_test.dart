@@ -3018,6 +3018,272 @@ void main() {
     );
   });
 
+  group('Paint Schemes', () {
+    Map<String, Object?> put(
+      String table,
+      String id,
+      Map<String, Object?> data,
+    ) => {'op': 'PUT', 'type': table, 'id': id, 'data': data};
+    Map<String, Object?> patch(
+      String table,
+      String id,
+      Map<String, Object?> data,
+    ) => {'op': 'PATCH', 'type': table, 'id': id, 'data': data};
+    Map<String, Object?> delete(String table, String id) => {
+      'op': 'DELETE',
+      'type': table,
+      'id': id,
+    };
+
+    /// Uploads a Paint for [user] and returns its id.
+    Future<String> addPaint(
+      ({String token, String id}) user,
+      String name,
+    ) async {
+      final id = await newId();
+      final response = await upload(user.token, [
+        put('paints', id, {
+          'brand': 'Citadel',
+          'range': '',
+          'name': name,
+          'owned': 1,
+        }),
+      ]);
+      expect(response.statusCode, 204, reason: response.body);
+      return id;
+    }
+
+    /// [user]'s Paint Schemes, each as "name: Steps in order", a Step as "technique [Paints] note".
+    Future<List<String>> schemesOf(String userId) async => [
+      for (final [name, steps] in await db.execute(
+        r'''SELECT s.name, coalesce((SELECT string_agg(
+              trim(st.technique || ' [' || coalesce((SELECT string_agg(p.name, ', ' ORDER BY l.position, l.id)
+                FROM scheme_step_paints l JOIN paints p ON p.id = l.paint_id WHERE l.step_id = st.id), '')
+              || '] ' || st.note), ' | ' ORDER BY st.position, st.id)
+            FROM scheme_steps st WHERE st.scheme_id = s.id), '') AS steps
+          FROM paint_schemes s WHERE s.owner_id = $1::uuid ORDER BY s.name''',
+        parameters: [userId],
+      ))
+        '$name: $steps',
+    ];
+
+    test('are stored with ordered Steps of mixed Paints, Technique and note trimmed, renamed and reordered', () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final blue = await addPaint(user, 'Macragge Blue');
+      final white = await addPaint(user, 'White Scar');
+      final [scheme, prime, drybrush, varnish, l1, l2] = [
+        for (var i = 0; i < 6; i++) await newId(),
+      ];
+      final created = await upload(user.token, [
+        put('paint_schemes', scheme, {
+          'collection_id': collectionId,
+          'name': ' Armour ',
+        }),
+        put('scheme_steps', prime, {
+          'scheme_id': scheme,
+          'position': 0,
+          'technique': ' Prime ',
+          'note': '',
+        }),
+        put('scheme_steps', drybrush, {
+          'scheme_id': scheme,
+          'position': 1,
+          'technique': 'Drybrush',
+          'note': ' 2:1 ',
+        }),
+        put('scheme_step_paints', l1, {
+          'step_id': drybrush,
+          'paint_id': white,
+          'position': 0,
+        }),
+        put('scheme_step_paints', l2, {
+          'step_id': drybrush,
+          'paint_id': blue,
+          'position': 1,
+        }),
+        // A Step with only a note; null Technique stores ''.
+        put('scheme_steps', varnish, {
+          'scheme_id': scheme,
+          'position': 2,
+          'technique': null,
+          'note': 'Matt varnish',
+        }),
+      ]);
+      expect(created.statusCode, 204, reason: created.body);
+      expect(await schemesOf(user.id), [
+        'Armour: Prime [] | Drybrush [White Scar, Macragge Blue] 2:1 | [] Matt varnish',
+      ]);
+
+      final edited = await upload(user.token, [
+        patch('paint_schemes', scheme, {'name': 'Power armour'}),
+        patch('scheme_steps', varnish, {'position': 0}),
+        patch('scheme_steps', prime, {'position': 1}),
+        patch('scheme_steps', drybrush, {'position': 2}),
+        patch('scheme_step_paints', l2, {'position': 0}),
+        patch('scheme_step_paints', l1, {'position': 1}),
+      ]);
+      expect(edited.statusCode, 204, reason: edited.body);
+      expect(await schemesOf(user.id), [
+        'Power armour: [] Matt varnish | Prime [] | Drybrush [Macragge Blue, White Scar] 2:1',
+      ]);
+
+      for (final bad in [
+        patch('paint_schemes', scheme, {'name': '  '}),
+        patch('scheme_steps', prime, {'technique': 42}),
+        put('scheme_steps', await newId(), {
+          'scheme_id': await newId(),
+          'position': 0,
+        }),
+        put('scheme_step_paints', await newId(), {
+          'step_id': prime,
+          'paint_id': await newId(),
+          'position': 0,
+        }),
+      ]) {
+        final response = await upload(user.token, [bad]);
+        expect(response.statusCode, 422, reason: '$bad: ${response.body}');
+      }
+    });
+
+    test('deleting a Paint takes it out of every Step, keeping the Steps; deleting a Collection deletes its Schemes', () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final other = await createCollection(user);
+      final blue = await addPaint(user, 'Macragge Blue');
+      final [armour, robes, step, robeStep] = [
+        for (var i = 0; i < 4; i++) await newId(),
+      ];
+      final response = await upload(user.token, [
+        put('paint_schemes', armour, {
+          'collection_id': collectionId,
+          'name': 'Armour',
+        }),
+        put('paint_schemes', robes, {'collection_id': other, 'name': 'Robes'}),
+        for (final (s, scheme) in [(step, armour), (robeStep, robes)]) ...[
+          put('scheme_steps', s, {
+            'scheme_id': scheme,
+            'position': 0,
+            'technique': '',
+            'note': '',
+          }),
+          put('scheme_step_paints', await newId(), {
+            'step_id': s,
+            'paint_id': blue,
+            'position': 0,
+          }),
+        ],
+      ]);
+      expect(response.statusCode, 204, reason: response.body);
+      expect(await schemesOf(user.id), [
+        'Armour: [Macragge Blue]',
+        'Robes: [Macragge Blue]',
+      ]);
+
+      expect(
+        (await upload(user.token, [delete('paints', blue)])).statusCode,
+        204,
+      );
+      expect(await schemesOf(user.id), ['Armour: []', 'Robes: []']);
+
+      expect(
+        (await upload(user.token, [
+          delete('collections', collectionId),
+        ])).statusCode,
+        204,
+      );
+      expect(await schemesOf(user.id), ['Robes: []']);
+      expect(
+        (await db.execute(
+          r'SELECT count(*) FROM scheme_steps WHERE owner_id = $1::uuid',
+          parameters: [user.id],
+        )).single.single,
+        1,
+      );
+    });
+
+    test("cannot point at another user's Collection, Scheme, Step or Paint, nor touch their rows", () async {
+      final alice = await signUp();
+      final bob = await signUp();
+      final aliceCollection = await createCollection(alice);
+      final bobCollection = await createCollection(bob);
+      final alicePaint = await addPaint(alice, 'Macragge Blue');
+      final bobPaint = await addPaint(bob, 'Abaddon Black');
+      final [aliceScheme, aliceStep, aliceLink, bobScheme, bobStep] = [
+        for (var i = 0; i < 5; i++) await newId(),
+      ];
+      Map<String, Object?> putStep(String id, String scheme) => put(
+        'scheme_steps',
+        id,
+        {'scheme_id': scheme, 'position': 0, 'technique': 'Wash', 'note': ''},
+      );
+      for (final (user, ops) in [
+        (
+          alice,
+          [
+            put('paint_schemes', aliceScheme, {
+              'collection_id': aliceCollection,
+              'name': 'Armour',
+            }),
+            putStep(aliceStep, aliceScheme),
+            put('scheme_step_paints', aliceLink, {
+              'step_id': aliceStep,
+              'paint_id': alicePaint,
+              'position': 0,
+            }),
+          ],
+        ),
+        (
+          bob,
+          [
+            put('paint_schemes', bobScheme, {
+              'collection_id': bobCollection,
+              'name': 'Armour',
+            }),
+            putStep(bobStep, bobScheme),
+          ],
+        ),
+      ]) {
+        final response = await upload(user.token, ops);
+        expect(response.statusCode, 204, reason: response.body);
+      }
+
+      for (final op in [
+        // New rows of Bob's pointing at Alice's.
+        put('paint_schemes', await newId(), {
+          'collection_id': aliceCollection,
+          'name': 'Mine',
+        }),
+        putStep(await newId(), aliceScheme),
+        put('scheme_step_paints', await newId(), {
+          'step_id': bobStep,
+          'paint_id': alicePaint,
+          'position': 0,
+        }),
+        put('scheme_step_paints', await newId(), {
+          'step_id': aliceStep,
+          'paint_id': bobPaint,
+          'position': 1,
+        }),
+        // Bob's own rows moved onto Alice's.
+        patch('paint_schemes', bobScheme, {'collection_id': aliceCollection}),
+        patch('scheme_steps', bobStep, {'scheme_id': aliceScheme}),
+        // Alice's rows, edited or deleted.
+        patch('paint_schemes', aliceScheme, {'name': 'Mine'}),
+        patch('scheme_steps', aliceStep, {'position': 5}),
+        patch('scheme_step_paints', aliceLink, {'position': 5}),
+        delete('paint_schemes', aliceScheme),
+        delete('scheme_steps', aliceStep),
+        delete('scheme_step_paints', aliceLink),
+      ]) {
+        final response = await upload(bob.token, [op]);
+        expect(response.statusCode, 403, reason: '$op: ${response.body}');
+      }
+      expect(await schemesOf(alice.id), ['Armour: Wash [Macragge Blue]']);
+      expect(await schemesOf(bob.id), ['Armour: Wash []']);
+    });
+  });
+
   group('Accounts', () {
     const syncedTables = [
       'workflows',

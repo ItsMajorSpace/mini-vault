@@ -182,6 +182,47 @@ List<({Collection collection, String unit})> paintedUnits(
   ]..sort((a, b) => key(a).compareTo(key(b)));
 }
 
+/// A named, ordered recipe for painting one part of a Collection's models (ADR 0010).
+class PaintScheme {
+  const PaintScheme({
+    required this.id,
+    required this.collectionId,
+    required this.name,
+    this.stepCount = 0,
+  });
+
+  final String id;
+  final String collectionId;
+  final String name;
+
+  /// How many Scheme Steps it has.
+  final int stepCount;
+}
+
+/// One numbered entry in a [PaintScheme]: any number of Paints (several means mixed), a Technique and a note, at
+/// least one of the three when saved. Deleting a Paint takes it out, so a Step may be left empty.
+class SchemeStep {
+  const SchemeStep({
+    required this.id,
+    required this.schemeId,
+    this.paints = const [],
+    this.technique = '',
+    this.note = '',
+  });
+
+  final String id;
+  final String schemeId;
+
+  /// In the order picked; only those that have synced.
+  final List<Paint> paints;
+
+  /// '' if none.
+  final String technique;
+
+  /// '' if none.
+  final String note;
+}
+
 /// A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection.
 /// Its notes, Tags and photos belong to its Unit, not to it (ADR 0008).
 class Batch {
@@ -445,7 +486,8 @@ abstract interface class VaultStore {
   Future<void> setGameSystem(String id, String? gameSystem);
   Future<void> setCollectionDescription(String id, String description);
 
-  /// Deletes the Collection, its Batches and its Units' notes, Tags, Photos and [UnitPaint]s, in one transaction.
+  /// Deletes the Collection, its Batches, its Units' notes, Tags, Photos and [UnitPaint]s, and its Paint Schemes, in
+  /// one transaction.
   Future<void> deleteCollection(String id);
 
   /// Emits every Collection's Batches now and again whenever they change.
@@ -486,8 +528,35 @@ abstract interface class VaultStore {
   Future<void> updatePaint(Paint paint);
   Future<void> setPaintOwned(String id, bool owned);
 
-  /// Deletes the Paint and its [UnitPaint]s, in one transaction.
+  /// Deletes the Paint, its [UnitPaint]s and its place in every Scheme Step, in one transaction.
   Future<void> deletePaint(String id);
+
+  /// Emits the Collection's Paint Schemes, by name, with their Step counts, now and again whenever they change.
+  Stream<List<PaintScheme>> watchPaintSchemes(String collectionId);
+  Future<void> insertPaintScheme(PaintScheme scheme);
+  Future<void> renamePaintScheme(String id, String name);
+
+  /// Deletes the Paint Scheme and its Scheme Steps, in one transaction.
+  Future<void> deletePaintScheme(String id);
+
+  /// Emits the Paint Scheme's Scheme Steps in order, now and again whenever they or their Paints change.
+  Stream<List<SchemeStep>> watchSchemeSteps(String schemeId);
+
+  /// Appends [step] to the end of its Paint Scheme, with its Paints in list order.
+  Future<void> insertSchemeStep(SchemeStep step);
+
+  /// Stores [step]'s Paints (in list order), Technique and note, writing only what changed.
+  Future<void> updateSchemeStep(SchemeStep step);
+
+  /// Stores [order] (all of a Paint Scheme's Scheme Step ids) as its Step order.
+  Future<void> reorderSchemeSteps(List<String> order);
+  Future<void> deleteSchemeStep(String id);
+
+  /// Every Technique on any of the user's Scheme Steps.
+  Future<List<String>> allTechniques();
+
+  /// Emits which Paint Schemes use which Paints, once per pair, now and again whenever they change.
+  Stream<List<({String paintId, String schemeId})>> watchSchemePaints();
 
   /// Emits every [UnitPaint] whose Paint has synced, by brand, range and name, now and again whenever they change.
   Stream<List<UnitPaint>> watchUnitPaints();
@@ -802,8 +871,8 @@ class Vault {
   Future<List<Batch>> batchesOf(Collection collection) =>
       _store.watchBatches(collection.id).first;
 
-  /// Deletes the Collection, its Batches and their history, and its Units' notes, Tags, Photos and Paint links (not the
-  /// Paints). The server deletes the history with the Batches, and any Batch another device added meanwhile, and each
+  /// Deletes the Collection, its Batches and their history, its Units' notes, Tags, Photos and Paint links (not the
+  /// Paints), and its Paint Schemes. The server deletes the history with the Batches, and any Batch another device added meanwhile, and each
   /// photo file once no Photo points at it.
   Future<void> deleteCollection(String id) => _store.deleteCollection(id);
 
@@ -1410,7 +1479,7 @@ class Vault {
   Future<void> setPaintOwned(String id, bool owned) =>
       _store.setPaintOwned(id, owned);
 
-  /// Deletes the Paint and removes it from every Unit that uses it.
+  /// Deletes the Paint and removes it from every Unit and Scheme Step that uses it; the Steps stay.
   Future<void> deletePaint(String id) => _store.deletePaint(id);
 
   /// The Paints Unit [unit] of Collection [collectionId] uses, by brand, range and name, emitted again whenever
@@ -1517,6 +1586,134 @@ class Vault {
           ),
     ]);
   }
+
+  /// The Collection's Paint Schemes, by name, emitted again whenever they or their Step counts change.
+  Stream<List<PaintScheme>> watchPaintSchemes(String collectionId) =>
+      _store.watchPaintSchemes(collectionId);
+
+  Future<PaintScheme> addPaintScheme(String collectionId, String name) async {
+    final scheme = PaintScheme(
+      id: _newId(),
+      collectionId: collectionId,
+      name: validName(name),
+    );
+    await _store.insertPaintScheme(scheme);
+    return scheme;
+  }
+
+  Future<void> renamePaintScheme(String id, String name) =>
+      _store.renamePaintScheme(id, validName(name));
+
+  /// Deletes the Paint Scheme and its Scheme Steps (not their Paints).
+  Future<void> deletePaintScheme(String id) => _store.deletePaintScheme(id);
+
+  /// How many Paint Schemes use each Paint, by Paint id, emitted again whenever that changes.
+  Stream<Map<String, int>> watchPaintSchemeCounts() =>
+      _store.watchSchemePaints().map((pairs) {
+        final counts = <String, int>{};
+        for (final p in pairs) {
+          counts.update(p.paintId, (n) => n + 1, ifAbsent: () => 1);
+        }
+        return counts;
+      });
+
+  /// The Paint Scheme's Scheme Steps in order, emitted again whenever they change.
+  Stream<List<SchemeStep>> watchSchemeSteps(String schemeId) =>
+      _store.watchSchemeSteps(schemeId);
+
+  /// The Techniques suggested before any is used.
+  static const defaultTechniques = [
+    'Basecoat',
+    'Layer',
+    'Wash',
+    'Shade',
+    'Drybrush',
+    'Edge highlight',
+    'Glaze',
+    'Airbrush',
+    'Contrast',
+    'Stipple',
+  ];
+
+  /// The Techniques to suggest: [defaultTechniques], then the others used before, A–Z. Techniques written alike,
+  /// ignoring case and outer spaces, are one, spelled as listed first.
+  Future<List<String>> techniques() async =>
+      _byKey([...defaultTechniques, ...await _store.allTechniques()]).values
+          .toList();
+
+  /// Appends a Scheme Step to the Paint Scheme, checked as [editSchemeStep] checks it.
+  Future<SchemeStep> addSchemeStep(
+    String schemeId, {
+    Iterable<String> paintIds = const [],
+    String technique = '',
+    String note = '',
+  }) async {
+    final step = await _checkedStep(
+      _newId(),
+      schemeId,
+      paintIds,
+      technique,
+      note,
+    );
+    await _store.insertSchemeStep(step);
+    return step;
+  }
+
+  /// Sets [step]'s Paints (in the order given, each once), Technique (spelled as a known one if it matches, see
+  /// [techniques]) and note, trimmed. Throws an [ArgumentError] if all three are empty, or a [StateError] if a Paint
+  /// is not in the library.
+  Future<void> editSchemeStep(
+    SchemeStep step, {
+    required Iterable<String> paintIds,
+    required String technique,
+    required String note,
+  }) async => _store.updateSchemeStep(
+    await _checkedStep(step.id, step.schemeId, paintIds, technique, note),
+  );
+
+  Future<SchemeStep> _checkedStep(
+    String id,
+    String schemeId,
+    Iterable<String> paintIds,
+    String technique,
+    String note,
+  ) async {
+    final library = {for (final p in await _store.watchPaints().first) p.id: p};
+    final paints = [
+      for (final paintId in {...paintIds})
+        library[paintId] ??
+            (throw StateError('That Paint is not in your paints')),
+    ];
+    final typed = technique.trim();
+    final known = typed.isEmpty
+        ? ''
+        : (await techniques()).firstWhere(
+            (t) => tagKey(t) == tagKey(typed),
+            orElse: () => typed,
+          );
+    if (paints.isEmpty && known.isEmpty && note.trim().isEmpty) {
+      throw ArgumentError('A Scheme Step needs a Paint, a Technique or a note');
+    }
+    return SchemeStep(
+      id: id,
+      schemeId: schemeId,
+      paints: paints,
+      technique: known,
+      note: note.trim(),
+    );
+  }
+
+  /// Moves a Scheme Step to [index] (0 is first; clamped to the end) in its Paint Scheme's order.
+  Future<void> moveSchemeStep(String schemeId, String stepId, int index) async {
+    final order = [
+      for (final s in await watchSchemeSteps(schemeId).first)
+        if (s.id != stepId) s.id,
+    ];
+    order.insert(index.clamp(0, order.length), stepId);
+    await _store.reorderSchemeSteps(order);
+  }
+
+  Future<void> deleteSchemeStep(String id) => _store.deleteSchemeStep(id);
 
   /// [paint] trimmed, with brand and range spelled as another Paint already spells them (ignoring case).
   Future<Paint> _checkedPaint(Paint paint) async {

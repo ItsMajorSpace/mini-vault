@@ -23,6 +23,8 @@ class PaintsScreen extends StatefulWidget {
 class _PaintsScreenState extends State<PaintsScreen> {
   late var _paints = widget.vault.watchPaints();
   late final _links = widget.vault.watchAllUnitPaints();
+  late final _schemes = widget.vault.watchPaintSchemeCounts();
+  Map<String, int> _schemeCounts = const {};
   List<Paint> _known = const [];
   List<({Collection collection, UnitPaint link})> _usage = const [];
   bool _wantedOnly = false;
@@ -75,15 +77,23 @@ class _PaintsScreenState extends State<PaintsScreen> {
     );
   }
 
+  /// Asks first, saying how many Units and Paint Schemes use the Paint.
   Future<void> _delete(Paint paint) async {
     final units = paintedUnits(_usage, paintId: paint.id).length;
+    final schemes = _schemeCounts[paint.id] ?? 0;
+    String count(int n, String noun) => n == 1 ? '1 $noun' : '$n ${noun}s';
+    final users = [
+      if (units > 0) count(units, 'Unit'),
+      if (schemes > 0) count(schemes, 'Paint Scheme'),
+    ];
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Delete ${paint.name}?'),
         content: Text(
           '${paint.label} will be removed from your paints on all your devices.'
-          '${units == 0 ? '' : ' ${units == 1 ? '1 Unit uses' : '$units Units use'} it; it will be removed from them.'}',
+          '${users.isEmpty ? '' : ' ${users.join(' and ')} ${units + schemes == 1 ? 'uses' : 'use'} it; it will be removed from them'}'
+          '${schemes == 0 ? '' : ', keeping their Scheme Steps'}${users.isEmpty ? '' : '.'}',
         ),
         actions: [
           TextButton(
@@ -107,94 +117,98 @@ class _PaintsScreenState extends State<PaintsScreen> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Paints')),
     body: StreamBuilder(
-      stream: _links,
-      builder: (context, links) => StreamBuilder(
-        stream: _paints,
-        builder: (context, snapshot) {
-          _usage = links.data ?? const [];
-          if (snapshot.error case final error?) {
-            return LoadError(
-              what: 'your Paints',
-              error: error,
-              onRetry: () =>
-                  setState(() => _paints = widget.vault.watchPaints()),
+      stream: _schemes,
+      builder: (context, schemes) => StreamBuilder(
+        stream: _links,
+        builder: (context, links) => StreamBuilder(
+          stream: _paints,
+          builder: (context, snapshot) {
+            _usage = links.data ?? const [];
+            _schemeCounts = schemes.data ?? const {};
+            if (snapshot.error case final error?) {
+              return LoadError(
+                what: 'your Paints',
+                error: error,
+                onRetry: () =>
+                    setState(() => _paints = widget.vault.watchPaints()),
+              );
+            }
+            final paints = snapshot.data;
+            if (paints == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            _known = paints;
+            if (paints.isEmpty) {
+              return EmptyState(
+                explanation: 'Keep track of the Paints you own, and the ones you want to buy.',
+                label: 'New Paint',
+                onPressed: _edit,
+              );
+            }
+            final shown = paints.where(
+              (p) => (!_wantedOnly || !p.owned) && paintMatches(p, _query),
             );
-          }
-          final paints = snapshot.data;
-          if (paints == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          _known = paints;
-          if (paints.isEmpty) {
-            return EmptyState(
-              explanation: 'Keep track of the Paints you own, and the ones you want to buy.',
-              label: 'New Paint',
-              onPressed: _edit,
-            );
-          }
-          final shown = paints.where(
-            (p) => (!_wantedOnly || !p.owned) && paintMatches(p, _query),
-          );
-          return ListView(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: TextField(
-                  decoration: const InputDecoration(
-                    labelText: 'Search Paints',
-                    prefixIcon: Icon(Icons.search),
-                  ),
-                  onChanged: (q) => setState(() => _query = q),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: FilterChip(
-                    label: const Text('Wanted'),
-                    selected: _wantedOnly,
-                    onSelected: (on) => setState(() => _wantedOnly = on),
-                  ),
-                ),
-              ),
-              if (shown.isEmpty)
+            return ListView(
+              children: [
                 Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    _query.trim().isEmpty
-                        ? 'No Paints wanted.'
-                        : 'No Paints match.',
-                    textAlign: TextAlign.center,
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Search Paints',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (q) => setState(() => _query = q),
                   ),
                 ),
-              for (final g in groupByBrand(shown)) ...[
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  child: Text(
-                    g.brand,
-                    style: stencil(Theme.of(context).textTheme.titleSmall),
-                  ),
-                ),
-                for (final p in g.paints)
-                  ListTile(
-                    key: ValueKey(p.id),
-                    title: Text(p.name),
-                    subtitle: p.range.isEmpty ? null : Text(p.range),
-                    onTap: () => _edit(p),
-                    trailing: ChoiceChip(
-                      label: Text(p.owned ? 'Owned' : 'Wanted'),
-                      selected: p.owned,
-                      onSelected: (owned) => attempt(
-                        context,
-                        () => widget.vault.setPaintOwned(p.id, owned),
-                      ),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilterChip(
+                      label: const Text('Wanted'),
+                      selected: _wantedOnly,
+                      onSelected: (on) => setState(() => _wantedOnly = on),
                     ),
                   ),
+                ),
+                if (shown.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      _query.trim().isEmpty
+                          ? 'No Paints wanted.'
+                          : 'No Paints match.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                for (final g in groupByBrand(shown)) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: Text(
+                      g.brand,
+                      style: stencil(Theme.of(context).textTheme.titleSmall),
+                    ),
+                  ),
+                  for (final p in g.paints)
+                    ListTile(
+                      key: ValueKey(p.id),
+                      title: Text(p.name),
+                      subtitle: p.range.isEmpty ? null : Text(p.range),
+                      onTap: () => _edit(p),
+                      trailing: ChoiceChip(
+                        label: Text(p.owned ? 'Owned' : 'Wanted'),
+                        selected: p.owned,
+                        onSelected: (owned) => attempt(
+                          context,
+                          () => widget.vault.setPaintOwned(p.id, owned),
+                        ),
+                      ),
+                    ),
+                ],
               ],
-            ],
-          );
-        },
+            );
+          },
+        ),
       ),
     ),
     floatingActionButton: FloatingActionButton(

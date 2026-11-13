@@ -644,7 +644,7 @@ void main() {
         modelCount: 10,
         stageId: 's0',
       );
-      await db.execute('DELETE FROM ps_crud');
+      await (await db.getCrudBatch(limit: 1000))!.complete();
 
       await vault.editBatch(
         batch.id,
@@ -1067,7 +1067,7 @@ void main() {
     });
 
     test('a move uploads a Stage Change insert', () async {
-      await db.execute('DELETE FROM ps_crud');
+      await (await db.getCrudBatch(limit: 1000))!.complete();
       await vault.moveBatch(batch, 's4');
 
       final ops = (await db.getCrudBatch())!.crud;
@@ -1146,7 +1146,7 @@ void main() {
       final unassembled = w.stages[1];
       await vault.moveBatch(a, unassembled.id);
       await vault.moveBatch(b, unassembled.id);
-      await db.execute('DELETE FROM ps_crud');
+      await (await db.getCrudBatch(limit: 1000))!.complete();
 
       await vault.deleteStage(
         w.id,
@@ -1330,7 +1330,7 @@ void main() {
     test(
       'uploads as one transaction: the moves, then the Collection',
       () async {
-        await db.execute('DELETE FROM ps_crud');
+        await (await db.getCrudBatch(limit: 1000))!.complete();
         await vault.switchWorkflow(marines, target.id, {
           's0': target.stages[0].id,
           's3': target.stages[3].id,
@@ -1492,7 +1492,7 @@ void main() {
     test(
       'are set per Unit, edited per field, and persist across restarts',
       () async {
-        await db.execute('DELETE FROM ps_crud');
+        await (await db.getCrudBatch(limit: 1000))!.complete();
         await vault.setNotes(collection.id, 'Warriors', ' Green glow ');
         await vault.setNotes(collection.id, 'Warriors', 'Blue glow');
         await restart();
@@ -1652,7 +1652,7 @@ void main() {
     ];
 
     test("a Split creates a Batch with the moved models and the name, leaving the Unit's notes, Tags and Photos alone", () async {
-      await db.execute('DELETE FROM ps_crud');
+      await (await db.getCrudBatch(limit: 1000))!.complete();
       final split = await vault.splitBatch(batch, 's3', 4);
 
       expect((await reload(batch.id)).modelCount, 6);
@@ -1740,7 +1740,7 @@ void main() {
         modelCount: 4,
         stageId: 's1',
       );
-      await db.execute('DELETE FROM ps_crud');
+      await (await db.getCrudBatch(limit: 1000))!.complete();
 
       await vault.mergeBatches(await reload(batch.id), await reload(split.id));
 
@@ -1963,7 +1963,7 @@ void main() {
     test('moving a whole Batch onto a Stage with a matching Batch Merges it into that Batch, move recorded', () async {
       final there = await add(3, 's3');
       final moving = await add(5, 's1');
-      await db.execute('DELETE FROM ps_crud');
+      await (await db.getCrudBatch(limit: 1000))!.complete();
 
       await vault.moveBatch(moving, 's3');
 
@@ -1998,7 +1998,7 @@ void main() {
         );
       }
       final stale = await vault.batchesOf(collection);
-      await db.execute('DELETE FROM ps_crud');
+      await (await db.getCrudBatch(limit: 1000))!.complete();
 
       // Two passes at once, as when sync and a local change both fire the watch.
       await Future.wait([
@@ -2650,5 +2650,209 @@ void main() {
         expect(await vault.watchPaints().first, hasLength(2));
       },
     );
+  });
+
+  group('Paint Schemes', () {
+    late Collection collection;
+    late Paint blue;
+    late Paint white;
+
+    /// Each Step as "technique [paints] note".
+    Future<List<String>> stepsOf(PaintScheme scheme) async => [
+      for (final s in await vault.watchSchemeSteps(scheme.id).first)
+        [
+          s.technique,
+          if (s.paints.isNotEmpty) s.paints.map((p) => p.name).toList(),
+          s.note,
+        ].join(' ').trim(),
+    ];
+
+    setUp(() async {
+      await syncStarterWorkflow();
+      collection = await vault.createCollection('Ultramarines');
+      blue = await vault.addPaint(
+        brand: 'Citadel',
+        range: 'Base',
+        name: 'Macragge Blue',
+      );
+      white = await vault.addPaint(
+        brand: 'Citadel',
+        range: 'Layer',
+        name: 'White Scar',
+        owned: false,
+      );
+    });
+
+    test('are created with numbered Steps, renamed, kept across restarts and deleted', () async {
+      final armour = await vault.addPaintScheme(collection.id, ' Armour ');
+      await vault.addPaintScheme(collection.id, 'bases');
+      await vault.addSchemeStep(armour.id, technique: 'Prime');
+      await vault.addSchemeStep(
+        armour.id,
+        paintIds: [blue.id],
+        technique: 'Basecoat',
+        note: ' Two thin coats ',
+      );
+      await restart();
+
+      final schemes = await vault.watchPaintSchemes(collection.id).first;
+      expect(
+        [for (final s in schemes) '${s.name}: ${s.stepCount}'],
+        ['Armour: 2', 'bases: 0'],
+      );
+      expect(await stepsOf(armour), [
+        'Prime',
+        'Basecoat [Macragge Blue] Two thin coats',
+      ]);
+
+      await vault.renamePaintScheme(armour.id, 'Power armour');
+      expect(
+        () => vault.renamePaintScheme(armour.id, ' '),
+        throwsArgumentError,
+      );
+      expect(
+        (await vault.watchPaintSchemes(collection.id).first).first.name,
+        'bases',
+      );
+      await vault.deletePaintScheme(armour.id);
+      expect(await vault.watchPaintSchemes(collection.id).first, hasLength(1));
+      expect(await db.getAll('SELECT * FROM scheme_steps'), isEmpty);
+      expect(await db.getAll('SELECT * FROM scheme_step_paints'), isEmpty);
+      expect(await vault.watchPaints().first, hasLength(2));
+    });
+
+    test('a Step mixes several Paints in the order picked, or has only a Technique or a note, never nothing', () async {
+      final armour = await vault.addPaintScheme(collection.id, 'Armour');
+      final mix = await vault.addSchemeStep(
+        armour.id,
+        paintIds: [white.id, blue.id, white.id],
+        technique: 'Drybrush',
+        note: '2:1',
+      );
+      await vault.addSchemeStep(armour.id, technique: 'Edge highlight');
+      await vault.addSchemeStep(armour.id, note: 'Matt varnish');
+      expect(
+        () => vault.addSchemeStep(armour.id, technique: ' ', note: ' '),
+        throwsArgumentError,
+      );
+      expect(
+        () => vault.addSchemeStep(armour.id, paintIds: ['not-a-paint']),
+        throwsStateError,
+      );
+      expect(await stepsOf(armour), [
+        'Drybrush [White Scar, Macragge Blue] 2:1',
+        'Edge highlight',
+        'Matt varnish',
+      ]);
+      expect(
+        (await vault.watchSchemeSteps(armour.id).first)
+            .first
+            .paints
+            .first
+            .owned,
+        isFalse,
+        reason: 'wanted Paints are kept',
+      );
+
+      // Edited: the Paints reordered, one dropped, Technique cleared; only what changed is written.
+      await (await db.getCrudBatch(limit: 1000))!.complete();
+      await vault.editSchemeStep(
+        mix,
+        paintIds: [blue.id],
+        technique: '',
+        note: '2:1',
+      );
+      expect((await stepsOf(armour)).first, '[Macragge Blue] 2:1');
+      final ops = (await db.getCrudBatch(limit: 100))!.crud;
+      expect(
+        [for (final o in ops) '${o.table} ${o.op.name}'],
+        [
+          'scheme_steps patch',
+          'scheme_step_paints delete',
+          'scheme_step_paints patch',
+        ],
+      );
+      expect(ops.first.opData, {'technique': ''});
+      expect(
+        () => vault.editSchemeStep(mix, paintIds: [], technique: '', note: ''),
+        throwsArgumentError,
+      );
+    });
+
+    test(
+      'Steps are reordered by dragging, writing only the positions that change',
+      () async {
+        final armour = await vault.addPaintScheme(collection.id, 'Armour');
+        final ids = [
+          for (final t in ['Prime', 'Basecoat', 'Wash', 'Layer'])
+            (await vault.addSchemeStep(armour.id, technique: t)).id,
+        ];
+        await (await db.getCrudBatch(limit: 1000))!.complete();
+
+        await vault.moveSchemeStep(armour.id, ids[2], 1);
+        expect(await stepsOf(armour), ['Prime', 'Wash', 'Basecoat', 'Layer']);
+        expect((await db.getCrudBatch(limit: 100))!.crud, hasLength(2));
+
+        await vault.moveSchemeStep(armour.id, ids[0], 99);
+        expect(await stepsOf(armour), ['Wash', 'Basecoat', 'Layer', 'Prime']);
+
+        // Two Steps at one position (e.g. appended offline on two devices) read in id order, the same everywhere.
+        await db.execute('UPDATE scheme_steps SET position = 0');
+        final byId = [...ids]..sort();
+        expect([
+          for (final s in await vault.watchSchemeSteps(armour.id).first) s.id,
+        ], byId);
+      },
+    );
+
+    test('deleting a Paint takes it out of every Step, keeping the Steps, and counts the Schemes using it', () async {
+      final armour = await vault.addPaintScheme(collection.id, 'Armour');
+      final trim = await vault.addPaintScheme(collection.id, 'Trim');
+      await vault.addSchemeStep(armour.id, paintIds: [blue.id]);
+      await vault.addSchemeStep(armour.id, paintIds: [blue.id, white.id]);
+      await vault.addSchemeStep(trim.id, paintIds: [blue.id], note: 'Lines');
+      expect(await vault.watchPaintSchemeCounts().first, {
+        blue.id: 2,
+        white.id: 1,
+      });
+
+      await vault.deletePaint(blue.id);
+
+      expect(await stepsOf(armour), ['', '[White Scar]']);
+      expect(await stepsOf(trim), ['Lines']);
+      expect(await vault.watchPaintSchemeCounts().first, {white.id: 1});
+    });
+
+    test('deleting a Collection deletes its Paint Schemes, not the Paints or other Collections\' Schemes', () async {
+      final other = await vault.createCollection('Dark Angels');
+      final armour = await vault.addPaintScheme(collection.id, 'Armour');
+      final robes = await vault.addPaintScheme(other.id, 'Robes');
+      await vault.addSchemeStep(armour.id, paintIds: [blue.id]);
+      await vault.addSchemeStep(robes.id, technique: 'Basecoat');
+
+      await vault.deleteCollection(collection.id);
+
+      expect(await vault.watchPaintSchemes(collection.id).first, isEmpty);
+      expect(await vault.watchPaintSchemes(other.id).first, hasLength(1));
+      expect(await db.getAll('SELECT * FROM scheme_steps'), hasLength(1));
+      expect(await db.getAll('SELECT * FROM scheme_step_paints'), isEmpty);
+      expect(await vault.watchPaints().first, hasLength(2));
+    });
+
+    test('Technique suggestions are the ten defaults then those used before; written alike ignoring case, one Technique', () async {
+      expect(await vault.techniques(), Vault.defaultTechniques);
+      final armour = await vault.addPaintScheme(collection.id, 'Armour');
+      await vault.addSchemeStep(armour.id, technique: ' prime ');
+      await vault.addSchemeStep(armour.id, technique: 'PRIME');
+      await vault.addSchemeStep(armour.id, technique: 'drybrush');
+      await vault.addSchemeStep(armour.id, technique: 'Blend');
+
+      expect(await stepsOf(armour), ['prime', 'prime', 'Drybrush', 'Blend']);
+      expect(await vault.techniques(), [
+        ...Vault.defaultTechniques,
+        'Blend',
+        'prime',
+      ]);
+    });
   });
 }

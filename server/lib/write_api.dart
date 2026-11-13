@@ -70,6 +70,18 @@ const _writable = {
     'squad_name': 'text',
     'file_id': 'uuid',
   },
+  'paint_schemes': {'collection_id': 'uuid', 'name': 'text'},
+  'scheme_steps': {
+    'scheme_id': 'uuid',
+    'position': 'int',
+    'technique': 'text',
+    'note': 'text',
+  },
+  'scheme_step_paints': {
+    'step_id': 'uuid',
+    'paint_id': 'uuid',
+    'position': 'int',
+  },
 };
 
 /// The columns a PATCH may not change, per table: they make up the row's id ([unitId]) or point at its file.
@@ -90,6 +102,8 @@ const _references = {
   'new_unit_id': 'units',
   'merged_unit_id': 'units',
   'paint_id': 'paints',
+  'scheme_id': 'paint_schemes',
+  'step_id': 'scheme_steps',
 };
 
 /// Creates the synced tables, the trigger that gives each new account its starter Workflow,
@@ -298,6 +312,34 @@ CREATE TABLE IF NOT EXISTS squad_photos (
 );
 CREATE INDEX IF NOT EXISTS squad_photos_unit ON squad_photos (collection_id, squad_name);
 CREATE INDEX IF NOT EXISTS squad_photos_owner_file ON squad_photos (owner_id, file_id);
+-- A Collection's named Paint Schemes (ADR 0010), deleted with it. A Scheme Step is ordered by (position, id), as
+-- Stages are; technique and note are '' when none. A Step's Paints are rows of scheme_step_paints, in (position, id)
+-- order; deleting a Paint deletes only those rows, so the Step stays. "At least one of Paint, Technique or note" is
+-- checked by the app, not here: a Step's Paints arrive as separate rows, and deleting a Paint may empty a Step.
+CREATE TABLE IF NOT EXISTS paint_schemes (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  collection_id uuid NOT NULL REFERENCES collections ON DELETE CASCADE,
+  name text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS scheme_steps (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  scheme_id uuid NOT NULL REFERENCES paint_schemes ON DELETE CASCADE,
+  position integer NOT NULL,
+  technique text NOT NULL DEFAULT '',
+  note text NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS scheme_steps_scheme_id ON scheme_steps (scheme_id);
+CREATE TABLE IF NOT EXISTS scheme_step_paints (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  step_id uuid NOT NULL REFERENCES scheme_steps ON DELETE CASCADE,
+  paint_id uuid NOT NULL REFERENCES paints ON DELETE CASCADE,
+  position integer NOT NULL
+);
+CREATE INDEX IF NOT EXISTS scheme_step_paints_step_id ON scheme_step_paints (step_id);
+CREATE INDEX IF NOT EXISTS scheme_step_paints_paint_id ON scheme_step_paints (paint_id);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -326,7 +368,7 @@ DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
     CREATE PUBLICATION powersync;
   END IF;
-  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges', 'paints', 'squad_paints', 'squad_notes', 'squad_tags', 'squad_photos'])
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges', 'paints', 'squad_paints', 'squad_notes', 'squad_tags', 'squad_photos', 'paint_schemes', 'scheme_steps', 'scheme_step_paints'])
     EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
   LOOP
     EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
@@ -517,12 +559,14 @@ Future<void> _apply(
     }
     data['game_system'] = validGameSystem(gameSystem);
   }
-  if (data.containsKey('description')) {
-    final description = data['description'];
-    if (description is! String?) {
-      throw _Rejected(422, 'A description must be text, not $description');
+  // Free text, trimmed; null stores ''.
+  for (final column in ['description', 'technique', 'note']) {
+    if (!data.containsKey(column)) continue;
+    final text = data[column];
+    if (text is! String?) {
+      throw _Rejected(422, 'A $column must be text, not $text');
     }
-    data['description'] = (description ?? '').trim();
+    data[column] = (text ?? '').trim();
   }
   final colour = data['colour'];
   if (data.containsKey('colour') &&
