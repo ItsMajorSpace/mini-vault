@@ -276,7 +276,7 @@ class CollectionsScreen extends StatefulWidget {
   /// For the sync status only; Collections go through [vault].
   final PowerSyncDatabase db;
 
-  /// Null hides Batches' photos.
+  /// Null hides Units' photos.
   final PhotoFiles? photos;
 
   /// The signed-in user's, shown atop the account menu.
@@ -486,9 +486,13 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                                   r.collection,
                                   r.unit.name,
                                   [for (final g in r.unit.stages) g.stage],
-                                  r.from,
                                   // shortcut: no recount from here, it needs the Unit screen; open it for that.
-                                  onDetails: () => Navigator.push(
+                                  r.from,
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.chevron_right),
+                                  tooltip: 'Open ${r.unit.name}',
+                                  onPressed: () => Navigator.push(
                                     context,
                                     MaterialPageRoute<void>(
                                       builder: (_) => UnitScreen(
@@ -714,10 +718,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
     }
   }
 
-  /// Asks first, saying how many Batches and models go with the Collection; back to the Collections once deleted.
+  /// Asks first, saying how many Units and models go with the Collection; back to the Collections once deleted.
   Future<void> _delete(Collection collection) async {
     final batches = await widget.vault.batchesOf(collection);
     if (!mounted) return;
+    final units = {for (final b in batches) b.name}.length;
     final models = batches.fold(0, (sum, u) => sum + u.modelCount);
     String count(int n, String noun) => n == 1 ? '1 $noun' : '$n ${noun}s';
     final confirmed = await showDialog<bool>(
@@ -725,7 +730,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       builder: (context) => AlertDialog(
         title: Text('Delete ${collection.name}?'),
         content: Text(
-          'Its ${count(batches.length, 'Unit')} (${count(models, 'model')}) and their history, '
+          'Its ${count(units, 'Unit')} (${count(models, 'model')}) and their history, '
           'Tags and photos will be deleted on all your devices.',
         ),
         actions: [
@@ -812,10 +817,10 @@ class _CollectionScreenState extends State<CollectionScreen> {
                     child: CircularProgressIndicator(),
                   ),
                   _ when units.isEmpty => EmptyState(
-                    explanation: 'A Unit is a number of models at the same Stage. Units with the same name form a Squad.',
-                    label: 'New Unit',
+                    explanation: 'A Unit is all the models you track under one name, like "Intercessors", wherever they are in your Workflow.',
+                    label: 'Add models',
                     onPressed: () =>
-                        addBatch(context, widget.vault, _collection, const []),
+                        addModels(context, widget.vault, _collection, const []),
                   ),
                   _ => ListView(
                     children: [
@@ -852,20 +857,20 @@ class _CollectionScreenState extends State<CollectionScreen> {
             stream: _progress,
             builder: (context, progress) => ProgressDrawer(
               count: progress.hasData ? units?.length ?? 0 : 0,
-              noun: 'Squad',
+              noun: 'Unit',
               workflows: progress.data ?? const [],
             ),
           ),
           floatingActionButton: units == null
               ? null
               : FloatingActionButton(
-                  onPressed: () => addBatch(
+                  onPressed: () => addModels(
                     context,
                     widget.vault,
                     _collection,
                     [for (final s in units) s.name],
                   ),
-                  tooltip: 'New Unit',
+                  tooltip: 'Add models',
                   child: const Icon(Icons.add),
                 ),
         );
@@ -874,9 +879,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 }
 
-/// Asks for a New Batch in [collection], its Name prefilled with [name] and suggested from [unitNames], its Stage
-/// starting at the Owned Stage; then adds it.
-Future<void> addBatch(
+/// Asks for a name (prefilled with [name], suggested from [unitNames]), a model count and a Stage (the Owned Stage to
+/// start with), then adds that many models at it to the Unit of that name in [collection], creating it if new.
+Future<void> addModels(
   BuildContext context,
   Vault vault,
   Collection collection,
@@ -885,10 +890,10 @@ Future<void> addBatch(
 }) async {
   final workflow = await vault.workflowOf(collection);
   if (!context.mounted) return;
-  final result = await showDialog<_BatchFields>(
+  final result = await showDialog<UnitFields>(
     context: context,
-    builder: (_) => _BatchDialog(
-      title: 'New Unit',
+    builder: (_) => UnitDialog(
+      title: 'Add models',
       name: name,
       unitNames: unitNames,
       stages: workflow.stages,
@@ -897,230 +902,33 @@ Future<void> addBatch(
     ),
   );
   if (result == null) return;
-  final batch = await vault.addBatch(
+  // A Batch of the Unit already at that Stage takes these in through the automatic Merge (ADR 0009).
+  await vault.addBatch(
     collection,
     name: result.name,
     modelCount: result.modelCount,
-    notes: result.notes,
     stageId: result.stageId!,
   );
-  await vault.addTags(collection.id, batch.name, result.tags);
 }
 
-/// A Batch's fields, its Unit's photos and notes, its Stage (with a Move action) and its history of Stage Changes.
-class BatchScreen extends StatefulWidget {
-  const BatchScreen({
-    super.key,
-    required this.vault,
-    this.photos,
-    required this.collection,
-    required this.batchId,
-  });
-
-  final Vault vault;
-  final PhotoFiles? photos;
-  final Collection collection;
-  final String batchId;
-
-  @override
-  State<BatchScreen> createState() => _BatchScreenState();
-}
-
-class _BatchScreenState extends State<BatchScreen> {
-  // The Stage groups carry both the Workflow's Stages and the Batch's current fields.
-  late var _groups = widget.vault.watchStageGroups(widget.collection);
-  late final _history = widget.vault.watchHistory(widget.batchId);
-  // The notes of the Unit the Batch belongs to, followed through a rename.
-  String? _notesFor;
-  Stream<String>? _notes;
-
-  Stream<String> _notesOf(Batch batch) {
-    if (batch.name != _notesFor) {
-      _notesFor = batch.name;
-      _notes = widget.vault.watchNotes(batch.collectionId, batch.name);
-    }
-    return _notes!;
-  }
-
-  // The Tags and notes edited here are its Unit's.
-  Future<void> _edit(Batch batch) async {
-    final (collectionId, unit) = (batch.collectionId, batch.name);
-    final tags = await widget.vault.tagsOf(collectionId, unit);
-    final notes = await widget.vault.notesOf(collectionId, unit);
-    if (!mounted) return;
-    final result = await showDialog<_BatchFields>(
-      context: context,
-      builder: (_) => _BatchDialog(
-        title: 'Edit Unit',
-        batch: batch,
-        notes: notes,
-        tags: tags,
-        suggestTags: widget.vault.suggestTags,
-      ),
-    );
-    if (result == null) return;
-    if (result.delete) {
-      await widget.vault.deleteBatch(batch.id);
-      if (mounted) Navigator.pop(context);
-      return;
-    }
-    final kept = {for (final t in result.tags) tagKey(t)};
-    for (final t in tags.where((t) => !kept.contains(tagKey(t)))) {
-      await widget.vault.removeTag(collectionId, unit, t);
-    }
-    await widget.vault.addTags(collectionId, unit, result.tags);
-    // Only changed fields, so edits to other fields on other devices are kept.
-    if (result.notes != notes) {
-      await widget.vault.setNotes(collectionId, unit, result.notes);
-    }
-    await widget.vault.editBatch(
-      batch.id,
-      name: result.name == batch.name ? null : result.name,
-      modelCount: result.modelCount == batch.modelCount
-          ? null
-          : result.modelCount,
-    );
-  }
-
-  /// The Move sheet for [batch]'s Stage among [groups]: moves some or all of its Unit's models there.
-  Future<void> _move(Batch batch, List<StageGroup> groups) {
-    final here = groups.firstWhere((g) => g.stage.id == batch.stageId);
-    return showMoveSheet(
-      context,
-      widget.vault,
-      widget.collection,
-      batch.name,
-      [for (final g in groups) g.stage],
-      // The Unit's models there, not the Collection's.
-      StageGroup(here.stage, [
-        for (final u in here.batches)
-          if (u.name == batch.name) u,
-      ]),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: _groups,
-      builder: (context, snapshot) {
-        final groups = snapshot.data ?? const [];
-        final stages = [for (final g in groups) g.stage];
-        final batch = groups
-            .expand((g) => g.batches)
-            .where((u) => u.id == widget.batchId)
-            .firstOrNull;
-        String stageName(String? id) =>
-            stages.where((s) => s.id == id).firstOrNull?.name ??
-            'a deleted Stage';
-        final localizations = MaterialLocalizations.of(context);
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(batch?.name ?? ''),
-            actions: [
-              if (batch != null)
-                IconButton(
-                  icon: const Icon(Icons.edit),
-                  tooltip: 'Edit Unit',
-                  onPressed: () => _edit(batch),
-                ),
-            ],
-          ),
-          body: switch (snapshot) {
-            AsyncSnapshot(:final error?) => LoadError(
-              what: 'the Unit',
-              error: error,
-              onRetry: () => setState(
-                () =>
-                    _groups = widget.vault.watchStageGroups(widget.collection),
-              ),
-            ),
-            _ when batch == null && !snapshot.hasData => const Center(
-              child: CircularProgressIndicator(),
-            ),
-            // A move onto a Stage with a matching Batch Merges this one into it (ADR 0004).
-            _ when batch == null => const Center(
-              child: Text('This Unit was merged into another or deleted.'),
-            ),
-            _ => StreamBuilder(
-              stream: _notesOf(batch),
-              builder: (context, notes) => ListView(
-                children: [
-                  if (widget.photos case final photos?)
-                    UnitPhotos(
-                      vault: widget.vault,
-                      files: photos,
-                      collectionId: batch.collectionId,
-                      unit: batch.name,
-                    ),
-                  ListTile(
-                    title: Text(stageName(batch.stageId)),
-                    subtitle: Text(
-                      batch.modelCount == 1
-                          ? '1 model'
-                          : '${batch.modelCount} models',
-                    ),
-                    trailing: FilledButton(
-                      onPressed: () => _move(batch, groups),
-                      child: const Text('Move'),
-                    ),
-                  ),
-                  if (notes.data case final n? when n.isNotEmpty)
-                    ListTile(title: Text(n)),
-                  ListTile(
-                    title: Text(
-                      'History',
-                      style: stencil(Theme.of(context).textTheme.titleMedium),
-                    ),
-                  ),
-                  StreamBuilder(
-                    stream: _history,
-                    builder: (context, history) => Column(
-                      children: [
-                        for (final c in (history.data ?? const []).reversed)
-                          ListTile(
-                            title: Text(
-                              c.fromStageId == null
-                                  ? 'Added at ${stageName(c.toStageId)}'
-                                  : '${stageName(c.fromStageId)} → ${stageName(c.toStageId)}',
-                            ),
-                            subtitle: Text(
-                              '${localizations.formatMediumDate(c.happenedAt.toLocal())} '
-                              '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(c.happenedAt.toLocal()))}',
-                            ),
-                            trailing: Text('${c.modelCount}'),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          },
-        );
-      },
-    );
-  }
-}
-
-typedef _BatchFields = ({
+typedef UnitFields = ({
   String name,
   int modelCount,
   String notes,
   String? stageId,
   List<String> tags,
-  bool delete,
 });
 
-/// Adds a Batch (with a starting Stage from [stages], [stageId] first) or edits [batch] (with a Delete button).
-class _BatchDialog extends StatefulWidget {
-  const _BatchDialog({
+/// Adds models (name, count and a starting Stage from [stages], [stageId] first) or, without [stages], edits a Unit
+/// (name, [notes] and [tags]).
+class UnitDialog extends StatefulWidget {
+  const UnitDialog({
+    super.key,
     required this.title,
     this.name,
     this.unitNames = const [],
     this.stages = const [],
     this.stageId,
-    this.batch,
     this.notes = '',
     this.tags = const [],
     required this.suggestTags,
@@ -1133,7 +941,6 @@ class _BatchDialog extends StatefulWidget {
   final List<String> unitNames;
   final List<Stage> stages;
   final String? stageId;
-  final Batch? batch;
 
   /// The Unit's notes, when editing.
   final String notes;
@@ -1141,23 +948,21 @@ class _BatchDialog extends StatefulWidget {
   final Future<List<String>> Function(String prefix) suggestTags;
 
   @override
-  State<_BatchDialog> createState() => _BatchDialogState();
+  State<UnitDialog> createState() => _UnitDialogState();
 }
 
-class _BatchDialogState extends State<_BatchDialog> {
+class _UnitDialogState extends State<UnitDialog> {
   final _form = GlobalKey<FormState>();
-  late final _name = TextEditingController(
-    text: widget.batch?.name ?? widget.name,
-  );
+  late final _name = TextEditingController(text: widget.name);
   final _nameFocus = FocusNode();
-  late final _count = TextEditingController(
-    text: '${widget.batch?.modelCount ?? 1}',
-  );
+  final _count = TextEditingController(text: '1');
   late final _notes = TextEditingController(text: widget.notes);
   late String? _stageId = widget.stageId ?? widget.stages.firstOrNull?.id;
   late final _tags = [...widget.tags];
   final _tag = TextEditingController();
   final _tagFocus = FocusNode();
+
+  bool get _adding => widget.stages.isNotEmpty;
 
   void _addTag(String name) {
     final key = tagKey(name);
@@ -1178,16 +983,15 @@ class _BatchDialogState extends State<_BatchDialog> {
     super.dispose();
   }
 
-  void _close({bool delete = false}) {
-    if (!delete && !_form.currentState!.validate()) return;
+  void _close() {
+    if (!_form.currentState!.validate()) return;
     _addTag(_tag.text); // A Tag typed but not yet submitted.
-    Navigator.pop<_BatchFields>(context, (
+    Navigator.pop<UnitFields>(context, (
       name: _name.text.trim(),
       modelCount: int.tryParse(_count.text.trim()) ?? 0,
       notes: _notes.text.trim(),
       stageId: _stageId,
       tags: _tags,
-      delete: delete,
     ));
   }
 
@@ -1218,25 +1022,20 @@ class _BatchDialogState extends State<_BatchDialog> {
                     TextFormField(
                       controller: field,
                       focusNode: focus,
-                      autofocus: widget.batch == null,
+                      autofocus: _adding,
                       decoration: const InputDecoration(labelText: 'Name'),
                       validator: (v) =>
                           v!.trim().isEmpty ? 'Enter a name' : null,
                     ),
               ),
-              TextFormField(
-                controller: _count,
-                decoration: const InputDecoration(labelText: 'Models'),
-                keyboardType: TextInputType.number,
-                validator: (v) =>
-                    (int.tryParse(v!.trim()) ?? 0) < 1 ? 'At least 1' : null,
-              ),
-              TextFormField(
-                controller: _notes,
-                decoration: const InputDecoration(labelText: 'Notes'),
-                maxLines: null,
-              ),
-              if (widget.stages.isNotEmpty)
+              if (_adding) ...[
+                TextFormField(
+                  controller: _count,
+                  decoration: const InputDecoration(labelText: 'Models'),
+                  keyboardType: TextInputType.number,
+                  validator: (v) =>
+                      (int.tryParse(v!.trim()) ?? 0) < 1 ? 'At least 1' : null,
+                ),
                 DropdownButtonFormField<String>(
                   initialValue: _stageId,
                   decoration: const InputDecoration(labelText: 'Stage'),
@@ -1246,56 +1045,48 @@ class _BatchDialogState extends State<_BatchDialog> {
                   ],
                   onChanged: (id) => _stageId = id,
                 ),
-              Autocomplete<String>(
-                textEditingController: _tag,
-                focusNode: _tagFocus,
-                optionsBuilder: (value) async => [
-                  for (final t in await widget.suggestTags(value.text))
-                    if (!_tags.any((added) => tagKey(added) == tagKey(t))) t,
-                ],
-                fieldViewBuilder: (context, field, focus, submit) =>
-                    TextFormField(
-                      controller: field,
-                      focusNode: focus,
-                      decoration: const InputDecoration(labelText: 'Add Tag'),
-                      onFieldSubmitted: (v) {
-                        _addTag(v);
-                        focus.requestFocus(); // Ready for the next Tag.
-                      },
-                    ),
-                onSelected: _addTag,
-              ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final t in _tags)
-                    InputChip(
-                      label: Text(t),
-                      onDeleted: () => setState(() => _tags.remove(t)),
-                      deleteButtonTooltipMessage: 'Remove Tag $t',
-                    ),
-                ],
-              ),
+              ] else ...[
+                TextFormField(
+                  controller: _notes,
+                  decoration: const InputDecoration(labelText: 'Notes'),
+                  maxLines: null,
+                ),
+                Autocomplete<String>(
+                  textEditingController: _tag,
+                  focusNode: _tagFocus,
+                  optionsBuilder: (value) async => [
+                    for (final t in await widget.suggestTags(value.text))
+                      if (!_tags.any((added) => tagKey(added) == tagKey(t))) t,
+                  ],
+                  fieldViewBuilder: (context, field, focus, submit) =>
+                      TextFormField(
+                        controller: field,
+                        focusNode: focus,
+                        decoration: const InputDecoration(labelText: 'Add Tag'),
+                        onFieldSubmitted: (v) {
+                          _addTag(v);
+                          focus.requestFocus(); // Ready for the next Tag.
+                        },
+                      ),
+                  onSelected: _addTag,
+                ),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final t in _tags)
+                      InputChip(
+                        label: Text(t),
+                        onDeleted: () => setState(() => _tags.remove(t)),
+                        deleteButtonTooltipMessage: 'Remove Tag $t',
+                      ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
       ),
       actions: [
-        if (widget.batch != null)
-          TextButton(
-            onPressed: () async {
-              if (await confirmDeleteBatch(
-                    context,
-                    'Delete this Unit?',
-                    widget.batch!,
-                  ) &&
-                  mounted) {
-                _close(delete: true);
-              }
-            },
-            style: destructive(context),
-            child: const Text('Delete'),
-          ),
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
