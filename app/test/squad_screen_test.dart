@@ -295,7 +295,7 @@ void main() {
   );
 
   testWidgets(
-    'tapping a Stage opens the Move sheet, next Stage preselected; Move moves the chosen count',
+    'tapping a Stage opens the Move sheet, next Stage preselected, all models counted; Move moves the chosen count',
     (tester) async {
       await openSquad(tester, stages, [(5, 0)]);
       Finder chip(String stage) => find.widgetWithText(ChoiceChip, stage);
@@ -309,24 +309,27 @@ void main() {
 
       await tester.tap(find.text('Wishlist'));
       await tester.pumpAndSettle();
-      // The other Stages as chips, the next one preselected; the count starts at 1.
+      // The other Stages as chips, the next one preselected; the count starts at all of them.
       expect(chip('Wishlist'), findsNothing);
       expect(selected('Unassembled'), isTrue);
       expect(selected('Primed'), isFalse);
-      expect(find.text('1 of 5'), findsOneWidget);
-      expect(enabled(Icons.remove), isFalse);
-      await tester.tap(find.byTooltip('One more'));
+      expect(find.text('5 of 5'), findsOneWidget);
+      expect(enabled(Icons.add), isFalse);
+      await tester.tap(find.byTooltip('One fewer'));
       await tester.pump();
-      await tester.tap(find.byTooltip('One more'));
+      await tester.tap(find.byTooltip('One fewer'));
       await tester.pump();
       expect(find.text('3 of 5'), findsOneWidget);
       await tapAndWait(tester, find.byType(FilledButton));
       expect(find.byType(BottomSheet), findsNothing);
       expect(counts(tester), ['2 models', '3 models', '0 models']);
 
-      // All, and back to an earlier Stage.
+      // All again, after one fewer, and back to an earlier Stage.
       await tester.tap(find.text('Unassembled'));
       await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('One fewer'));
+      await tester.pump();
+      expect(find.text('2 of 3'), findsOneWidget);
       await tester.tap(find.text('All'));
       await tester.tap(chip('Wishlist'));
       await tester.pump();
