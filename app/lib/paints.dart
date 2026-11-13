@@ -7,7 +7,7 @@ import 'squad.dart';
 import 'theme.dart';
 import 'workflows.dart';
 
-/// The paint library: every Paint, under a header per brand, with a Wanted filter for the shopping list.
+/// The paint library: every Paint, under a header per brand, with a search and a Wanted filter for the shopping list.
 class PaintsScreen extends StatefulWidget {
   const PaintsScreen({super.key, required this.vault, this.photos});
 
@@ -26,6 +26,7 @@ class _PaintsScreenState extends State<PaintsScreen> {
   List<Paint> _known = const [];
   List<({Collection collection, SquadPaint link})> _usage = const [];
   bool _wantedOnly = false;
+  String _query = '';
 
   /// Opens the Paint dialog, for [paint] or a new one, and saves what it returns.
   Future<void> _edit([Paint? paint]) async {
@@ -127,9 +128,21 @@ class _PaintsScreenState extends State<PaintsScreen> {
               onPressed: _edit,
             );
           }
-          final shown = _wantedOnly ? paints.where((p) => !p.owned) : paints;
+          final shown = paints.where(
+            (p) => (!_wantedOnly || !p.owned) && paintMatches(p, _query),
+          );
           return ListView(
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'Search Paints',
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                  onChanged: (q) => setState(() => _query = q),
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Align(
@@ -142,9 +155,14 @@ class _PaintsScreenState extends State<PaintsScreen> {
                 ),
               ),
               if (shown.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text('No Paints wanted.', textAlign: TextAlign.center),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    _query.trim().isEmpty
+                        ? 'No Paints wanted.'
+                        : 'No Paints match.',
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               for (final g in groupByBrand(shown)) ...[
                 Padding(
@@ -209,6 +227,7 @@ class PaintDialog extends StatefulWidget {
     super.key,
     this.paints = const [],
     this.paint,
+    this.name = '',
     this.owned = true,
     this.usedBy = const [],
     this.onOpenSquad,
@@ -219,6 +238,9 @@ class PaintDialog extends StatefulWidget {
 
   /// The Paint being edited; null for a new one.
   final Paint? paint;
+
+  /// The name a new Paint starts with.
+  final String name;
 
   /// Whether a new Paint starts as owned.
   final bool owned;
@@ -234,7 +256,9 @@ class PaintDialog extends StatefulWidget {
 class _PaintDialogState extends State<PaintDialog> {
   late final _brand = TextEditingController(text: widget.paint?.brand);
   late final _range = TextEditingController(text: widget.paint?.range);
-  late final _name = TextEditingController(text: widget.paint?.name);
+  late final _name = TextEditingController(
+    text: widget.paint?.name ?? widget.name,
+  );
   final _brandFocus = FocusNode();
   final _rangeFocus = FocusNode();
   late bool _owned = widget.paint?.owned ?? widget.owned;
@@ -347,6 +371,80 @@ class _PaintDialogState extends State<PaintDialog> {
             owned: _owned,
           )),
           child: Text(editing ? 'Save' : 'Add'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Picks a Paint from [paints], searched as typed; pops the Paint, or the search text for a new Paint.
+class AddPaintDialog extends StatefulWidget {
+  const AddPaintDialog({super.key, required this.paints});
+
+  final List<Paint> paints;
+
+  @override
+  State<AddPaintDialog> createState() => _AddPaintDialogState();
+}
+
+class _AddPaintDialogState extends State<AddPaintDialog> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = [
+      for (final g in groupByBrand(
+        widget.paints.where((p) => paintMatches(p, _query)),
+      ))
+        ...g.paints,
+    ];
+    return AlertDialog(
+      title: const Text('Add Paint'),
+      contentPadding: const EdgeInsets.fromLTRB(0, 20, 0, 0),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: TextField(
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Search Paints',
+                  prefixIcon: Icon(Icons.search),
+                ),
+                onChanged: (q) => setState(() => _query = q),
+              ),
+            ),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+              leading: const Icon(Icons.add),
+              title: const Text('New Paint…'),
+              onTap: () => Navigator.pop(context, _query.trim()),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final p in shown)
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                      ),
+                      title: Text('${p.brand} / ${p.range} / ${p.name}'),
+                      onTap: () => Navigator.pop(context, p),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
         ),
       ],
     );

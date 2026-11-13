@@ -544,19 +544,10 @@ class _SquadPaintsState extends State<_SquadPaints> {
     final usedIds = {for (final l in used) l.paint.id};
     final picked = await showDialog<Object>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Add Paint'),
-        children: [
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, 'new'),
-            child: const Text('New Paint…'),
-          ),
+      builder: (_) => AddPaintDialog(
+        paints: [
           for (final p in library)
-            if (!usedIds.contains(p.id))
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, p),
-                child: Text('${p.brand} / ${p.range} / ${p.name}'),
-              ),
+            if (!usedIds.contains(p.id)) p,
         ],
       ),
     );
@@ -571,10 +562,10 @@ class _SquadPaintsState extends State<_SquadPaints> {
         ),
       );
     }
-    if (picked != 'new') return;
+    if (picked is! String) return;
     final fields = await showDialog<PaintFields>(
       context: context,
-      builder: (_) => PaintDialog(paints: library, owned: false),
+      builder: (_) => PaintDialog(paints: library, name: picked, owned: false),
     );
     if (fields == null || !mounted) return;
     final (:brand, :range, :name, :owned) = fields;

@@ -129,6 +129,13 @@ List<({String brand, List<Paint> paints})> groupByBrand(
   ];
 }
 
+/// Whether [paint] matches what was typed in a search: each word of [query] is in its brand, range or name, ignoring
+/// case. An empty query matches every Paint.
+bool paintMatches(Paint paint, String query) {
+  final text = '${paint.brand} ${paint.range} ${paint.name}'.toLowerCase();
+  return query.toLowerCase().split(RegExp(r'\s+')).every(text.contains);
+}
+
 /// A Paint a Squad uses, with a note on where or how. Keyed by the Squad's Collection and exact name (as [squadsOf]
 /// groups Units), not by its Units, so it stays with the name while no Unit has it.
 class SquadPaint {
