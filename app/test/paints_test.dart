@@ -82,21 +82,12 @@ void main() {
       expect(find.byIcon(Icons.delete), findsNothing);
       expect(find.byTooltip('Delete Paint'), findsNothing);
 
-      // The tap runs in the real async zone so its SQLite write completes.
-      await tester.runAsync(() async {
-        await tester.tap(find.widgetWithText(ChoiceChip, 'Wanted').first);
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-      });
-      await settle(tester);
-      expect(find.widgetWithText(ChoiceChip, 'Wanted'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Owned'), findsNWidgets(3));
-
       await tester.tap(find.widgetWithText(FilterChip, 'Wanted'));
       await tester.pump();
       expect(find.text('Matt Black'), findsNothing);
       expect(find.text('Calgar Blue'), findsNothing);
       expect(find.text('Army Painter'), findsNothing);
-      expect(find.text('Macragge Blue'), findsNothing); // Now owned.
+      expect(find.text('Macragge Blue'), findsOneWidget);
       expect(find.text('Flat Blue'), findsOneWidget);
 
       // Search narrows on brand, range or name, ignoring case, and combines with Wanted.
@@ -123,6 +114,17 @@ void main() {
       expect(find.text('Macragge Blue'), findsOneWidget);
       expect(find.text('Matt Black'), findsNothing);
       expect(find.text('Flat Blue'), findsNothing);
+
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pump();
+      // The tap runs in the real async zone so its SQLite write completes.
+      await tester.runAsync(() async {
+        await tester.tap(find.widgetWithText(ChoiceChip, 'Wanted').first);
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await settle(tester);
+      expect(find.widgetWithText(ChoiceChip, 'Wanted'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Owned'), findsNWidgets(3));
 
       await tester.pumpWidget(const SizedBox());
       await tester.runAsync(() => dir.delete(recursive: true));
