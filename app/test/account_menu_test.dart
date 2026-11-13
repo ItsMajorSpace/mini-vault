@@ -5,7 +5,9 @@ import 'dart:io';
 
 import 'package:domain_core/domain_core.dart';
 import 'package:domain_core/sqlite_store.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mini_vault/account.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
@@ -106,7 +108,7 @@ void main() {
     expect(deletes, 1);
   });
 
-  testWidgets('the account menu shows the app version and build', (
+  testWidgets('About shows the app version and build, and the font license', (
     tester,
   ) async {
     PackageInfo.setMockInitialValues(
@@ -120,7 +122,19 @@ void main() {
     await pumpCollections(tester, db);
 
     await openMenu(tester);
+    await tester.tap(find.text('About'));
+    await settle(tester);
     expect(find.text('0.0.0-dev (0)'), findsOneWidget);
+
+    registerFontLicense();
+    final fonts = await tester.runAsync(
+      () => LicenseRegistry.licenses
+          .where((l) => l.packages.contains('Black Ops One'))
+          .toList(),
+    );
+    final text = fonts!.single.paragraphs.map((p) => p.text).join('\n');
+    expect(text, contains('Copyright 2022 The Black-Ops Project Authors'));
+    expect(text, contains('SIL OPEN FONT LICENSE Version 1.1'));
   });
 
   testWidgets('signing out with everything synced asks nothing', (

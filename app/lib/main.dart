@@ -21,6 +21,7 @@ import 'workflows.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  registerFontLicense();
   final dir = await getApplicationSupportDirectory();
   // A new file name: the pre-sync database (mini_vault.db) has plain tables where PowerSync wants views.
   final db = PowerSyncDatabase(schema: appSchema, path: '${dir.path}/vault.db');
@@ -409,7 +410,10 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                   ),
                 ),
               ],
-              const PopupMenuItem(enabled: false, child: AppVersion()),
+              PopupMenuItem(
+                value: () => showAbout(context),
+                child: const Text('About'),
+              ),
             ],
           ),
         ],
