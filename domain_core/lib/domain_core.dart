@@ -63,6 +63,7 @@ class Collection {
     required this.name,
     required this.workflowId,
     this.gameSystem,
+    this.description = '',
   });
 
   final String id;
@@ -71,6 +72,9 @@ class Collection {
 
   /// The Game System it belongs to, as typed; null if none.
   final String? gameSystem;
+
+  /// Free text, trimmed; '' if none.
+  final String description;
 }
 
 /// Groups [collections] by Game System (ignoring case and outer spaces, as [tagKey]): A–Z, with the Collections
@@ -439,6 +443,7 @@ abstract interface class VaultStore {
   Future<void> insertCollection(Collection collection);
   Future<void> renameCollection(String id, String name);
   Future<void> setGameSystem(String id, String? gameSystem);
+  Future<void> setCollectionDescription(String id, String description);
 
   /// Deletes the Collection, its Batches and its Units' notes, Tags, Photos and [UnitPaint]s, in one transaction.
   Future<void> deleteCollection(String id);
@@ -772,6 +777,10 @@ class Vault {
   /// Sets the Collection's Game System; blank or null removes it.
   Future<void> setGameSystem(String id, String? gameSystem) async =>
       _store.setGameSystem(id, await _knownGameSystem(gameSystem));
+
+  /// Sets the Collection's description, trimmed; blank clears it.
+  Future<void> setCollectionDescription(String id, String description) =>
+      _store.setCollectionDescription(id, description.trim());
 
   /// The Game Systems in use, A–Z, each spelled as its first Collection spells it.
   Future<List<String>> gameSystems() async => [

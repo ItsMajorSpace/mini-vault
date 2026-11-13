@@ -359,12 +359,12 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
     }
     final gameSystems = await widget.vault.gameSystems();
     if (!mounted) return;
-    final picked = await showDialog<(String, String?, String)>(
+    final picked = await showDialog<(String, String?, String, String)>(
       context: context,
       builder: (_) =>
           NewCollectionDialog(workflows: workflows, gameSystems: gameSystems),
     );
-    if (picked case (final name, final workflowId, final gameSystem)
+    if (picked case (final name, final workflowId, final gameSystem, _)
         when mounted) {
       await attempt(
         context,
@@ -700,12 +700,13 @@ class _CollectionScreenState extends State<CollectionScreen> {
   Future<void> _edit(Collection collection) async {
     final gameSystems = await widget.vault.gameSystems();
     if (!mounted) return;
-    final edited = await showDialog<(String, String?, String)>(
+    final edited = await showDialog<(String, String?, String, String)>(
       context: context,
       builder: (_) =>
           NewCollectionDialog(gameSystems: gameSystems, collection: collection),
     );
-    if (edited case (final name, _, final gameSystem) when mounted) {
+    if (edited case (final name, _, final gameSystem, final description)
+        when mounted) {
       // Only changed fields, so an edit to the other field on another device is kept.
       await attempt(context, () async {
         if (name.trim() != collection.name) {
@@ -713,6 +714,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
         }
         if (validGameSystem(gameSystem) != collection.gameSystem) {
           await widget.vault.setGameSystem(collection.id, gameSystem);
+        }
+        if (description.trim() != collection.description) {
+          await widget.vault.setCollectionDescription(
+            collection.id,
+            description,
+          );
         }
       });
     }
@@ -804,6 +811,24 @@ class _CollectionScreenState extends State<CollectionScreen> {
           body: Column(
             children: [
               SyncBanner(db: widget.db),
+              if (_collection.description.isNotEmpty)
+                InkWell(
+                  onTap: () => _edit(_collection),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _collection.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               Expanded(
                 child: switch (snapshot) {
                   AsyncSnapshot(:final error?) => LoadError(
