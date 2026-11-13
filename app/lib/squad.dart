@@ -257,6 +257,19 @@ class _SquadScreenState extends State<SquadScreen> {
               ],
             ),
           },
+          floatingActionButton: snapshot.data == null
+              ? null
+              : FloatingActionButton(
+                  onPressed: () => addUnit(
+                    context,
+                    widget.vault,
+                    widget.collection,
+                    [for (final s in snapshot.data!) s.name],
+                    name: _name,
+                  ),
+                  tooltip: 'New Unit',
+                  child: const Icon(Icons.add),
+                ),
         );
       },
     );

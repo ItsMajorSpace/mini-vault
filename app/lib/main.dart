@@ -559,26 +559,6 @@ class _CollectionScreenState extends State<CollectionScreen> {
     widget.collection,
   );
 
-  Future<void> _add(List<Stage> stages) async {
-    final result = await showDialog<_UnitFields>(
-      context: context,
-      builder: (_) => _UnitDialog(
-        title: 'New Unit',
-        stages: stages,
-        suggestTags: widget.vault.suggestTags,
-      ),
-    );
-    if (result == null) return;
-    final unit = await widget.vault.addUnit(
-      widget.collection,
-      name: result.name,
-      modelCount: result.modelCount,
-      notes: result.notes,
-      stageId: result.stageId!,
-    );
-    await widget.vault.addTags(unit.id, result.tags);
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
@@ -633,8 +613,11 @@ class _CollectionScreenState extends State<CollectionScreen> {
           floatingActionButton: squads == null
               ? null
               : FloatingActionButton(
-                  onPressed: () async => _add(
-                    (await widget.vault.workflowOf(widget.collection)).stages,
+                  onPressed: () => addUnit(
+                    context,
+                    widget.vault,
+                    widget.collection,
+                    [for (final s in squads) s.name],
                   ),
                   tooltip: 'New Unit',
                   child: const Icon(Icons.add),
@@ -643,6 +626,39 @@ class _CollectionScreenState extends State<CollectionScreen> {
       },
     );
   }
+}
+
+/// Asks for a New Unit in [collection], its Name prefilled with [name] and suggested from [squadNames], its Stage
+/// starting at the Owned Stage; then adds it.
+Future<void> addUnit(
+  BuildContext context,
+  Vault vault,
+  Collection collection,
+  List<String> squadNames, {
+  String name = '',
+}) async {
+  final workflow = await vault.workflowOf(collection);
+  if (!context.mounted) return;
+  final result = await showDialog<_UnitFields>(
+    context: context,
+    builder: (_) => _UnitDialog(
+      title: 'New Unit',
+      name: name,
+      squadNames: squadNames,
+      stages: workflow.stages,
+      stageId: workflow.ownedStage.id,
+      suggestTags: vault.suggestTags,
+    ),
+  );
+  if (result == null) return;
+  final unit = await vault.addUnit(
+    collection,
+    name: result.name,
+    modelCount: result.modelCount,
+    notes: result.notes,
+    stageId: result.stageId!,
+  );
+  await vault.addTags(unit.id, result.tags);
 }
 
 /// A Unit's fields, its photos, its Stage (with a Move action) and its history of Stage Changes.
@@ -890,18 +906,26 @@ typedef _UnitFields = ({
   bool delete,
 });
 
-/// Adds a Unit (with a starting Stage from [stages]) or edits [unit] (with a Delete button).
+/// Adds a Unit (with a starting Stage from [stages], [stageId] first) or edits [unit] (with a Delete button).
 class _UnitDialog extends StatefulWidget {
   const _UnitDialog({
     required this.title,
+    this.name,
+    this.squadNames = const [],
     this.stages = const [],
+    this.stageId,
     this.unit,
     this.tags = const [],
     required this.suggestTags,
   });
 
   final String title;
+  final String? name;
+
+  /// The Collection's Squad names, suggested as the Name is typed.
+  final List<String> squadNames;
   final List<Stage> stages;
+  final String? stageId;
   final Unit? unit;
   final List<String> tags;
   final Future<List<String>> Function(String prefix) suggestTags;
@@ -912,12 +936,15 @@ class _UnitDialog extends StatefulWidget {
 
 class _UnitDialogState extends State<_UnitDialog> {
   final _form = GlobalKey<FormState>();
-  late final _name = TextEditingController(text: widget.unit?.name);
+  late final _name = TextEditingController(
+    text: widget.unit?.name ?? widget.name,
+  );
+  final _nameFocus = FocusNode();
   late final _count = TextEditingController(
     text: '${widget.unit?.modelCount ?? 1}',
   );
   late final _notes = TextEditingController(text: widget.unit?.notes);
-  late String? _stageId = widget.stages.firstOrNull?.id;
+  late String? _stageId = widget.stageId ?? widget.stages.firstOrNull?.id;
   late final _tags = [...widget.tags];
   final _tag = TextEditingController();
   final _tagFocus = FocusNode();
@@ -933,6 +960,7 @@ class _UnitDialogState extends State<_UnitDialog> {
   @override
   void dispose() {
     _name.dispose();
+    _nameFocus.dispose();
     _count.dispose();
     _notes.dispose();
     _tag.dispose();
@@ -963,11 +991,28 @@ class _UnitDialogState extends State<_UnitDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextFormField(
-                controller: _name,
-                autofocus: widget.unit == null,
-                decoration: const InputDecoration(labelText: 'Name'),
-                validator: (v) => v!.trim().isEmpty ? 'Enter a name' : null,
+              Autocomplete<String>(
+                textEditingController: _name,
+                focusNode: _nameFocus,
+                optionsBuilder: (value) {
+                  final typed = value.text.trim().toLowerCase();
+                  return [
+                    for (final n in widget.squadNames)
+                      if (typed.isNotEmpty &&
+                          n != value.text &&
+                          n.toLowerCase().contains(typed))
+                        n,
+                  ];
+                },
+                fieldViewBuilder: (context, field, focus, submit) =>
+                    TextFormField(
+                      controller: field,
+                      focusNode: focus,
+                      autofocus: widget.unit == null,
+                      decoration: const InputDecoration(labelText: 'Name'),
+                      validator: (v) =>
+                          v!.trim().isEmpty ? 'Enter a name' : null,
+                    ),
               ),
               TextFormField(
                 controller: _count,
