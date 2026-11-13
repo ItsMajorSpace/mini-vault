@@ -174,6 +174,7 @@ List<({Collection collection, String unit})> paintedUnits(
 }
 
 /// A number of models tracked together because they are at the same Stage; it belongs to exactly one Collection.
+/// Its notes, Tags and photos belong to its Unit, not to it (ADR 0008).
 class Batch {
   const Batch({
     required this.id,
@@ -181,7 +182,6 @@ class Batch {
     required this.stageId,
     required this.name,
     required this.modelCount,
-    required this.notes,
   });
 
   final String id;
@@ -189,7 +189,6 @@ class Batch {
   final String stageId;
   final String name;
   final int modelCount;
-  final String notes;
 }
 
 /// A record that a Batch moved from one Stage to another, and when. A Batch's Stage Changes form its history.
@@ -218,13 +217,21 @@ class StageChange {
   final DateTime happenedAt;
 }
 
-/// A photo of a Batch. Its image file is stored once, under [fileId]: a Split's copy of a photo is a second row
-/// pointing at the same file, and the file is only deleted once no row points at it.
+/// A photo of a Unit, keyed by its Collection and name like a [UnitPaint]. Its image file is stored once, under
+/// [fileId]; the file is only deleted once no row points at it.
 class Photo {
-  const Photo({required this.id, required this.batchId, required this.fileId});
+  const Photo({
+    required this.id,
+    required this.collectionId,
+    required this.unit,
+    required this.fileId,
+  });
 
   final String id;
-  final String batchId;
+  final String collectionId;
+
+  /// The Unit's name.
+  final String unit;
 
   /// The image file's id, which is also its PowerSync attachment id.
   final String fileId;
@@ -428,7 +435,7 @@ abstract interface class VaultStore {
   Future<void> renameCollection(String id, String name);
   Future<void> setGameSystem(String id, String? gameSystem);
 
-  /// Deletes the Collection and its Batches, with their Tags and Photos, and its [UnitPaint]s, in one transaction.
+  /// Deletes the Collection, its Batches and its Units' notes, Tags, Photos and [UnitPaint]s, in one transaction.
   Future<void> deleteCollection(String id);
 
   /// Emits every Collection's Batches now and again whenever they change.
@@ -451,14 +458,9 @@ abstract interface class VaultStore {
   Stream<List<StageChange>> watchMoves();
 
   /// Updates only the given fields, so concurrent edits of other fields on other devices are kept.
-  Future<void> updateBatch(
-    String id, {
-    String? name,
-    int? modelCount,
-    String? notes,
-  });
+  Future<void> updateBatch(String id, {String? name, int? modelCount});
 
-  /// Deletes the Batch, its Tags and its Photos.
+  /// Deletes the Batch. Its Unit's notes, Tags and Photos stay.
   Future<void> deleteBatch(String id);
 
   /// Emits the paint library now and again whenever it changes.
@@ -478,43 +480,53 @@ abstract interface class VaultStore {
   Future<void> updateUnitPaint(String id, {String? unit, String? note});
   Future<void> deleteUnitPaint(String id);
 
-  /// Emits the Batch's Tags, by name, now and again whenever they change.
-  Stream<List<String>> watchTags(String batchId);
+  /// Emits the notes of Unit [unit] in Collection [collectionId] ('' if none), now and again whenever they change.
+  Stream<String> watchNotes(String collectionId, String unit);
 
-  /// Every Tag name on any of the user's Batches.
+  /// Sets the Unit's notes, in the row whose id is its [unitId].
+  Future<void> setNotes(String collectionId, String unit, String notes);
+  Future<void> deleteNotes(String collectionId, String unit);
+
+  /// Emits the Unit's Tags, by name, now and again whenever they change.
+  Stream<List<String>> watchTags(String collectionId, String unit);
+
+  /// Every Tag name on any of the user's Units.
   Future<List<String>> allTagNames();
 
-  /// Adds Tags to a Batch, keyed by their [tagId]; a Tag whose id is already there is left as it is.
-  Future<void> insertTags(String batchId, Map<String, String> namesById);
+  /// Adds Tags to a Unit, keyed by their [tagId]; a Tag whose id is already there is left as it is.
+  Future<void> insertTags(
+    String collectionId,
+    String unit,
+    Map<String, String> namesById,
+  );
   Future<void> deleteTag(String id);
 
-  /// Emits the Batch's Photos, in the same order on every device, now and again whenever they change.
-  Stream<List<Photo>> watchPhotos(String batchId);
+  /// Emits the Unit's Photos, in the same order on every device, now and again whenever they change.
+  Stream<List<Photo>> watchPhotos(String collectionId, String unit);
   Future<void> insertPhotos(List<Photo> photos);
+
+  /// Moves the Photo to Unit [unit] of its Collection.
+  Future<void> movePhoto(String id, String unit);
   Future<void> deletePhoto(String id);
 
   /// In one transaction, so it uploads as one batch the write API applies whole or not at all: inserts [created]
-  /// with [move] (its first Stage Change), its Tags ([tagsById]) and [photos], then records Split [id] of
-  /// [created]'s models off Batch [sourceId] and takes them off that Batch's count.
+  /// with [move] (its first Stage Change), then records Split [id] of [created]'s models off Batch [sourceId] and
+  /// takes them off that Batch's count.
   Future<void> insertSplit(
     String id,
     String sourceId,
     Batch created,
     StageChange move,
-    Map<String, String> tagsById,
-    List<Photo> photos,
   );
 
-  /// In one transaction: records Merge [id] of Batch [otherId] into Batch [batchId], then copies [history], Tags
-  /// ([tagsById]) and [photos] onto [batchId], adds the other Batch's models to its count and deletes the other Batch.
-  /// Does nothing unless both Batches still share Collection, name and Stage, so a repeated Merge changes nothing.
+  /// In one transaction: records Merge [id] of Batch [otherId] into Batch [batchId], then copies [history] onto
+  /// [batchId], adds the other Batch's models to its count and deletes the other Batch. Does nothing unless both
+  /// Batches still share Collection, name and Stage, so a repeated Merge changes nothing.
   Future<void> insertMerge(
     String id,
     String batchId,
     String otherId,
     List<StageChange> history,
-    Map<String, String> tagsById,
-    List<Photo> photos,
   );
 }
 
@@ -769,8 +781,9 @@ class Vault {
   Future<List<Batch>> batchesOf(Collection collection) =>
       _store.watchBatches(collection.id).first;
 
-  /// Deletes the Collection, its Batches and their history, Tags and Photos, and its Units' Paint links (not the Paints). The server deletes the history with the
-  /// Batches, and any Batch another device added meanwhile, and each photo file once no Photo points at it.
+  /// Deletes the Collection, its Batches and their history, and its Units' notes, Tags, Photos and Paint links (not the
+  /// Paints). The server deletes the history with the Batches, and any Batch another device added meanwhile, and each
+  /// photo file once no Photo points at it.
   Future<void> deleteCollection(String id) => _store.deleteCollection(id);
 
   /// What switching [collection] to [target] has to map: each Stage of its Workflow that holds its Batches, in Workflow
@@ -969,7 +982,8 @@ class Vault {
     return controller.stream;
   }
 
-  /// Adds a Batch at [stageId], which must be a Stage of the Collection's Workflow.
+  /// Adds a Batch at [stageId], which must be a Stage of the Collection's Workflow. [notes], unless blank, are added
+  /// to its Unit's notes (see [joinNotes]).
   Future<Batch> addBatch(
     Collection collection, {
     required String name,
@@ -991,9 +1005,12 @@ class Vault {
       stageId: stageId,
       name: validName(name),
       modelCount: validModelCount(modelCount),
-      notes: notes.trim(),
     );
     await _store.insertBatch(batch, _stageChange(batch, null, stageId));
+    if (notes.trim().isNotEmpty) {
+      final had = await notesOf(collection.id, batch.name);
+      await _store.setNotes(collection.id, batch.name, joinNotes([had, notes]));
+    }
     return batch;
   }
 
@@ -1017,7 +1034,7 @@ class Vault {
         modelCount: e.count,
         stageId: stageId,
       );
-      await addTags(batch.id, [?tag]);
+      await addTags(collection.id, batch.name, [?tag]);
       await _mergeOnArrival(collection, batch);
     }
   }
@@ -1061,7 +1078,6 @@ class Vault {
     stageId: stageId,
     name: u.name,
     modelCount: modelCount ?? u.modelCount,
-    notes: u.notes,
   );
 
   /// Moves [modelCount] models of the Unit [name] in [collection] from [fromStageId] to [toStageId], forward or
@@ -1114,8 +1130,8 @@ class Vault {
   }
 
   /// Splits [batch]: moves [modelCount] of its models, at least 1 and fewer than all (all is [moveBatch]), to another
-  /// Stage of its Collection's Workflow. The new Batch holding them copies the name, notes, Tags and Photos, and its
-  /// history starts with this move. The Split uploads as a delta (N models off [batch]), never as [batch]'s new count,
+  /// Stage of its Collection's Workflow. The new Batch holding them has its name, and its history starts with this
+  /// move; the Unit's notes, Tags and Photos are not touched. The Split uploads as a delta (N models off [batch]), never as [batch]'s new count,
   /// so Splits made on other devices add up; the write API rejects one that would leave [batch] under 1 model.
   /// If a Batch with its name is already at [stageId], the new Batch is then Merged into it (ADR 0004), and that Batch,
   /// with its new count, is returned instead.
@@ -1145,18 +1161,12 @@ class Vault {
       stageId: stageId,
       name: batch.name,
       modelCount: modelCount,
-      notes: batch.notes,
     );
     await _store.insertSplit(
       _newId(),
       batch.id,
       created,
       _stageChange(created, batch.stageId, stageId),
-      {for (final t in await tagsOf(batch.id)) tagId(created.id, t): t},
-      [
-        for (final p in await photosOf(batch.id))
-          Photo(id: _newId(), batchId: created.id, fileId: p.fileId),
-      ],
     );
     return _mergeOnArrival(collection, created);
   }
@@ -1190,9 +1200,9 @@ class Vault {
         u,
   ];
 
-  /// Merges [other] into [batch]. [batch] gets both counts, the union of their Tags,
-  /// [other]'s Photos up to [maxPhotos], and a copy of [other]'s Stage Changes in its history (Stage Changes are
-  /// append-only, so they are copied, not moved); [other] is deleted. The write API adds [other]'s count as it is
+  /// Merges [other] into [batch]. [batch] gets both counts and a copy of [other]'s Stage Changes in its history
+  /// (Stage Changes are append-only, so they are copied, not moved); [other] is deleted. The Unit's notes, Tags and
+  /// Photos are not touched. The write API adds [other]'s count as it is
   /// on the server, and rejects the Merge if either Batch is gone or they no longer share Collection, name and Stage.
   /// Throws an [ArgumentError] unless [other] is one of [mergeCandidates].
   Future<void> mergeBatches(Batch batch, Batch other) async {
@@ -1203,34 +1213,17 @@ class Vault {
         'must be another Unit in the same Collection, with the same name, at the same Stage',
       );
     }
-    final tags = {for (final t in await tagsOf(batch.id)) tagKey(t)};
-    final files = {for (final p in await photosOf(batch.id)) p.fileId};
-    await _store.insertMerge(
-      _newId(),
-      batch.id,
-      other.id,
-      [
-        for (final c in await _store.watchStageChanges(other.id).first)
-          StageChange(
-            id: _newId(),
-            batchId: batch.id,
-            fromStageId: c.fromStageId,
-            toStageId: c.toStageId,
-            modelCount: c.modelCount,
-            happenedAt: c.happenedAt,
-          ),
-      ],
-      {
-        for (final t in await tagsOf(other.id))
-          if (!tags.contains(tagKey(t))) tagId(batch.id, t): t,
-      },
-      [
-        for (final f in {
-          for (final p in await photosOf(other.id)) p.fileId,
-        }.difference(files).take(max(0, maxPhotos - files.length)))
-          Photo(id: _newId(), batchId: batch.id, fileId: f),
-      ],
-    );
+    await _store.insertMerge(_newId(), batch.id, other.id, [
+      for (final c in await _store.watchStageChanges(other.id).first)
+        StageChange(
+          id: _newId(),
+          batchId: batch.id,
+          fromStageId: c.fromStageId,
+          toStageId: c.toStageId,
+          modelCount: c.modelCount,
+          happenedAt: c.happenedAt,
+        ),
+    ]);
   }
 
   /// The Batch's history, oldest first, emitted again whenever it changes.
@@ -1249,21 +1242,17 @@ class Vault {
 
   /// Changes only the given fields of a Batch. A new [modelCount] is a recount: it sets the absolute count, and the
   /// latest write wins, unlike a Split or Merge (deltas). A Split uploaded after it still takes its models off.
-  Future<void> editBatch(
-    String id, {
-    String? name,
-    int? modelCount,
-    String? notes,
-  }) => _store.updateBatch(
-    id,
-    name: name == null ? null : validName(name),
-    modelCount: modelCount == null ? null : validModelCount(modelCount),
-    notes: notes?.trim(),
-  );
+  Future<void> editBatch(String id, {String? name, int? modelCount}) =>
+      _store.updateBatch(
+        id,
+        name: name == null ? null : validName(name),
+        modelCount: modelCount == null ? null : validModelCount(modelCount),
+      );
 
   /// Renames every Batch in [unit], one field edit each, so other fields edited elsewhere are kept, and carries its
-  /// Paints to the new name. Onto an existing Unit the Paints are unioned: for a Paint both use, the target's note
-  /// wins unless it is empty.
+  /// notes, Tags, Photos and Paints to the new name. Onto an existing Unit they are combined: notes joined (see
+  /// [joinNotes]), Tags and Photos unioned (all Photos kept, even past [maxPhotos]), and Paints unioned with the
+  /// target's note winning for a Paint both use, unless it is empty.
   Future<void> renameUnit(Unit unit, String name) async {
     final valid = validName(
       name,
@@ -1273,6 +1262,27 @@ class Vault {
     }
     if (valid == unit.name || unit.batches.isEmpty) return;
     final collectionId = unit.batches.first.collectionId;
+    final notes = await notesOf(collectionId, unit.name);
+    if (notes.isNotEmpty) {
+      final had = await notesOf(collectionId, valid);
+      await _store.setNotes(collectionId, valid, joinNotes([had, notes]));
+    }
+    await _store.deleteNotes(collectionId, unit.name);
+    final tags = await tagsOf(collectionId, unit.name);
+    await addTags(collectionId, valid, tags);
+    for (final t in tags) {
+      await removeTag(collectionId, unit.name, t);
+    }
+    final files = {
+      for (final p in await photosOf(collectionId, valid)) p.fileId,
+    };
+    for (final p in await photosOf(collectionId, unit.name)) {
+      if (files.contains(p.fileId)) {
+        await _store.deletePhoto(p.id);
+      } else {
+        await _store.movePhoto(p.id, valid);
+      }
+    }
     final target = {
       for (final l in await _unitPaints(collectionId, valid)) l.paint.id: l,
     };
@@ -1290,27 +1300,48 @@ class Vault {
 
   Future<void> deleteBatch(String id) => _store.deleteBatch(id);
 
-  /// The Batch's Tags, by name, emitted again whenever they change.
-  Stream<List<String>> watchTags(String batchId) => _store.watchTags(batchId);
+  /// The notes of Unit [unit] in Collection [collectionId] ('' if none), emitted again whenever they change. They
+  /// stay with the name while the Unit has no Batches, like its Paints.
+  Stream<String> watchNotes(String collectionId, String unit) =>
+      _store.watchNotes(collectionId, unit);
 
-  /// The Batch's Tags, by name. With [addTags], what a Split needs to copy them to the new Batch.
-  Future<List<String>> tagsOf(String batchId) =>
-      _store.watchTags(batchId).first;
+  Future<String> notesOf(String collectionId, String unit) =>
+      watchNotes(collectionId, unit).first;
 
-  /// Adds Tags to a Batch, skipping blank names and ones it already has (ignoring case and outer spaces).
+  /// Sets the Unit's notes, trimmed; the latest edit wins.
+  Future<void> setNotes(String collectionId, String unit, String notes) =>
+      _store.setNotes(collectionId, unit, notes.trim());
+
+  /// The Unit's Tags, by name, emitted again whenever they change.
+  Stream<List<String>> watchTags(String collectionId, String unit) =>
+      _store.watchTags(collectionId, unit);
+
+  Future<List<String>> tagsOf(String collectionId, String unit) =>
+      watchTags(collectionId, unit).first;
+
+  /// Adds Tags to a Unit, skipping blank names and ones it already has (ignoring case and outer spaces).
   /// A Tag the user has used before keeps the casing it was first entered with.
-  Future<void> addTags(String batchId, Iterable<String> names) async {
+  Future<void> addTags(
+    String collectionId,
+    String unit,
+    Iterable<String> names,
+  ) async {
     final known = _byKey(await _store.allTagNames());
     final namesById = <String, String>{};
     for (final name in names.map((n) => n.trim()).where((n) => n.isNotEmpty)) {
       final display = known[tagKey(name)] ?? name;
-      namesById.putIfAbsent(tagId(batchId, display), () => display);
+      namesById.putIfAbsent(
+        tagId(unitId(collectionId, unit), display),
+        () => display,
+      );
     }
-    if (namesById.isNotEmpty) await _store.insertTags(batchId, namesById);
+    if (namesById.isNotEmpty) {
+      await _store.insertTags(collectionId, unit, namesById);
+    }
   }
 
-  Future<void> removeTag(String batchId, String name) =>
-      _store.deleteTag(tagId(batchId, name));
+  Future<void> removeTag(String collectionId, String unit, String name) =>
+      _store.deleteTag(tagId(unitId(collectionId, unit), name));
 
   /// The user's Tags that start with [prefix] (ignoring case and outer spaces), by name.
   Future<List<String>> suggestTags(String prefix) async {
@@ -1481,36 +1512,46 @@ class Vault {
     );
   }
 
-  /// The most Photos a Batch may have. The write API enforces the same limit.
+  /// The most Photos a Unit may be given. The write API enforces the same limit.
   static const maxPhotos = 10;
 
-  /// The Batch's Photos, in the same order on every device, emitted again whenever they change.
-  Stream<List<Photo>> watchPhotos(String batchId) =>
-      _store.watchPhotos(batchId);
+  /// The Unit's Photos, in the same order on every device, emitted again whenever they change.
+  Stream<List<Photo>> watchPhotos(String collectionId, String unit) =>
+      _store.watchPhotos(collectionId, unit);
 
-  /// The Batch's Photos. With [addPhotos], what a Split needs to copy them to the new Batch.
-  Future<List<Photo>> photosOf(String batchId) =>
-      _store.watchPhotos(batchId).first;
+  Future<List<Photo>> photosOf(String collectionId, String unit) =>
+      watchPhotos(collectionId, unit).first;
 
-  /// A Photo for a new image file on the Batch, not yet stored: the app stores it in the same transaction that
-  /// queues its file for upload. Throws a [StateError] if the Batch already has [maxPhotos].
-  Future<Photo> newPhoto(String batchId) async {
-    await _checkRoom(batchId, 1);
-    return Photo(id: _newId(), batchId: batchId, fileId: _newId());
+  /// A Photo for a new image file on the Unit, not yet stored: the app stores it in the same transaction that
+  /// queues its file for upload. Throws a [StateError] if the Unit already has [maxPhotos].
+  Future<Photo> newPhoto(String collectionId, String unit) async {
+    await _checkRoom(collectionId, unit, 1);
+    return Photo(
+      id: _newId(),
+      collectionId: collectionId,
+      unit: unit,
+      fileId: _newId(),
+    );
   }
 
-  /// Attaches already stored image files to the Batch, e.g. a Split's copies of its source's Photos.
-  /// A file the Batch already has is skipped. Throws a [StateError] if the Batch would get more than [maxPhotos].
+  /// Attaches already stored image files to the Unit, e.g. another Unit's. A file the Unit already has is skipped.
+  /// Throws a [StateError] if the Unit would get more than [maxPhotos].
   Future<List<Photo>> addPhotos(
-    String batchId,
+    String collectionId,
+    String unit,
     Iterable<String> fileIds,
   ) async {
-    final has = {for (final p in await photosOf(batchId)) p.fileId};
+    final has = {for (final p in await photosOf(collectionId, unit)) p.fileId};
     final photos = [
       for (final fileId in {...fileIds}.difference(has))
-        Photo(id: _newId(), batchId: batchId, fileId: fileId),
+        Photo(
+          id: _newId(),
+          collectionId: collectionId,
+          unit: unit,
+          fileId: fileId,
+        ),
     ];
-    await _checkRoom(batchId, photos.length);
+    await _checkRoom(collectionId, unit, photos.length);
     if (photos.isNotEmpty) await _store.insertPhotos(photos);
     return photos;
   }
@@ -1518,8 +1559,8 @@ class Vault {
   /// Removes the Photo. The server deletes its file once no Photo points at it.
   Future<void> removePhoto(String id) => _store.deletePhoto(id);
 
-  Future<void> _checkRoom(String batchId, int adding) async {
-    if ((await photosOf(batchId)).length + adding > maxPhotos) {
+  Future<void> _checkRoom(String collectionId, String unit, int adding) async {
+    if ((await photosOf(collectionId, unit)).length + adding > maxPhotos) {
       throw StateError('A Unit can have at most $maxPhotos photos');
     }
   }
@@ -1536,10 +1577,19 @@ class Vault {
 /// What makes two Tag names the same Tag: case and outer spaces are ignored.
 String tagKey(String name) => name.trim().toLowerCase();
 
-/// The id of [name] as a Tag on Batch [batchId]: the same on every device, so two devices adding the same Tag
-/// to the same Batch offline write the same row instead of a duplicate. The write API checks it.
-String tagId(String batchId, String name) =>
-    const Uuid().v5(batchId, tagKey(name));
+/// The id of [name] as a Tag on [owner], the Unit's [unitId] (or, for Tags uploaded by app versions before
+/// ADR 0008, a Batch id): the same on every device, so two devices adding the same Tag to the same Unit offline write
+/// the same row instead of a duplicate. The write API checks it.
+String tagId(String owner, String name) => const Uuid().v5(owner, tagKey(name));
+
+/// The id of Unit [name] in Collection [collectionId], the same on every device: its notes row's id, and the
+/// namespace of its [tagId]s. The write API checks it.
+String unitId(String collectionId, String name) =>
+    const Uuid().v5(collectionId, name);
+
+/// [notes] trimmed, without blank ones and repeats, one per line: how a Unit's notes combine with another's.
+String joinNotes(Iterable<String> notes) =>
+    {for (final n in notes) n.trim()}.where((n) => n.isNotEmpty).join('\n');
 
 /// Throws an [ArgumentError] unless a Batch has at least one model. The server's database enforces the same rule.
 int validModelCount(int count) => count >= 1

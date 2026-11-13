@@ -38,35 +38,22 @@ class _UnitScreenState extends State<UnitScreen> {
   late final _library = widget.vault.watchPaints();
   late final _links = widget.vault.watchAllUnitPaints();
   late String _name = widget.name;
-
-  // Tags are read once per set of Batches, and again on return from a Batch screen, where they are edited.
-  String? _tagsFor;
-  Future<List<String>>? _tags;
-
-  Future<List<String>> _tagsOf(Unit unit) {
-    final ids = unit.batches.map((u) => u.id).join(',');
-    if (ids != _tagsFor) {
-      _tagsFor = ids;
-      _tags =
-          Future.wait([for (final u in unit.batches) widget.vault.tagsOf(u.id)])
-              .then((lists) {
-                final byKey = <String, String>{};
-                for (final t in lists.expand((l) => l)) {
-                  byKey.putIfAbsent(tagKey(t), () => t);
-                }
-                return byKey.values.toList()
-                  ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-              });
-    }
-    return _tags!;
-  }
+  // The Unit's Tags and notes, followed through a rename.
+  late var _tags = widget.vault.watchTags(widget.collection.id, _name);
+  late var _notes = widget.vault.watchNotes(widget.collection.id, _name);
 
   Future<void> _rename(Unit unit) async {
     final name = await askName(context, 'Rename Squad', unit.name);
     if (name == null || !mounted) return;
     await attempt(context, () async {
       await widget.vault.renameUnit(unit, name);
-      if (mounted) setState(() => _name = name.trim());
+      if (mounted) {
+        setState(() {
+          _name = name.trim();
+          _tags = widget.vault.watchTags(widget.collection.id, _name);
+          _notes = widget.vault.watchNotes(widget.collection.id, _name);
+        });
+      }
     });
   }
 
@@ -130,27 +117,36 @@ class _UnitScreenState extends State<UnitScreen> {
     onDetails: () => _open(g.batches.first),
   );
 
-  Future<void> _open(Batch batch) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute<void>(
-        builder: (_) => BatchScreen(
-          vault: widget.vault,
-          photos: widget.photos,
-          collection: widget.collection,
-          batchId: batch.id,
-        ),
+  Future<void> _open(Batch batch) => Navigator.push(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => BatchScreen(
+        vault: widget.vault,
+        photos: widget.photos,
+        collection: widget.collection,
+        batchId: batch.id,
       ),
-    );
-    if (mounted) setState(() => _tagsFor = null);
-  }
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => StreamBuilder(
     stream: _library,
     builder: (context, library) => StreamBuilder(
       stream: _links,
-      builder: (context, links) => _build(context, library.data, links.data),
+      builder: (context, links) => StreamBuilder(
+        stream: _tags,
+        builder: (context, tags) => StreamBuilder(
+          stream: _notes,
+          builder: (context, notes) => _build(
+            context,
+            library.data,
+            links.data,
+            tags.data ?? const [],
+            notes.data ?? '',
+          ),
+        ),
+      ),
     ),
   );
 
@@ -158,6 +154,8 @@ class _UnitScreenState extends State<UnitScreen> {
     BuildContext context,
     List<Paint>? library,
     List<({Collection collection, UnitPaint link})>? links,
+    List<String> tags,
+    String notes,
   ) {
     return StreamBuilder(
       stream: _units,
@@ -192,19 +190,14 @@ class _UnitScreenState extends State<UnitScreen> {
             _ => ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: [
-                FutureBuilder(
-                  future: _tagsOf(unit),
-                  builder: (context, tags) => Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final t in tags.data ?? const <String>[])
-                          Chip(label: Text(t)),
-                      ],
-                    ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    spacing: 8,
+                    children: [for (final t in tags) Chip(label: Text(t))],
                   ),
                 ),
+                if (notes.isNotEmpty) ListTile(title: Text(notes)),
                 for (final g in unit.stages)
                   // Empty Stages stay in Workflow order, dimmed, with nothing to move.
                   Opacity(
@@ -261,7 +254,7 @@ Future<bool> confirmDeleteBatch(
       builder: (context) => AlertDialog(
         title: Text(title),
         content: Text(
-          'Its ${modelCountText(batch.modelCount)}, photos and history will be deleted on all your devices.',
+          'Its ${modelCountText(batch.modelCount)} and their history will be deleted on all your devices.',
         ),
         actions: [
           TextButton(

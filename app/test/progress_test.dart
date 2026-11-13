@@ -88,7 +88,6 @@ void main() {
             stageId: w.stages[i].id,
             name: 'Unit',
             modelCount: n,
-            notes: '',
           ),
       ];
       return WorkflowProgress(
