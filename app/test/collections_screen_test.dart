@@ -70,74 +70,70 @@ void main() {
     },
   );
 
-  testWidgets(
-    'shows a Collection\'s Units grouped by Stage, with model counts',
-    (tester) async {
-      final (db, vault, collection) = (await tester.runAsync(() async {
-        final dir = await Directory.systemTemp.createTemp('app_test');
-        final db = PowerSyncDatabase(
-          schema: SqliteVaultStore.schema,
-          path: '${dir.path}/vault.db',
-        );
-        await db.execute(
-          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's1', 's1')",
-        );
-        for (final (i, name) in ['Wishlist', 'Unassembled', 'Primed'].indexed) {
-          await db.execute(
-            'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
-            ['s$i', 'w', name, i],
-          );
-        }
-        final vault = Vault(SqliteVaultStore(db));
-        final collection = await vault.createCollection('Space Marines');
-        for (final (name, count, stage) in [
-          ('Intercessors', 10, 's2'),
-          ('Captain', 1, 's2'),
-          ('Terminators', 5, 's0'),
-        ]) {
-          await vault.addUnit(
-            collection,
-            name: name,
-            modelCount: count,
-            stageId: stage,
-          );
-        }
-        return (db, vault, collection);
-      }))!;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: CollectionScreen(vault: vault, db: db, collection: collection),
-        ),
+  testWidgets('shows a Collection\'s Squads by name, with model counts', (
+    tester,
+  ) async {
+    final (db, vault, collection) = (await tester.runAsync(() async {
+      final dir = await Directory.systemTemp.createTemp('app_test');
+      final db = PowerSyncDatabase(
+        schema: SqliteVaultStore.schema,
+        path: '${dir.path}/vault.db',
       );
-      for (var i = 0; i < 20; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      await db.execute(
+        "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's1', 's1')",
+      );
+      for (final (i, name) in ['Wishlist', 'Unassembled', 'Primed'].indexed) {
+        await db.execute(
+          'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
+          ['s$i', 'w', name, i],
         );
-        await tester.pump(const Duration(milliseconds: 100));
       }
+      final vault = Vault(SqliteVaultStore(db));
+      final collection = await vault.createCollection('Space Marines');
+      for (final (name, count, stage) in [
+        ('Intercessors', 10, 's2'),
+        ('Captain', 1, 's2'),
+        ('Terminators', 5, 's0'),
+        ('Intercessors', 5, 's0'),
+      ]) {
+        await vault.addUnit(
+          collection,
+          name: name,
+          modelCount: count,
+          stageId: stage,
+        );
+      }
+      return (db, vault, collection);
+    }))!;
 
-      // Stages in Workflow order, each followed by its Units by name.
-      final rows = [
-        'Wishlist',
-        '5 models',
-        'Terminators',
-        'Unassembled',
-        '0 models',
-        'Primed',
-        '11 models',
-        'Captain',
-        'Intercessors',
-      ];
-      final ys = [
-        for (final text in rows) tester.getTopLeft(find.text(text)).dy,
-      ];
-      expect(ys, orderedEquals([...ys]..sort()));
-      // Owned and Finished Stage are both Unassembled: Primed counts as finished, Wishlist as wanted.
-      expect(find.text('11 / 11 finished · 5 wanted'), findsOneWidget);
-      expect(find.byTooltip('New Unit'), findsOneWidget);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CollectionScreen(vault: vault, db: db, collection: collection),
+      ),
+    );
+    for (var i = 0; i < 20; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+    }
 
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+    // One row per Squad, by name, counting the models of all its Units.
+    final rows = [
+      'Captain',
+      '1 model',
+      'Intercessors',
+      '15 models',
+      'Terminators',
+      '5 models',
+    ];
+    final ys = [for (final text in rows) tester.getTopLeft(find.text(text)).dy];
+    expect(ys, orderedEquals([...ys]..sort()));
+    expect(find.byType(LinearProgressIndicator), findsNWidgets(4));
+    // Owned and Finished Stage are both Unassembled: Primed counts as finished, Wishlist as wanted.
+    expect(find.text('11 / 11 finished · 10 wanted'), findsOneWidget);
+    expect(find.byTooltip('New Unit'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+  });
 }

@@ -1398,4 +1398,64 @@ void main() {
       expect(transaction.crud.last.id, split.id);
     });
   });
+
+  group('Squads', () {
+    late Collection collection;
+    setUp(() async {
+      await syncStarterWorkflow();
+      collection = await vault.createCollection('Space Marines');
+      for (final (name, count, stage) in [
+        ('Intercessors', 6, 's1'),
+        ('Intercessors', 4, 's6'),
+        ('Captain', 1, 's0'),
+        ('Intercessors', 2, 's6'),
+      ]) {
+        await vault.addUnit(
+          collection,
+          name: name,
+          modelCount: count,
+          stageId: stage,
+        );
+      }
+    });
+
+    test(
+      'groups Units by name over every Stage, with their progress',
+      () async {
+        final squads = await vault.watchSquads(collection).first;
+
+        expect(
+          [for (final s in squads) (s.name, s.modelCount)],
+          [('Captain', 1), ('Intercessors', 12)],
+        );
+        final intercessors = squads.last;
+        expect(
+          [for (final g in intercessors.stages) g.modelCount],
+          [
+            0, 6, 0, 0, 0, 0, 6, //
+          ],
+        );
+        expect(intercessors.stages[6].units, hasLength(2));
+        expect(
+          intercessors.progress,
+          const Progress(wanted: 0, owned: 12, finished: 6),
+        );
+      },
+    );
+
+    test('renaming a Squad renames each of its Units', () async {
+      final squad = (await vault.watchSquads(collection).first).last;
+
+      await vault.renameSquad(squad, ' Assault Intercessors ');
+
+      expect(
+        [
+          for (final s in await vault.watchSquads(collection).first)
+            (s.name, s.modelCount),
+        ],
+        [('Assault Intercessors', 12), ('Captain', 1)],
+      );
+      expect(() => vault.renameSquad(squad, '  '), throwsArgumentError);
+    });
+  });
 }

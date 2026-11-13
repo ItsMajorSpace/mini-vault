@@ -133,6 +133,32 @@ List<StageGroup> groupByStage(Workflow workflow, Iterable<Unit> units) => [
     ]),
 ];
 
+/// All Units in a Collection sharing a name, laid out over every Stage of the Workflow.
+class Squad {
+  const Squad(this.name, this.stages, this.progress);
+
+  final String name;
+
+  /// One group per Stage of the Workflow, in Workflow order, including Stages without Units.
+  final List<StageGroup> stages;
+  final Progress progress;
+
+  Iterable<Unit> get units => stages.expand((g) => g.units);
+  int get modelCount => stages.fold(0, (sum, g) => sum + g.modelCount);
+}
+
+/// Groups [units] into Squads by exact name (as [Vault.mergeCandidates] matches), in the order names first appear.
+List<Squad> squadsOf(Workflow workflow, Iterable<Unit> units) {
+  final byName = <String, List<Unit>>{};
+  for (final u in units) {
+    (byName[u.name] ??= []).add(u);
+  }
+  return [
+    for (final MapEntry(key: name, value: us) in byName.entries)
+      Squad(name, groupByStage(workflow, us), progressOf(workflow, us)),
+  ];
+}
+
 /// How many of a Collection's models are wanted, owned and finished, by its Workflow's Owned and Finished Stage.
 class Progress {
   const Progress({
@@ -562,6 +588,11 @@ class Vault {
         (units) async => groupByStage(await workflowOf(collection), units),
       );
 
+  /// The Collection's Squads, by name, emitted again whenever its Units change.
+  Stream<List<Squad>> watchSquads(Collection collection) => _store
+      .watchUnits(collection.id)
+      .asyncMap((units) async => squadsOf(await workflowOf(collection), units));
+
   /// The Collection's [Progress], emitted again whenever its Units or its Workflow (Stages, Owned or Finished Stage) change.
   Stream<Progress> watchProgress(Collection collection) {
     List<Workflow>? workflows;
@@ -766,6 +797,16 @@ class Vault {
     modelCount: modelCount == null ? null : validModelCount(modelCount),
     notes: notes?.trim(),
   );
+
+  /// Renames every Unit in [squad], one field edit each, so other fields edited elsewhere are kept.
+  Future<void> renameSquad(Squad squad, String name) async {
+    final valid = validName(
+      name,
+    ); // Before any write, so a bad name renames none.
+    for (final u in squad.units) {
+      await editUnit(u.id, name: valid);
+    }
+  }
 
   Future<void> deleteUnit(String id) => _store.deleteUnit(id);
 
