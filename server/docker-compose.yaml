@@ -78,7 +78,11 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres?sslmode=disable
       JWT_SECRET: ${JWT_SECRET}
+      PHOTOS_DIR: /photos
       PORT: 8000
+    volumes:
+      # Photo files, one directory per user.
+      - photos:/photos
     ports:
       - "127.0.0.1:8000:8000"
 
@@ -108,3 +112,4 @@ services:
 
 volumes:
   pg_data:
+  photos:

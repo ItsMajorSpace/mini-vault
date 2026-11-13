@@ -6,7 +6,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart';
 
 /// `server migrate` sets up the database and exits; `server` serves the write API.
-/// Reads DATABASE_URL, JWT_SECRET (GoTrue's) and PORT from the environment.
+/// Reads DATABASE_URL, JWT_SECRET (GoTrue's), PHOTOS_DIR (photo files) and PORT from the environment.
 Future<void> main(List<String> args) async {
   final env = Platform.environment;
   final db = Pool<void>.withUrl(env['DATABASE_URL']!);
@@ -19,7 +19,13 @@ Future<void> main(List<String> args) async {
 
   final handler = const Pipeline()
       .addMiddleware(logRequests())
-      .addHandler(writeApi(db, jwtSecret: env['JWT_SECRET']!));
+      .addHandler(
+        writeApi(
+          db,
+          Directory(env['PHOTOS_DIR'] ?? '/photos'),
+          jwtSecret: env['JWT_SECRET']!,
+        ),
+      );
   final server = await serve(
     handler,
     InternetAddress.anyIPv4,

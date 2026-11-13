@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:gotrue/gotrue.dart';
 import 'package:http/http.dart' as http;
+import 'package:powersync/attachments/attachments.dart';
 import 'package:powersync/powersync.dart';
 
 // Defaults reach the local stack from the Android emulator; override with --dart-define.
@@ -40,15 +41,24 @@ Future<GoTrueClient> openAuth(File sessionFile) async {
   return auth;
 }
 
-/// Syncs while signed in. Signing out clears the local database, so the next account starts empty.
-void syncWhileSignedIn(GoTrueClient auth, PowerSyncDatabase db) {
+/// Syncs rows and [photos] while signed in. Signing out clears the local database and photo files, so the next
+/// account starts empty.
+void syncWhileSignedIn(
+  GoTrueClient auth,
+  PowerSyncDatabase db,
+  // ignore: experimental_member_use, PowerSync's official attachment queue (see photos.dart).
+  AttachmentQueue photos,
+) {
   auth.onAuthStateChange.listen((state) async {
     switch (state.event) {
       case AuthChangeEvent.initialSession || AuthChangeEvent.signedIn
           when state.session != null:
         // A new connector each time: a connector caches its credentials, which would sync the previous account.
         await db.connect(connector: _ServerConnector(auth));
+        await photos.startSync();
       case AuthChangeEvent.signedOut:
+        await photos.stopSyncing();
+        await photos.clearQueue();
         await db.disconnectAndClear();
       default:
     }

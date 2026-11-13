@@ -966,4 +966,88 @@ void main() {
       await expectation;
     });
   });
+
+  group('Photos', () {
+    late Collection collection;
+    late Unit unit;
+    setUp(() async {
+      await syncStarterWorkflow();
+      collection = await vault.createCollection('Necrons');
+      unit = await vault.addUnit(
+        collection,
+        name: 'Warriors',
+        modelCount: 10,
+        stageId: 's0',
+      );
+    });
+
+    List<String> files(List<Photo> photos) => [
+      for (final p in photos) p.fileId,
+    ];
+
+    test('are added and removed, and persist across restarts', () async {
+      // The app's path for a new image: the Photo is stored in the transaction that queues its file.
+      final photo = await vault.newPhoto(unit.id);
+      await db.writeTransaction(
+        (tx) => SqliteVaultStore.insertPhoto(tx, photo),
+      );
+      final [second] = await vault.addPhotos(unit.id, ['f2']);
+      await restart();
+      expect(
+        files(await vault.photosOf(unit.id)),
+        unorderedEquals([photo.fileId, 'f2']),
+      );
+
+      await vault.removePhoto(photo.id);
+      expect(await vault.photosOf(unit.id), [
+        isA<Photo>().having((p) => p.id, 'id', second.id),
+      ]);
+    });
+
+    test('are at most ten per Unit', () async {
+      await vault.addPhotos(unit.id, [for (var i = 0; i < 9; i++) 'f$i']);
+      await expectLater(vault.addPhotos(unit.id, ['a', 'b']), throwsStateError);
+      await vault.newPhoto(unit.id);
+      // f0 is already there, so only f9 is added.
+      await vault.addPhotos(unit.id, ['f9', 'f0']);
+
+      expect(await vault.photosOf(unit.id), hasLength(Vault.maxPhotos));
+      await expectLater(vault.newPhoto(unit.id), throwsStateError);
+      await expectLater(vault.addPhotos(unit.id, ['f10']), throwsStateError);
+    });
+
+    test('are deleted with their Unit, uploading the deletes', () async {
+      await vault.addPhotos(unit.id, ['f1', 'f2']);
+      await (await db.getCrudBatch())!.complete();
+      await vault.deleteUnit(unit.id);
+
+      expect(await db.getAll('SELECT * FROM photos'), isEmpty);
+      final uploads = [
+        for (final op in (await db.getCrudBatch(limit: 100))!.crud) op.table,
+      ];
+      expect(uploads, ['photos', 'photos', 'units']);
+    });
+
+    test('of one Unit can be attached to another, sharing the files', () async {
+      final other = await vault.addUnit(
+        collection,
+        name: 'Warriors',
+        modelCount: 4,
+        stageId: 's1',
+      );
+      await vault.addPhotos(unit.id, ['f1', 'f2']);
+
+      await vault.addPhotos(other.id, files(await vault.photosOf(unit.id)));
+      final copies = await vault.photosOf(other.id);
+      expect(files(copies), unorderedEquals(['f1', 'f2']));
+
+      // Removing a copy leaves the original's row, and so its file.
+      await vault.removePhoto(copies.firstWhere((p) => p.fileId == 'f1').id);
+      expect(
+        files(await vault.photosOf(unit.id)),
+        unorderedEquals(['f1', 'f2']),
+      );
+      expect(files(await vault.photosOf(other.id)), ['f2']);
+    });
+  });
 }
