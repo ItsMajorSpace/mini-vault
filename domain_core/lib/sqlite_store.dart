@@ -43,6 +43,8 @@ class SqliteVaultStore implements VaultStore {
     ]),
     // One row per Tag on a Unit; its id is [tagId], so the same Tag added on two devices is one row.
     Table('unit_tags', [Column.text('unit_id'), Column.text('name')]),
+    // file_id is the image file's PowerSync attachment id; a Split's copy of a Photo shares it.
+    Table('photos', [Column.text('unit_id'), Column.text('file_id')]),
   ]);
 
   // Stage order is (position, id): concurrent reorders on two devices can merge into equal positions, and the id
@@ -342,10 +344,11 @@ class SqliteVaultStore implements VaultStore {
 
   // Its Stage Changes are append-only, so they are not deleted here: the server deletes them with the Unit,
   // and sync then removes them from this device.
-  // Tags first, so their deletes upload too and nothing points at the deleted Unit.
+  // Tags and Photos first, so their deletes upload too and nothing points at the deleted Unit.
   @override
   Future<void> deleteUnit(String id) => _db.writeTransaction((tx) async {
     await tx.execute('DELETE FROM unit_tags WHERE unit_id = ?', [id]);
+    await tx.execute('DELETE FROM photos WHERE unit_id = ?', [id]);
     await tx.execute('DELETE FROM units WHERE id = ?', [id]);
   });
 
@@ -382,4 +385,41 @@ class SqliteVaultStore implements VaultStore {
   @override
   Future<void> deleteTag(String id) =>
       _db.execute('DELETE FROM unit_tags WHERE id = ?', [id]);
+
+  @override
+  Stream<List<Photo>> watchPhotos(String unitId) => _db
+      .watch(
+        'SELECT id, unit_id, file_id FROM photos WHERE unit_id = ? ORDER BY id',
+        parameters: [unitId],
+      )
+      .map(
+        (rows) => [
+          for (final r in rows)
+            Photo(
+              id: r['id'] as String,
+              unitId: r['unit_id'] as String,
+              fileId: r['file_id'] as String,
+            ),
+        ],
+      );
+
+  @override
+  Future<void> insertPhotos(List<Photo> photos) =>
+      _db.writeTransaction((tx) async {
+        for (final p in photos) {
+          await insertPhoto(tx, p);
+        }
+      });
+
+  /// Inserts [photo] inside [tx]: the app stores a new image file's Photo in the transaction that queues the file.
+  static Future<void> insertPhoto(SqliteWriteContext tx, Photo photo) =>
+      tx.execute('INSERT INTO photos (id, unit_id, file_id) VALUES (?, ?, ?)', [
+        photo.id,
+        photo.unitId,
+        photo.fileId,
+      ]);
+
+  @override
+  Future<void> deletePhoto(String id) =>
+      _db.execute('DELETE FROM photos WHERE id = ?', [id]);
 }

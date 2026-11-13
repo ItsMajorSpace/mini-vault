@@ -2,11 +2,14 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:domain_core/domain_core.dart';
 import 'package:postgres/postgres.dart';
 import 'package:shelf/shelf.dart';
+
+import 'photos.dart';
 
 /// The columns a client may write, per synced table, with their Postgres types.
 /// `id` and `owner_id` are never taken from the payload: the owner is the authenticated user.
@@ -33,6 +36,7 @@ const _writable = {
     'happened_at': 'timestamptz',
   },
   'unit_tags': {'unit_id': 'uuid', 'name': 'text'},
+  'photos': {'unit_id': 'uuid', 'file_id': 'uuid'},
 };
 
 /// Columns that point at another synced row, and that row's table. The row must exist and be the user's own.
@@ -104,6 +108,16 @@ CREATE TABLE IF NOT EXISTS unit_tags (
   name text NOT NULL
 );
 CREATE INDEX IF NOT EXISTS unit_tags_unit_id ON unit_tags (unit_id);
+-- A photo of a Unit. file_id names the image file on disk (photos.dart); a Split's copy shares it, and the file
+-- is deleted once no row points at it. Deleted with its Unit.
+CREATE TABLE IF NOT EXISTS photos (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  unit_id uuid NOT NULL REFERENCES units ON DELETE CASCADE,
+  file_id uuid NOT NULL
+);
+CREATE INDEX IF NOT EXISTS photos_unit_id ON photos (unit_id);
+CREATE INDEX IF NOT EXISTS photos_owner_file ON photos (owner_id, file_id);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -131,7 +145,7 @@ DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
     CREATE PUBLICATION powersync;
   END IF;
-  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags'])
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos'])
     EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
   LOOP
     EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
@@ -148,10 +162,18 @@ String _quote(String s) => "'${s.replaceAll("'", "''")}'";
 /// Stage Change) or a batch that leaves a Workflow invalid
 /// (nothing is written in those cases), and 204 on success.
 /// Conflicts are the latest write wins per field, and deletes win: a PATCH to a deleted row is ignored.
-Handler writeApi(Pool<void> db, {required String jwtSecret}) =>
+///
+/// `/photos/<file id>` stores and serves the user's photo files, kept in [dir]; see [photoRequest].
+Handler writeApi(Pool<void> db, Directory dir, {required String jwtSecret}) =>
     (request) async {
-      if (request.url.path != 'upload') return Response.notFound(null);
-      if (request.method != 'POST') return Response(405);
+      final photo = switch (request.url.pathSegments) {
+        ['photos', final id] => id,
+        _ => null,
+      };
+      if (request.url.path != 'upload' && photo == null) {
+        return Response.notFound(null);
+      }
+      if (photo == null && request.method != 'POST') return Response(405);
 
       final String owner;
       try {
@@ -164,6 +186,9 @@ Handler writeApi(Pool<void> db, {required String jwtSecret}) =>
         owner = jwt.subject ?? (throw JWTInvalidException('no sub'));
       } on JWTException catch (e) {
         return _error(401, e.message);
+      }
+      if (photo != null) {
+        return photoRequest(db, dir, owner, photo, request);
       }
 
       final List<Map<String, Object?>> operations;
@@ -178,13 +203,15 @@ Handler writeApi(Pool<void> db, {required String jwtSecret}) =>
       }
 
       try {
+        final unlinked = <String>{};
         await db.runTx((tx) async {
           final touched = <String>{};
           for (final op in operations) {
-            touched.addAll(await _apply(tx, owner, op));
+            touched.addAll(await _apply(tx, owner, op, unlinked));
           }
           await _checkWorkflows(tx, touched);
         });
+        await deleteUnreferencedPhotos(db, dir, owner, unlinked);
         return Response(204);
       } on _Rejected catch (e) {
         return _error(e.status, e.message);
@@ -199,10 +226,12 @@ Handler writeApi(Pool<void> db, {required String jwtSecret}) =>
     };
 
 /// Applies [op] and returns the ids of the Workflows it may have changed, to check once the batch is applied.
+/// Adds the photo files of the Photo rows it deletes to [unlinked], to delete once no row points at them.
 Future<Set<String>> _apply(
   TxSession tx,
   String owner,
   Map<String, Object?> op,
+  Set<String> unlinked,
 ) async {
   final table = op['type'];
   final id = op['id'];
@@ -236,6 +265,11 @@ Future<Set<String>> _apply(
     }
     // A repeated upload of a Stage Change already stored (a retry) changes nothing.
     if (existing.isNotEmpty) return {};
+  }
+  if (table == 'photos') {
+    if (op['op'] == 'PATCH') throw _Rejected(422, 'Photos cannot be edited');
+    // A Photo never changes, so a repeated upload (a retry) changes nothing.
+    if (op['op'] == 'PUT' && existing.isNotEmpty) return {};
   }
 
   // Skipped for a PATCH to a deleted row, which is ignored anyway (deletes win).
@@ -274,6 +308,15 @@ Future<Set<String>> _apply(
     if (used.isNotEmpty) throw _Rejected(409, 'A Collection uses Workflow $id');
   }
   if (table == 'unit_tags') _checkTag(op['op'], id, data);
+  if (op['op'] == 'DELETE' && (table == 'photos' || table == 'units')) {
+    unlinked.addAll([
+      for (final row in await tx.execute(
+        'SELECT file_id::text FROM photos WHERE ${table == 'units' ? 'unit_id' : 'id'} = \$1::uuid AND owner_id = \$2::uuid',
+        parameters: [id, owner],
+      ))
+        row.first as String,
+    ]);
+  }
   final touched = {
     if (table == 'workflows') id,
     if (table == 'stages') ...[
@@ -318,6 +361,21 @@ Future<Set<String>> _apply(
       );
     default:
       throw _Rejected(422, 'Unknown op ${op['op']}');
+  }
+
+  if (table == 'photos' && op['op'] == 'PUT') {
+    // FOR UPDATE on the Unit makes concurrent batches adding Photos to it count one after the other.
+    await tx.execute(
+      'SELECT FROM units WHERE id = \$1::uuid FOR UPDATE',
+      parameters: [data['unit_id']],
+    );
+    final [[count]] = await tx.execute(
+      'SELECT count(*) FROM photos WHERE unit_id = \$1::uuid',
+      parameters: [data['unit_id']],
+    );
+    if ((count as int) > Vault.maxPhotos) {
+      throw _Rejected(422, 'A Unit can have at most ${Vault.maxPhotos} photos');
+    }
   }
 
   // units.stage_id is re-derived from the latest Stage Change (device timestamp, then id) after every write to a Unit or its Stage Changes, so upload order and a client's stale stage_id never decide it.

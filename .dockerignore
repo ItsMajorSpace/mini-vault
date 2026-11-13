@@ -1,0 +1,5 @@
+# The legacy Docker builder (no buildx) reads this file, not server/Dockerfile.dockerignore. Keep both the same.
+**/.dart_tool
+**/build
+app
+.git
