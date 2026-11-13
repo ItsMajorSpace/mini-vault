@@ -1,4 +1,4 @@
-/// Password reset and account deletion. Signing out is the Collections screen's sign-out button.
+/// Password reset and account deletion. Signing out is in the Collections screen's account menu.
 library;
 
 import 'package:gotrue/gotrue.dart';

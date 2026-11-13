@@ -5,6 +5,7 @@ import 'package:domain_core/sqlite_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
+import 'package:mini_vault/photos.dart';
 import 'package:mini_vault/progress.dart';
 import 'package:mini_vault/workflows.dart';
 import 'package:powersync/powersync.dart';
@@ -22,10 +23,8 @@ void main() {
       final dir = (await tester.runAsync(
         () => Directory.systemTemp.createTemp('app_test'),
       ))!;
-      PowerSyncDatabase open() => PowerSyncDatabase(
-        schema: SqliteVaultStore.schema,
-        path: '${dir.path}/vault.db',
-      );
+      PowerSyncDatabase open() =>
+          PowerSyncDatabase(schema: appSchema, path: '${dir.path}/vault.db');
 
       await tester.runAsync(() async {
         final db = open();
@@ -88,7 +87,7 @@ void main() {
     ))!;
     final db = (await tester.runAsync(() async {
       final db = PowerSyncDatabase(
-        schema: SqliteVaultStore.schema,
+        schema: appSchema,
         path: '${dir.path}/vault.db',
       );
       await db.execute(
@@ -182,7 +181,7 @@ void main() {
     final (db, vault, collection) = (await tester.runAsync(() async {
       final dir = await Directory.systemTemp.createTemp('app_test');
       final db = PowerSyncDatabase(
-        schema: SqliteVaultStore.schema,
+        schema: appSchema,
         path: '${dir.path}/vault.db',
       );
       await db.execute(

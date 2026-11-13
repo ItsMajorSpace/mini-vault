@@ -44,6 +44,20 @@ Uint8List resizeForUpload(Uint8List bytes) {
 /// The attachments table PowerSync's queue keeps its state in; part of the app's database schema.
 final photoQueueTable = AttachmentsQueueTable();
 
+/// The app's database schema: the Vault's tables and the photo queue's.
+final appSchema = Schema([...SqliteVaultStore.schema.tables, photoQueueTable]);
+
+/// Local changes not on the server yet: row changes in PowerSync's upload queue (`ps_crud`, emptied as uploads
+/// finish) plus photo files waiting to upload. Lost on sign-out.
+Stream<int> watchUnsynced(PowerSyncDatabase db) => db
+    .watch(
+      'SELECT (SELECT count(*) FROM ps_crud) + '
+      '(SELECT count(*) FROM ${photoQueueTable.name} WHERE state = ?) AS n',
+      parameters: [AttachmentState.queuedUpload.toInt()],
+      triggerOnTables: ['ps_crud', photoQueueTable.name],
+    )
+    .map((rows) => rows.first['n'] as int);
+
 /// The photo files of the signed-in user: kept in [dir] on the device, uploaded and downloaded in the background.
 class PhotoFiles {
   PhotoFiles(this._db, GoTrueClient auth, this.dir)
