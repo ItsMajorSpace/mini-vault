@@ -5,7 +5,8 @@ Tracks where each part of a tabletop miniature collection stands on its way from
 ## Language
 
 **Collection**:
-A named set of Units owned by one person, all progressing through the same Workflow.
+A named set of Units owned by one person, all progressing through the same Workflow. Has an optional free-text description and any number of Paint Schemes.
+_Avoid_: Army (for this meaning)
 
 **Game System**:
 The tabletop game a Collection belongs to (e.g. Warhammer 40k, D&D), named freely by the person; a Collection has at most one. Collections whose Game System is written alike, ignoring case, share it.
@@ -57,5 +58,17 @@ A free-form label on a Unit, used for faction or any other grouping below the Co
 _Avoid_: Category, label, faction field
 
 **Paint**:
-One product from one manufacturer, named by brand, range and name (e.g. Citadel / Base / Macragge Blue), in a person's paint library independent of any Collection. Each Paint is either owned or wanted; the wanted ones are the shopping list. Washes, contrast paints, primers and technicals are Paints too. Brands written alike, ignoring case, are the same brand, and no two Paints share brand, range and name.
+One product from one manufacturer, named by brand, an optional range, and name (e.g. Citadel / Base / Macragge Blue, or AP / Greedy Gold), in a person's paint library independent of any Collection. Each Paint is either owned or wanted; the wanted ones are the shopping list. Washes, contrast paints, primers and technicals are Paints too. Brands written alike, ignoring case, are the same brand, and no two Paints share brand, range and name; a missing range counts as one more range.
 _Avoid_: Color, colour, pot, swatch
+
+**Technique**:
+How paint goes on in one part of a Paint Scheme (e.g. Basecoat, Wash, Drybrush, Airbrush), named freely by the person. Techniques written alike, ignoring case, are the same Technique.
+_Avoid_: Method, style
+
+**Paint Scheme**:
+A named, ordered recipe for painting one part of a Collection's models (e.g. "Armour", "Bases"); a Collection has any number. It belongs to the Collection, not to any Unit, and goes when the Collection is deleted.
+_Avoid_: Recipe, guide
+
+**Scheme Step**:
+One numbered entry in a Paint Scheme: any number of Paints (several means mixed), an optional Technique and an optional note, at least one of the three. Deleting a Paint takes it out of every Scheme Step but keeps the Step.
+_Avoid_: Step (a Stage is a step in a Workflow), layer
