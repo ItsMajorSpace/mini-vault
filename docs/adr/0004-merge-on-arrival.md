@@ -1,5 +1,7 @@
 # Models moved onto a Stage Merge into the matching Unit there
 
+_Status: the explicit Merge for Units already sharing a Stage is superseded by ADR 0009._
+
 Moving models one at a time (the Squad screen's ⌄/⌃ buttons) would otherwise leave a trail of 1-model Units, since every partial move is a Split that creates a new Unit. So when models arrive at a Stage where a Unit with the same Collection and name already exists, they are Merged into it automatically, using the existing Merge rules (counts added, Tags unioned, Photos and Stage Changes copied). This reverses the earlier rule that Merges happen only by explicit choice; the explicit Merge remains for Units that already share a Stage, e.g. after concurrent moves on two devices.
 
 ## Considered Options
