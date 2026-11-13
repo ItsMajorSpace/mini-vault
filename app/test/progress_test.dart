@@ -43,12 +43,12 @@ void main() {
               (e.widget as ColoredBox).color,
               tester.getTopLeft(find.byElementPredicate((x) => x == e)).dx -
                   left,
-              tester.getSize(find.byElementPredicate((x) => x == e)).width,
+              tester.getSize(find.byElementPredicate((x) => x == e)),
             ),
         ],
         [
-          (stageColour('#6FD98A'), 0.0, 100.0),
-          (stageColour('#FF7B7B'), 100.0, 300.0),
+          (stageColour('#6FD98A'), 0.0, const Size(100, 4)),
+          (stageColour('#FF7B7B'), 100.0, const Size(300, 4)),
         ],
       );
     },
