@@ -460,4 +460,152 @@ void main() {
       semantics.dispose();
     },
   );
+
+  testWidgets(
+    'Stage sheet: rename and recolour on Save, Owned/Finished switches, add above/below, delete',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final vault = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id, starter) VALUES ('w', 'Standard', 's1', 's6', 1)",
+        );
+        for (final (i, name) in standard.indexed) {
+          await db.execute(
+            'INSERT INTO stages (id, workflow_id, name, position, colour) VALUES (?, ?, ?, ?, ?)',
+            ['s$i', 'w', name, i, Vault.stageColours[i]],
+          );
+        }
+        return Vault(SqliteVaultStore(db));
+      }))!;
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      Future<void> tapAndWait(Finder f) async {
+        await tester.runAsync(() async {
+          await tester.tap(f);
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        });
+        await settle();
+      }
+
+      Future<Workflow> workflow() async =>
+          (await tester.runAsync(vault.workflows))!.single;
+
+      SwitchListTile toggle(String title) => tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, title),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: grimdarkTheme,
+          home: WorkflowScreen(vault: vault, workflowId: 'w'),
+        ),
+      );
+      await settle();
+      expect(find.byTooltip('Stage actions for Primed'), findsNothing);
+
+      // Tapping a Stage opens its sheet: name, the preset colours, and both switches off but allowed.
+      await tapAndWait(find.text('Primed'));
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Primed'), findsOneWidget);
+      for (final c in Vault.stageColours) {
+        expect(find.byTooltip(c), findsOneWidget);
+      }
+      expect(toggle('Owned from here').value, isFalse);
+      expect(toggle('Owned from here').onChanged, isNotNull);
+      expect(find.text('Now from Unassembled'), findsOneWidget);
+      expect(toggle('Finished from here').value, isFalse);
+      expect(find.text('Now from Done'), findsOneWidget);
+
+      // Cancel changes nothing.
+      await tester.enterText(find.byType(TextField), 'Ignored');
+      await tapAndWait(find.text('Cancel'));
+      expect(find.byType(BottomSheet), findsNothing);
+      expect((await workflow()).stages[3].name, 'Primed');
+
+      // Save commits name, colour and the Owned Stage together.
+      await tapAndWait(find.text('Primed'));
+      await tester.enterText(find.byType(TextField), 'Undercoated');
+      await tester.tap(find.byTooltip(Vault.stageColours[9]));
+      await tester.tap(find.text('Owned from here'));
+      await tester.pump();
+      expect(toggle('Owned from here').value, isTrue);
+      await tapAndWait(find.text('Save'));
+      var w = await workflow();
+      expect(w.stages[3].name, 'Undercoated');
+      expect(w.stages[3].colour, Vault.stageColours[9]);
+      expect(w.ownedStage.id, 's3');
+      expect(find.text('Owned from Undercoated'), findsOneWidget);
+      ScaffoldMessenger.of(tester.element(find.byType(ReorderableListView)))
+          .clearSnackBars();
+      await settle();
+
+      // The Owned Stage's own switch is on and can't be turned off.
+      await tapAndWait(find.text('Undercoated'));
+      expect(toggle('Owned from here').value, isTrue);
+      expect(toggle('Owned from here').onChanged, isNull);
+      await tapAndWait(find.text('Cancel'));
+
+      // Setting the Finished Stage via its switch.
+      await tapAndWait(find.text('Based'));
+      await tester.tap(find.text('Finished from here'));
+      await tester.pump();
+      await tapAndWait(find.text('Save'));
+      expect((await workflow()).finishedStage.id, 's5');
+
+      // Forbidden switches are disabled, with the reason.
+      await tapAndWait(find.text('Done'));
+      expect(toggle('Owned from here').onChanged, isNull);
+      expect(find.text('Comes after the Finished Stage'), findsOneWidget);
+      await tapAndWait(find.text('Cancel'));
+      await tapAndWait(find.text('Wishlist'));
+      expect(toggle('Finished from here').onChanged, isNull);
+      expect(find.text('Comes before the Owned Stage'), findsOneWidget);
+      await tapAndWait(find.text('Cancel'));
+
+      // Add above and below.
+      await tapAndWait(find.text('Assembled'));
+      await tapAndWait(find.text('Add above'));
+      await tester.enterText(find.byType(TextField), 'Built');
+      await tapAndWait(find.text('Save'));
+      await tapAndWait(find.text('Assembled'));
+      await tapAndWait(find.text('Add below'));
+      await tester.enterText(find.byType(TextField), 'Washed');
+      await tapAndWait(find.text('Save'));
+      expect(
+        [for (final s in (await workflow()).stages) s.name],
+        [
+          'Wishlist',
+          'Unassembled',
+          'Built',
+          'Assembled',
+          'Washed',
+          'Undercoated',
+          'Painted',
+          'Based',
+          'Done',
+        ],
+      );
+
+      // Delete opens the Delete Stage dialog.
+      await tapAndWait(find.text('Undercoated'));
+      await tapAndWait(find.text('Delete'));
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.text('Delete Undercoated?'), findsOneWidget);
+      expect(find.text('New Owned Stage'), findsOneWidget);
+    },
+  );
 }
