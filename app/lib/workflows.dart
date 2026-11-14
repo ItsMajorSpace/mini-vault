@@ -4,6 +4,7 @@ library;
 import 'package:domain_core/domain_core.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'stage_strip.dart';
 import 'theme.dart';
 
 /// Runs a Vault operation, showing a refusal (an [ArgumentError] or [StateError]) as a snack bar.
@@ -36,56 +37,208 @@ Future<String?> askName(
   return (name == null || name.trim().isEmpty) ? null : name;
 }
 
-class WorkflowsScreen extends StatelessWidget {
+/// Every Workflow as a card: its Stages, and the Collections using it.
+class WorkflowsScreen extends StatefulWidget {
   const WorkflowsScreen({super.key, required this.vault});
 
   final Vault vault;
+
+  @override
+  State<WorkflowsScreen> createState() => _WorkflowsScreenState();
+}
+
+class _WorkflowsScreenState extends State<WorkflowsScreen> {
+  late final _workflows = widget.vault.watchWorkflows();
+  late final _collections = widget.vault.watchCollections();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Workflows')),
       body: StreamBuilder(
-        stream: vault.watchWorkflows(),
-        builder: (context, snapshot) {
-          final workflows = snapshot.data;
-          if (workflows == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          return ListView(
-            children: [
-              for (final w in workflows)
-                ListTile(
-                  title: Text(w.name),
-                  subtitle: Text('${w.stages.length} Stages'),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          WorkflowScreen(vault: vault, workflowId: w.id),
-                    ),
+        stream: _workflows,
+        builder: (context, workflows) => StreamBuilder(
+          stream: _collections,
+          builder: (context, collections) {
+            if (workflows.data == null || collections.data == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return ListView(
+              padding: const EdgeInsets.only(top: 4, bottom: 88),
+              children: [
+                // The first Workflow is the starter, or stands in for it (see Vault.starterWorkflow).
+                for (final (i, w) in workflows.data!.indexed)
+                  _WorkflowCard(
+                    vault: widget.vault,
+                    workflow: w,
+                    starter: i == 0,
+                    usedBy: [
+                      for (final c in collections.data!)
+                        if (c.workflowId == w.id) c,
+                    ],
                   ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete),
-                    tooltip: 'Delete Workflow',
-                    style: destructive(context),
-                    onPressed: () =>
-                        attempt(context, () => vault.deleteWorkflow(w.id)),
-                  ),
-                ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         tooltip: 'New Workflow',
-        child: const Icon(Icons.add),
+        icon: const Icon(Icons.add),
+        label: const Text('New Workflow'),
         onPressed: () async {
           final name = await askName(context, 'New Workflow');
           if (name != null && context.mounted) {
-            await attempt(context, () => vault.createWorkflow(name));
+            await attempt(context, () => widget.vault.createWorkflow(name));
           }
         },
+      ),
+    );
+  }
+}
+
+enum _WorkflowAction { rename, delete }
+
+/// A Workflow's name, [StageStrip], Stage range and the Collections using it; tap to edit its Stages.
+class _WorkflowCard extends StatelessWidget {
+  const _WorkflowCard({
+    required this.vault,
+    required this.workflow,
+    required this.starter,
+    required this.usedBy,
+  });
+
+  final Vault vault;
+  final Workflow workflow;
+  final bool starter;
+  final List<Collection> usedBy;
+
+  Future<void> _onMenu(BuildContext context, _WorkflowAction action) async {
+    switch (action) {
+      case _WorkflowAction.rename:
+        final name = await askName(context, 'Rename Workflow', workflow.name);
+        if (name != null && context.mounted) {
+          await attempt(context, () => vault.renameWorkflow(workflow.id, name));
+        }
+      case _WorkflowAction.delete:
+        await attempt(context, () => vault.deleteWorkflow(workflow.id));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colours = theme.colorScheme;
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: colours.onSurfaceVariant,
+    );
+    final stages = workflow.stages;
+    final n = usedBy.length;
+    return Card.filled(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      clipBehavior: Clip.antiAlias,
+      color: colours.surfaceContainerLow,
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                WorkflowScreen(vault: vault, workflowId: workflow.id),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 4, 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 8,
+                  children: [
+                    Row(
+                      spacing: 8,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            workflow.name,
+                            style: theme.textTheme.titleMedium,
+                          ),
+                        ),
+                        if (starter)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: colours.primary),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'Starter',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: colours.primary,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    StageStrip(workflow),
+                    Text(
+                      '${stages.length} ${stages.length == 1 ? 'Stage' : 'Stages'}'
+                      '${stages.isEmpty ? '' : ' · ${stages.first.name} → ${stages.last.name}'}',
+                      style: muted,
+                    ),
+                    if (usedBy.isEmpty)
+                      Text(
+                        'Not used by any Collection',
+                        style: muted?.copyWith(fontStyle: FontStyle.italic),
+                      )
+                    else
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final c in usedBy)
+                            Chip(
+                              avatar: const Icon(Icons.inventory_2),
+                              label: Text(c.name),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<_WorkflowAction>(
+                tooltip: 'Workflow actions for ${workflow.name}',
+                onSelected: (action) => _onMenu(context, action),
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: _WorkflowAction.rename,
+                    child: Text('Rename'),
+                  ),
+                  // Disabled while in use, so nobody taps into the Vault's refusal.
+                  PopupMenuItem(
+                    value: _WorkflowAction.delete,
+                    enabled: usedBy.isEmpty,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      enabled: usedBy.isEmpty,
+                      title: const Text('Delete'),
+                      subtitle: usedBy.isEmpty
+                          ? null
+                          : Text(
+                              'Used by $n ${n == 1 ? 'Collection' : 'Collections'}',
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
