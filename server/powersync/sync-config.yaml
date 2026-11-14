@@ -25,3 +25,5 @@ streams:
       - SELECT * FROM paint_schemes WHERE owner_id = auth.user_id()
       - SELECT * FROM scheme_steps WHERE owner_id = auth.user_id()
       - SELECT * FROM scheme_step_paints WHERE owner_id = auth.user_id()
+      - SELECT * FROM categories WHERE owner_id = auth.user_id()
+      - SELECT * FROM squad_categories WHERE owner_id = auth.user_id()
