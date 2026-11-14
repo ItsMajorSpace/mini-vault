@@ -1098,6 +1098,24 @@ void main() {
       await settle();
       expect(find.byTooltip('Edit Unit'), findsOneWidget);
 
+      // At double text size the cards grow instead of overflowing.
+      await tester.pumpWidget(
+        MaterialApp(
+          key: const ValueKey(
+            'large text',
+          ), // A fresh app, off the Unit screen.
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: CollectionsScreen(vault: vault, db: db),
+        ),
+      );
+      await settle();
+      expect(find.byType(RecentUnitCard), findsWidgets);
+      expect(tester.takeException(), isNull);
+
       await tester.pumpWidget(const SizedBox());
     },
   );

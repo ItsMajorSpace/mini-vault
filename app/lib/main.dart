@@ -821,7 +821,11 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                               children: [
                                 const SectionHeader(title: 'Recently painted'),
                                 SizedBox(
-                                  height: 136,
+                                  // Fixed parts plus ~4 lines of text, which grow with the text scale.
+                                  height:
+                                      56 +
+                                      MediaQuery.textScalerOf(context)
+                                          .scale(80),
                                   child: ListView.separated(
                                     scrollDirection: Axis.horizontal,
                                     padding: const EdgeInsets.fromLTRB(
