@@ -31,10 +31,14 @@ flutter:
   uses-material-design: true
   assets:
     - assets/fonts/OFL.txt
+    - assets/fonts/Cinzel-OFL.txt
   fonts:
     - family: BlackOpsOne
       fonts:
         - asset: assets/fonts/BlackOpsOne-Regular.ttf
+    - family: Cinzel
+      fonts:
+        - asset: assets/fonts/Cinzel-Variable.ttf
 
 # Regenerate with: dart run flutter_launcher_icons
 flutter_launcher_icons:

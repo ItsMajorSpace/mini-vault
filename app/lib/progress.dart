@@ -155,9 +155,7 @@ class _ProgressDrawerState extends State<ProgressDrawer> {
                             padding: const EdgeInsets.only(top: 16),
                             child: Text(
                               w.workflow.name,
-                              style: stencil(
-                                Theme.of(context).textTheme.titleSmall,
-                              ),
+                              style: heading(context),
                             ),
                           ),
                           for (final g in w.stages)

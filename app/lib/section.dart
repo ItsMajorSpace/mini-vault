@@ -2,8 +2,8 @@ import 'package:material_ui/material_ui.dart';
 
 import 'theme.dart';
 
-/// A titled block of a screen: an amber bar and stencil caps [title], an optional [count], trailing [actions] in
-/// amber, then [child] in a filled card unless [card] is false.
+/// A titled block of a screen: an accent bar and caps [title] in the heading font, an optional [count], trailing [actions] in
+/// the accent colour, then [child] in a filled card unless [card] is false.
 class Section extends StatelessWidget {
   const Section({
     super.key,
@@ -17,7 +17,7 @@ class Section extends StatelessWidget {
   final String title;
   final int? count;
 
-  /// IconButtons, shown in amber.
+  /// IconButtons, shown in the accent colour.
   final List<Widget> actions;
   final Widget child;
   final bool card;
@@ -46,8 +46,7 @@ class Section extends StatelessWidget {
                 ),
                 Text(
                   title.toUpperCase(),
-                  style: stencil(theme.textTheme.titleSmall)
-                      ?.copyWith(letterSpacing: 1.2),
+                  style: heading(context)?.copyWith(letterSpacing: 1.2),
                 ),
                 if (count case final n?)
                   Padding(

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:domain_core/domain_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -102,19 +104,50 @@ void main() {
     );
   });
 
-  test(
-    'every Stage colour swatch reaches AA contrast (>= 4.5:1) on gunmetal',
-    () {
-      final background = grimdarkTheme.colorScheme.surface.computeLuminance();
+  for (final preset in AppTheme.values) {
+    test('${preset.label}: text and Stage colours reach AA (>= 4.5:1)', () {
+      final s = preset.data.colorScheme;
+      double ratio(Color a, Color b) {
+        final (x, y) = (a.computeLuminance(), b.computeLuminance());
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05);
+      }
+
+      // Cards, menus and dialogs sit on the containers.
+      final backgrounds = {
+        'surface': s.surface,
+        'surfaceContainerLow': s.surfaceContainerLow,
+        'surfaceContainer': s.surfaceContainer,
+        'surfaceContainerHigh': s.surfaceContainerHigh,
+      };
+      for (final MapEntry(key: on, value: bg) in backgrounds.entries) {
+        for (final (name, fg) in [
+          ('onSurface', s.onSurface),
+          ('onSurfaceVariant', s.onSurfaceVariant),
+          ('primary', s.primary),
+          ('error', s.error),
+        ]) {
+          expect(
+            ratio(fg, bg),
+            greaterThanOrEqualTo(4.5),
+            reason: '$name on $on',
+          );
+        }
+      }
+      expect(
+        ratio(s.onSurface, s.surfaceContainerHighest),
+        greaterThanOrEqualTo(4.5),
+      );
+      expect(ratio(s.onPrimary, s.primary), greaterThanOrEqualTo(4.5));
+      expect(ratio(s.onError, s.error), greaterThanOrEqualTo(4.5));
+
       expect(Vault.stageColours, hasLength(16));
       for (final c in Vault.stageColours) {
-        final l = stageColour(c).computeLuminance();
         expect(
-          (l + 0.05) / (background + 0.05),
+          ratio(stageColour(c), s.surface),
           greaterThanOrEqualTo(4.5),
           reason: c,
         );
       }
-    },
-  );
+    });
+  }
 }

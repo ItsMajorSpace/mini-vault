@@ -124,12 +124,7 @@ class _PaintSchemesSectionState extends State<PaintSchemesSection> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              schemes[i].name,
-                              style: stencil(
-                                Theme.of(context).textTheme.titleSmall,
-                              ),
-                            ),
+                            Text(schemes[i].name, style: heading(context)),
                             Text(
                               _stepCountText(schemes[i].stepCount),
                               style: Theme.of(context).textTheme.bodySmall
@@ -392,10 +387,7 @@ class _StepCard extends StatelessWidget {
                   shape: BoxShape.circle,
                   border: Border.all(color: colours.primary, width: 2),
                 ),
-                child: Text(
-                  '${index + 1}',
-                  style: stencil(theme.textTheme.titleSmall),
-                ),
+                child: Text('${index + 1}', style: heading(context)),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -597,7 +589,7 @@ class _SchemeStepSheetState extends State<SchemeStepSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(widget.title, style: stencil(theme.textTheme.titleLarge)),
+            Text(widget.title, style: theme.textTheme.titleLarge),
             const SizedBox(height: 16),
             Text.rich(
               TextSpan(
