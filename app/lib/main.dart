@@ -173,10 +173,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+/// Whether the server sends email (password reset, sign-up confirmation); off until production has SMTP (#76).
+const sendsEmail = bool.fromEnvironment('EMAIL');
+
 class SignInScreen extends StatefulWidget {
-  const SignInScreen({super.key, required this.auth});
+  const SignInScreen({super.key, required this.auth, this.email = sendsEmail});
 
   final GoTrueClient auth;
+
+  /// Shows Forgot password? and the confirmation-email hint; see [sendsEmail].
+  final bool email;
 
   @override
   State<SignInScreen> createState() => _SignInScreenState();
@@ -327,7 +333,7 @@ class _SignInScreenState extends State<SignInScreen> {
               : FilledButton(onPressed: _submit, child: Text(label)),
         ),
         const SizedBox(height: 4),
-        if (signIn)
+        if (widget.email && signIn)
           TextButton(
             onPressed: _busy
                 ? null
@@ -342,7 +348,7 @@ class _SignInScreenState extends State<SignInScreen> {
                   ),
             child: const Text('Forgot password?'),
           )
-        else
+        else if (widget.email)
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
             child: Text(

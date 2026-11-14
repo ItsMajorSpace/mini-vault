@@ -45,12 +45,27 @@ final unconfirmedUser = json(200, {
   'created_at': '2026-11-14T00:00:00Z',
 });
 
+/// An auto-confirmed new user: signed up and signed in at once.
+final confirmedSession = json(200, {
+  'access_token': 'token',
+  'token_type': 'bearer',
+  'expires_in': 3600,
+  'refresh_token': 'refresh',
+  'user': jsonDecode(unconfirmedUser.body),
+});
+
+/// [email] defaults on, as against the dev stack with its mail catcher.
 Future<FakeServer> pumpSignIn(
   WidgetTester tester,
-  Future<http.Response> Function(http.Request) respond,
-) async {
+  Future<http.Response> Function(http.Request) respond, {
+  bool email = true,
+}) async {
   final server = FakeServer(respond);
-  await tester.pumpWidget(MaterialApp(home: SignInScreen(auth: server.auth)));
+  await tester.pumpWidget(
+    MaterialApp(
+      home: SignInScreen(auth: server.auth, email: email),
+    ),
+  );
   return server;
 }
 
@@ -275,5 +290,30 @@ void main() {
     expect(button('Sign in'), findsOneWidget);
     expect(find.text('Forgot password?'), findsOneWidget);
     expect(find.text('ash@example.com'), findsOneWidget);
+  });
+
+  testWidgets('without email there is no Forgot password? or confirmation '
+      'hint', (tester) async {
+    await pumpSignIn(tester, (_) async => invalidCredentials, email: false);
+    expect(button('Sign in'), findsOneWidget);
+    expect(find.text('Forgot password?'), findsNothing);
+
+    await mode(tester, 'Create account');
+    expect(button('Create account'), findsOneWidget);
+    expect(find.textContaining('email to confirm'), findsNothing);
+  });
+
+  testWidgets('an auto-confirmed sign-up signs in, no Check your email', (
+    tester,
+  ) async {
+    await pumpSignIn(tester, (_) async => confirmedSession, email: false);
+    await fill(tester);
+    await mode(tester, 'Create account');
+    await tester.tap(button('Create account'));
+    await tester.pumpAndSettle();
+
+    final screen = tester.widget<SignInScreen>(find.byType(SignInScreen));
+    expect(screen.auth.currentSession, isNotNull);
+    expect(find.text('Check your email'), findsNothing);
   });
 }

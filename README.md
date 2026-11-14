@@ -46,8 +46,9 @@ Run the app. Its defaults already point at the local stack through the emulator'
 cd app && flutter run
 ```
 
-Create an account in the app. Locally, sign-up needs no email confirmation, and Mailpit at
-http://localhost:8025 catches password-reset emails.
+Create an account in the app. Locally, sign-up needs no email confirmation. "Forgot password?" is
+hidden unless you pass `--dart-define=EMAIL=true`, since production does not send email yet; Mailpit at
+http://localhost:8025 catches the password-reset emails.
 
 Run the checks the same way CI does. The server tests need the stack running:
 
