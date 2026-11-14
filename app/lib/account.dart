@@ -224,13 +224,37 @@ Future<void> showAbout(BuildContext context) async {
       Text(
         'Headings use Black Ops One: fonts.google.com/specimen/Black+Ops+One',
       ),
+      Text('and Cinzel: fonts.google.com/specimen/Cinzel'),
     ],
   );
 }
 
-/// The OFL requires the font's copyright and license to ship with the app; they show on the license page.
+/// The OFL requires the fonts' copyright and license to ship with the app; they show on the license page.
 void registerFontLicense() => LicenseRegistry.addLicense(() async* {
   yield LicenseEntryWithLineBreaks([
     'Black Ops One',
   ], await rootBundle.loadString('assets/fonts/OFL.txt'));
+  yield LicenseEntryWithLineBreaks([
+    'Cinzel',
+  ], await rootBundle.loadString('assets/fonts/Cinzel-OFL.txt'));
 });
+
+/// Lets the user pick this device's theme, applied app-wide at once.
+Future<void> pickTheme(BuildContext context, ThemeSetting setting) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Theme'),
+        children: [
+          for (final t in AppTheme.values)
+            ListTile(
+              title: Text(t.label),
+              trailing: t == setting.value ? const Icon(Icons.check) : null,
+              onTap: () {
+                setting.pick(t);
+                Navigator.pop(context);
+              },
+            ),
+        ],
+      ),
+    );

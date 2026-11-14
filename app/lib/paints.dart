@@ -184,10 +184,7 @@ class _PaintsScreenState extends State<PaintsScreen> {
                 for (final g in groupByBrand(shown)) ...[
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: Text(
-                      g.brand,
-                      style: stencil(Theme.of(context).textTheme.titleSmall),
-                    ),
+                    child: Text(g.brand, style: heading(context)),
                   ),
                   for (final p in g.paints)
                     ListTile(
