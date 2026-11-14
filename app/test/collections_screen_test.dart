@@ -351,16 +351,18 @@ void main() {
     final outline =
         tester
                 .widget<DecoratedBox>(
-                  find.descendant(
-                    of: find.descendant(
-                      of: find.ancestor(
-                        of: find.text('Terminators'),
-                        matching: find.byType(ListTile),
-                      ),
-                      matching: find.byType(StageBar),
-                    ),
-                    matching: find.byType(DecoratedBox),
-                  ),
+                  find
+                      .descendant(
+                        of: find.descendant(
+                          of: find.ancestor(
+                            of: find.text('Terminators'),
+                            matching: find.byType(ListTile),
+                          ),
+                          matching: find.byType(StageBar),
+                        ),
+                        matching: find.byType(DecoratedBox),
+                      )
+                      .last,
                 )
                 .decoration
             as BoxDecoration;

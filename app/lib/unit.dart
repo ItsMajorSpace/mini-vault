@@ -280,10 +280,14 @@ class _UnitScreenState extends State<UnitScreen> {
                       Opacity(
                         opacity: g.modelCount == 0 ? 0.38 : 1,
                         child: ListTile(
-                          leading: Icon(
-                            Icons.circle,
-                            size: 12,
-                            color: stageColour(g.stage.colour),
+                          leading: Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: stageColour(g.stage.colour),
+                              shape: BoxShape.circle,
+                              border: stageOutline(context),
+                            ),
                           ),
                           title: Text(g.stage.name),
                           trailing: Row(

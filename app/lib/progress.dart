@@ -54,8 +54,9 @@ class StageBar extends StatelessWidget {
   final Progress progress;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
+  Widget build(BuildContext context) => Container(
     height: 4,
+    foregroundDecoration: BoxDecoration(border: stageOutline(context)),
     child: ColoredBox(
       color: Theme.of(context).colorScheme.secondaryContainer,
       child: Row(
@@ -164,8 +165,11 @@ class _ProgressDrawerState extends State<ProgressDrawer> {
                               contentPadding: EdgeInsets.zero,
                               leading: SizedBox.square(
                                 dimension: 16,
-                                child: ColoredBox(
-                                  color: stageColour(g.stage.colour),
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: stageColour(g.stage.colour),
+                                    border: stageOutline(context),
+                                  ),
                                 ),
                               ),
                               title: Text(g.stage.name),

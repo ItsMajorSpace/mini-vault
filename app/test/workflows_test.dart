@@ -404,6 +404,11 @@ void main() {
           (swatch.decoration! as BoxDecoration).color,
           stageColour(Vault.stageColours[i]),
         );
+        // Outlined, so the light Stage colours show on any background.
+        expect(
+          (swatch.decoration! as BoxDecoration).border,
+          Border.all(color: grimdarkTheme.colorScheme.outline, width: 0.5),
+        );
       }
 
       // Semantics actions move a marker by one Stage; Undo restores it.

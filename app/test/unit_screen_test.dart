@@ -178,8 +178,11 @@ void main() {
       // Each row's dot in its Stage's colour.
       expect(
         [
-          for (final i in tester.widgetList<Icon>(find.byIcon(Icons.circle)))
-            i.color,
+          for (final t in tester.widgetList<ListTile>(find.byType(ListTile)))
+            if (t.leading case Container(
+              decoration: BoxDecoration(shape: BoxShape.circle, :final color),
+            ))
+              color,
         ],
         [for (final c in Vault.stageColours.take(3)) stageColour(c)],
       );

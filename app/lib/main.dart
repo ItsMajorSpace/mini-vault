@@ -58,7 +58,9 @@ class MiniVaultApp extends StatelessWidget {
       listenable: theme,
       builder: (context, _) => MaterialApp(
         title: 'Mini Vault',
-        theme: theme.value.data,
+        theme: theme.theme.data(Brightness.light),
+        darkTheme: theme.theme.data(Brightness.dark),
+        themeMode: theme.brightness,
         home: StreamBuilder(
           stream: auth.onAuthStateChange,
           builder: (context, _) {

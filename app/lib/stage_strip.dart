@@ -44,6 +44,7 @@ class StageStrip extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: stageColour(s.colour),
                     borderRadius: BorderRadius.circular(2),
+                    border: stageOutline(context),
                   ),
                 ),
               ),

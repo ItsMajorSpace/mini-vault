@@ -90,71 +90,123 @@ Future<void> openMenu(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets(
-    'Theme switches colours and heading font at once and survives a restart',
-    (tester) async {
-      final db = await openDb(tester, waiting: 0);
-      final file = (await tester.runAsync(() async {
+  /// A fresh [ThemeSetting] whose `theme.txt` sits in a new empty folder.
+  Future<File> themeFile(WidgetTester tester) async =>
+      (await tester.runAsync(() async {
         final dir = await Directory.systemTemp.createTemp('theme_test');
         addTearDown(() => dir.delete(recursive: true));
         return File('${dir.path}/theme.txt');
       }))!;
-      final setting = (await tester.runAsync(() => ThemeSetting.load(file)))!;
-      expect(setting.value, AppTheme.grimdark);
-      // Rebuilt on change the way MiniVaultApp is.
-      await tester.pumpWidget(
-        ListenableBuilder(
-          listenable: setting,
-          builder: (_, _) => MaterialApp(
-            theme: setting.value.data,
-            home: CollectionsScreen(
-              vault: Vault(SqliteVaultStore(db)),
-              db: db,
-              theme: setting,
-            ),
+
+  /// The real app, signed out (so on Sign in), showing [setting].
+  Future<void> pumpApp(
+    WidgetTester tester,
+    PowerSyncDatabase db,
+    ThemeSetting setting,
+  ) async {
+    final auth = GoTrueClient(url: 'http://localhost', autoRefreshToken: false);
+    final dir = (await tester.runAsync(
+      () => Directory.systemTemp.createTemp('photos_test'),
+    ))!;
+    addTearDown(() => dir.delete(recursive: true));
+    await tester.pumpWidget(
+      MiniVaultApp(
+        auth: auth,
+        db: db,
+        photos: PhotoFiles(db, auth, dir),
+        theme: setting,
+      ),
+    );
+    await settle(tester);
+  }
+
+  Color surface(AppTheme t, Brightness b) => t.data(b).colorScheme.surface;
+
+  testWidgets('Theme and Brightness switch at once and survive a restart', (
+    tester,
+  ) async {
+    final db = await openDb(tester, waiting: 0);
+    final file = await themeFile(tester);
+    final setting = (await tester.runAsync(() => ThemeSetting.load(file)))!;
+    expect(setting.theme, AppTheme.grimdark);
+    expect(setting.brightness, ThemeMode.system);
+    // Rebuilt on change the way MiniVaultApp is; the test platform is light.
+    await tester.pumpWidget(
+      ListenableBuilder(
+        listenable: setting,
+        builder: (_, _) => MaterialApp(
+          theme: setting.theme.data(Brightness.light),
+          darkTheme: setting.theme.data(Brightness.dark),
+          themeMode: setting.brightness,
+          home: CollectionsScreen(
+            vault: Vault(SqliteVaultStore(db)),
+            db: db,
+            theme: setting,
           ),
         ),
-      );
-      await settle(tester);
-      expect(looks(tester, 'Collections'), (
-        stencilFont,
-        AppTheme.grimdark.data.colorScheme.surface,
-      ));
+      ),
+    );
+    await settle(tester);
+    expect(looks(tester, 'Collections'), (
+      stencilFont,
+      surface(AppTheme.grimdark, Brightness.light),
+    ));
 
-      await openMenu(tester);
-      await tester.tap(find.text('Theme'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Fantasy'));
-      await settle(tester);
-      final fantasy = AppTheme.fantasy.data.colorScheme;
-      expect(looks(tester, 'Collections'), (cinzelFont, fantasy.surface));
-      expect(
-        fantasy.surface,
-        isNot(AppTheme.grimdark.data.colorScheme.surface),
-      );
+    await openMenu(tester);
+    await tester.tap(find.text('Theme'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Fantasy'));
+    await settle(tester);
+    expect(looks(tester, 'Collections'), (
+      cinzelFont,
+      surface(AppTheme.fantasy, Brightness.light),
+    ));
 
-      // Restart: a fresh setting from the same file, in the real app (signed out, so on Sign in).
-      final reloaded = (await tester.runAsync(() => ThemeSetting.load(file)))!;
-      final auth = GoTrueClient(
-        url: 'http://localhost',
-        autoRefreshToken: false,
-      );
-      final dir = (await tester.runAsync(
-        () => Directory.systemTemp.createTemp('photos_test'),
-      ))!;
-      addTearDown(() => dir.delete(recursive: true));
-      await tester.pumpWidget(
-        MiniVaultApp(
-          auth: auth,
-          db: db,
-          photos: PhotoFiles(db, auth, dir),
-          theme: reloaded,
-        ),
-      );
-      await settle(tester);
-      expect(looks(tester, 'Mini Vault'), (cinzelFont, fantasy.surface));
-    },
-  );
+    // Brightness applies while the dialog stays open.
+    await openMenu(tester);
+    await tester.tap(find.text('Theme'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dark'));
+    await settle(tester);
+    expect(find.text('Fantasy'), findsOneWidget);
+    expect(looks(tester, 'Collections'), (
+      cinzelFont,
+      surface(AppTheme.fantasy, Brightness.dark),
+    ));
+    expect(
+      surface(AppTheme.fantasy, Brightness.dark),
+      isNot(surface(AppTheme.fantasy, Brightness.light)),
+    );
+
+    // Restart: a fresh setting from the same files.
+    final reloaded = (await tester.runAsync(() => ThemeSetting.load(file)))!;
+    expect(reloaded.brightness, ThemeMode.dark);
+    await pumpApp(tester, db, reloaded);
+    expect(looks(tester, 'Mini Vault'), (
+      cinzelFont,
+      surface(AppTheme.fantasy, Brightness.dark),
+    ));
+  });
+
+  testWidgets('System Brightness follows the device', (tester) async {
+    final db = await openDb(tester, waiting: 0);
+    final file = await themeFile(tester);
+    final setting = (await tester.runAsync(() => ThemeSetting.load(file)))!;
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+    await pumpApp(tester, db, setting);
+    expect(
+      looks(tester, 'Mini Vault').$2,
+      surface(AppTheme.grimdark, Brightness.dark),
+    );
+
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+    await settle(tester);
+    expect(
+      looks(tester, 'Mini Vault').$2,
+      surface(AppTheme.grimdark, Brightness.light),
+    );
+  });
 
   testWidgets('the account menu shows the email, Sign out and Delete account', (
     tester,
