@@ -76,6 +76,100 @@ class _CollectionRowState extends State<CollectionRow> {
   );
 }
 
+/// A recently moved Unit as a 164dp card: its name with an open chevron, its Collection, a [StageBar] and
+/// "Move from" its from-Stage. Tapping the card calls [onMove]; the chevron, [onOpen].
+class RecentUnitCard extends StatelessWidget {
+  const RecentUnitCard(
+    this.recent, {
+    super.key,
+    required this.onMove,
+    required this.onOpen,
+  });
+
+  final RecentUnit recent;
+  final VoidCallback onMove;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colours = theme.colorScheme;
+    return SizedBox(
+      width: 164,
+      child: Card.filled(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        color: colours.surfaceContainerLow,
+        child: InkWell(
+          onTap: onMove,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 0, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Text(
+                          recent.unit.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right),
+                      tooltip: 'Open ${recent.unit.name}',
+                      onPressed: onOpen,
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        recent.collection.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: colours.onSurfaceVariant),
+                      ),
+                      const SizedBox(height: 6),
+                      StageBar(recent.unit.progress, height: 6),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+                Row(
+                  children: [
+                    Icon(Icons.swap_vert, size: 18, color: colours.primary),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        'Move from ${recent.from.stage.name}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: colours.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// [progress]'s finished share as a ring around the rounded %, in the heading font from [size] 64 up.
 class ProgressRing extends StatelessWidget {
   const ProgressRing(this.progress, {super.key, this.size = 48});

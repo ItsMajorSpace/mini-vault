@@ -95,7 +95,7 @@ void main() {
       ),
     );
     await settle();
-    expect(find.text('Recently painted'), findsOneWidget);
+    expect(find.text('RECENTLY PAINTED'), findsOneWidget);
     expectPlainWords('Collections');
 
     await tapAndWait(find.text('Orks'));
