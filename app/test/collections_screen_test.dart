@@ -517,7 +517,7 @@ void main() {
     },
   );
 
-  testWidgets('shows a Collection\'s Units by name, with model counts', (
+  testWidgets('shows a Collection\'s Units in order, with model counts', (
     tester,
   ) async {
     final (db, vault, collection) = (await tester.runAsync(() async {
@@ -558,19 +558,19 @@ void main() {
         home: CollectionScreen(vault: vault, db: db, collection: collection),
       ),
     );
-    for (var i = 0; i < 20; i++) {
+    for (var i = 0; i < 60; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
       await tester.pump(const Duration(milliseconds: 100));
     }
 
-    // One row per Unit, by name, counting the models of all its Batches.
+    // One row per Unit, a new one last, counting the models of all its Batches.
     final rows = [
-      'Captain',
-      '1 model',
       'Intercessors',
       '15 models',
+      'Captain',
+      '1 model',
       'Terminators',
       '5 models',
     ];
@@ -719,7 +719,7 @@ void main() {
           ),
         ),
       );
-      for (var i = 0; i < 20; i++) {
+      for (var i = 0; i < 60; i++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
@@ -820,7 +820,7 @@ void main() {
       }))!;
 
       Future<void> settle() async {
-        for (var i = 0; i < 20; i++) {
+        for (var i = 0; i < 60; i++) {
           await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)),
           );

@@ -102,7 +102,8 @@ class SqliteVaultStore implements VaultStore {
       Column.integer('position'),
     ]),
     // A Collection's Categories (ADR 0011), in (position, id) order as Stages. A Unit's Category is a squad_categories
-    // row keyed like squad_notes (its id is the Unit's unitId); none, or a null category_id, is Uncategorised.
+    // row keyed like squad_notes (its id is the Unit's unitId); none, or a null category_id, is Uncategorised. Its
+    // position orders the Units of a Category, (position, name); none (Units from before Unit order) comes first.
     Table('categories', [
       Column.text('collection_id'),
       Column.text('name'),
@@ -112,6 +113,7 @@ class SqliteVaultStore implements VaultStore {
       Column.text('collection_id'),
       Column.text('squad_name'),
       Column.text('category_id'),
+      Column.integer('position'),
     ]),
   ]);
 
@@ -620,6 +622,52 @@ class SqliteVaultStore implements VaultStore {
         'INSERT INTO squad_categories (id, collection_id, squad_name, category_id) VALUES (?, ?, ?, ?)',
         [id, collectionId, unit, categoryId],
       );
+    }
+  });
+
+  @override
+  Stream<Map<String, int>> watchUnitPositions(String collectionId) => _db
+      .watch(
+        'SELECT squad_name, position FROM squad_categories WHERE collection_id = ? AND position IS NOT NULL',
+        parameters: [collectionId],
+      )
+      .map(
+        (rows) => {
+          for (final r in rows) r['squad_name'] as String: r['position'] as int,
+        },
+      );
+
+  // As setUnitCategory, an UPDATE of only the columns that change once the row exists.
+  @override
+  Future<void> placeUnits(
+    String collectionId,
+    String? categoryId,
+    List<String> order, [
+    int from = 0,
+  ]) => _db.writeTransaction((tx) async {
+    for (final (i, unit) in order.indexed) {
+      final id = unitId(collectionId, unit);
+      final position = from + i;
+      final row = await tx.getOptional(
+        'SELECT category_id, position FROM squad_categories WHERE id = ?',
+        [id],
+      );
+      if (row == null) {
+        await tx.execute(
+          'INSERT INTO squad_categories (id, collection_id, squad_name, category_id, position) VALUES (?, ?, ?, ?, ?)',
+          [id, collectionId, unit, categoryId, position],
+        );
+      } else if (row['category_id'] != categoryId) {
+        await tx.execute(
+          'UPDATE squad_categories SET category_id = ?, position = ? WHERE id = ?',
+          [categoryId, position, id],
+        );
+      } else if (row['position'] != position) {
+        await tx.execute(
+          'UPDATE squad_categories SET position = ? WHERE id = ?',
+          [position, id],
+        );
+      }
     }
   });
 

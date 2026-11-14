@@ -12,4 +12,8 @@ A Collection's Categories are rows of `categories` (collection_id, name, positio
 
 ## Consequences
 
-Adding models to an existing Unit never moves it, and an Army List import leaves new Units Uncategorised. Renaming a Unit carries its Category, unless onto an existing Unit, which keeps its own. Deleting a Category leaves its Units Uncategorised (`ON DELETE SET NULL`); deleting a Collection deletes its Categories. The order of Units inside a Category stays alphabetical until Units get their own order.
+Adding models to an existing Unit never moves it, and an Army List import leaves new Units Uncategorised. Renaming a Unit carries its Category, unless onto an existing Unit, which keeps its own. Deleting a Category leaves its Units Uncategorised (`ON DELETE SET NULL`); deleting a Collection deletes its Categories.
+
+## Unit order (#158)
+
+Units also keep a person-chosen order inside their Category: a nullable `position` on the Unit's `squad_categories` row, so a drop that moves a Unit into another Category writes its Category and place in one row, and a rename carries both. Units are ordered by (position, name), a Unit without a position first: Units from before Unit order start alphabetical, and app versions before it, which never write the column, leave it as it is. A new Unit, or one put in another Category, goes last there; Uncategorised Units get a row too, with a null `category_id`. A reorder renumbers only the target Category and writes only the positions that change, as Stage reorder does; concurrent reorders on two devices can merge into a mix of both. The column was added with `ADD COLUMN IF NOT EXISTS` (ADR 0006).

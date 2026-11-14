@@ -239,25 +239,27 @@ class Category {
 
 /// [units] under their Category: one group per [categories], in that order and empty ones included, then the Units
 /// in none (or in a Category not synced yet) under a null Category, only if there are any. [categoryOf] maps a
-/// Unit's name to its Category's id. Each group keeps [units]' order.
+/// Unit's name to its Category's id. Each group is in [positionOf] order, Units without a position first, in [units]'
+/// order.
 List<({Category? category, List<Unit> units})> groupByCategory(
   List<Category> categories,
   List<Unit> units,
-  Map<String, String> categoryOf,
-) {
+  Map<String, String> categoryOf, [
+  Map<String, int> positionOf = const {},
+]) {
+  final rank = {for (final (i, u) in units.indexed) u.name: i};
+  List<Unit> ordered(Iterable<Unit> us) => us.toList()
+    ..sort((a, b) {
+      final by = (positionOf[a.name] ?? -1).compareTo(positionOf[b.name] ?? -1);
+      return by != 0 ? by : rank[a.name]!.compareTo(rank[b.name]!);
+    });
   final known = {for (final c in categories) c.id};
-  final rest = [
-    for (final u in units)
-      if (!known.contains(categoryOf[u.name])) u,
-  ];
+  final rest = ordered(units.where((u) => !known.contains(categoryOf[u.name])));
   return [
     for (final c in categories)
       (
         category: c,
-        units: [
-          for (final u in units)
-            if (categoryOf[u.name] == c.id) u,
-        ],
+        units: ordered(units.where((u) => categoryOf[u.name] == c.id)),
       ),
     if (rest.isNotEmpty) (category: null, units: rest),
   ];
@@ -661,6 +663,18 @@ abstract interface class VaultStore {
     String? categoryId,
   );
 
+  /// The Collection's Unit names with a position in their Category, mapped to it.
+  Stream<Map<String, int>> watchUnitPositions(String collectionId);
+
+  /// In one transaction, puts each Unit of [order] in Category [categoryId] (null: Uncategorised) at position [from],
+  /// [from] + 1, ..., writing only what changes.
+  Future<void> placeUnits(
+    String collectionId,
+    String? categoryId,
+    List<String> order, [
+    int from = 0,
+  ]);
+
   /// In one transaction, so it uploads as one batch the write API applies whole or not at all: inserts [created]
   /// with [move] (its first Stage Change), then records Split [id] of [created]'s models off Batch [sourceId] and
   /// takes them off that Batch's count.
@@ -1015,11 +1029,13 @@ class Vault {
       watchUnits(collection),
       _store.watchCategories(collection.id),
       _store.watchUnitCategories(collection.id),
+      _store.watchUnitPositions(collection.id),
     ],
     (latest) => groupByCategory(
       latest[1] as List<Category>,
       latest[0] as List<Unit>,
       latest[2] as Map<String, String>,
+      latest[3] as Map<String, int>,
     ),
   );
 
@@ -1077,12 +1093,49 @@ class Vault {
   Future<String?> categoryOf(String collectionId, String unit) async =>
       (await watchUnitCategories(collectionId).first)[unit];
 
-  /// Puts the Unit in Category [categoryId]; null makes it Uncategorised.
+  /// Puts the Unit last in Category [categoryId]; null makes it Uncategorised. Does nothing if it is in it already.
   Future<void> setUnitCategory(
     String collectionId,
     String unit,
     String? categoryId,
-  ) => _store.setUnitCategory(collectionId, unit, categoryId);
+  ) async {
+    if (await categoryOf(collectionId, unit) != categoryId) {
+      await _putLast(collectionId, unit, categoryId);
+    }
+  }
+
+  Future<void> _putLast(
+    String collectionId,
+    String unit,
+    String? categoryId,
+  ) async {
+    final categories = await watchUnitCategories(collectionId).first;
+    final positions = await _store.watchUnitPositions(collectionId).first;
+    final last = [
+      for (final MapEntry(key: name, value: p) in positions.entries)
+        if (name != unit && categories[name] == categoryId) p,
+    ].fold(-1, max);
+    await _store.placeUnits(collectionId, categoryId, [unit], last + 1);
+  }
+
+  /// Moves Unit [unit] to [index] among the Units of Category [categoryId] (null: Uncategorised), saving that
+  /// Category's whole order.
+  Future<void> moveUnit(
+    Collection collection,
+    String unit,
+    String? categoryId,
+    int index,
+  ) async {
+    final groups = await watchUnitsByCategory(collection).first;
+    final order = [
+      for (final g in groups)
+        if (g.category?.id == categoryId)
+          for (final u in g.units)
+            if (u.name != unit) u.name,
+    ];
+    order.insert(index.clamp(0, order.length), unit);
+    await _store.placeUnits(collection.id, categoryId, order);
+  }
 
   /// The Collection's [Progress], emitted again whenever its Batches or its Workflow (Stages, Owned or Finished Stage) change.
   Stream<Progress> watchProgress(Collection collection) => _combineLatest(
@@ -1216,8 +1269,8 @@ class Vault {
   }
 
   /// Adds a Batch at [stageId], which must be a Stage of the Collection's Workflow. [notes], unless blank, are added
-  /// to its Unit's notes (see [joinNotes]). A new Unit (one without Batches) goes in Category [categoryId] if given;
-  /// adding to an existing Unit never moves it.
+  /// to its Unit's notes (see [joinNotes]). A new Unit (one without Batches) goes last in Category [categoryId], or
+  /// Uncategorised; adding to an existing Unit never moves it.
   Future<Batch> addBatch(
     Collection collection, {
     required String name,
@@ -1241,11 +1294,10 @@ class Vault {
       name: validName(name),
       modelCount: validModelCount(modelCount),
     );
-    final isNew =
-        categoryId != null &&
-        !(await batchesOf(collection)).any((b) => b.name == batch.name);
+    final isNew = !(await batchesOf(collection))
+        .any((b) => b.name == batch.name);
     await _store.insertBatch(batch, _stageChange(batch, null, stageId));
-    if (isNew) await setUnitCategory(collection.id, batch.name, categoryId);
+    if (isNew) await _putLast(collection.id, batch.name, categoryId);
     if (notes.trim().isNotEmpty) {
       final had = await notesOf(collection.id, batch.name);
       await _store.setNotes(collection.id, batch.name, joinNotes([had, notes]));
@@ -1501,8 +1553,8 @@ class Vault {
   /// Renames every Batch in [unit], one field edit each, so other fields edited elsewhere are kept, and carries its
   /// notes, Tags, Photos and Paints to the new name. Onto an existing Unit they are combined: notes joined (see
   /// [joinNotes]), Tags and Photos unioned (all Photos kept, even past [maxPhotos]), and Paints unioned with the
-  /// target's note winning for a Paint both use, unless it is empty. Its Category goes along, unless onto an existing
-  /// Unit, which keeps its own.
+  /// target's note winning for a Paint both use, unless it is empty. Its Category and place in it go along, unless onto
+  /// an existing Unit, which keeps its own.
   Future<void> renameUnit(Unit unit, String name) async {
     final valid = validName(
       name,
@@ -1523,9 +1575,17 @@ class Vault {
       await _store.setNotes(collectionId, valid, joinNotes([had, notes]));
     }
     await _store.deleteNotes(collectionId, unit.name);
-    if (await categoryOf(collectionId, unit.name) case final category?) {
-      if (!onto) await setUnitCategory(collectionId, valid, category);
-      await setUnitCategory(collectionId, unit.name, null);
+    final category = await categoryOf(collectionId, unit.name);
+    final position = (await _store
+        .watchUnitPositions(collectionId)
+        .first)[unit.name];
+    if (!onto && position != null) {
+      await _store.placeUnits(collectionId, category, [valid], position);
+    } else if (!onto && category != null) {
+      await _store.setUnitCategory(collectionId, valid, category);
+    }
+    if (category != null) {
+      await _store.setUnitCategory(collectionId, unit.name, null);
     }
     final tags = await tagsOf(collectionId, unit.name);
     await addTags(collectionId, valid, tags);

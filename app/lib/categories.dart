@@ -1,9 +1,11 @@
-/// Managing a Collection's Categories (ADR 0011): rename, reorder, add and delete them.
+/// Managing a Collection's Categories (ADR 0011): rename, reorder, add and delete them, and reorder their Units.
 library;
 
 import 'package:domain_core/domain_core.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'photos.dart' show PhotoFiles, UnitThumbnail;
+import 'section.dart';
 import 'theme.dart';
 import 'unit.dart' show modelCountText, showUndo;
 import 'workflows.dart' show askName, attempt;
@@ -215,6 +217,135 @@ class _CategoriesSheetState extends State<CategoriesSheet> {
           ],
         );
       },
+    );
+  }
+}
+
+class _Header {
+  const _Header(this.category);
+  final Category? category;
+}
+
+class _Empty {
+  const _Empty(this.category);
+  final Category? category;
+}
+
+/// Reorder Units mode's list: every Category's header, then its Units (or "No Units yet"), Uncategorised always last;
+/// only Unit rows have a drag handle. A dropped Unit goes in the Category of the nearest header above it, saved at once.
+class ReorderUnitsList extends StatelessWidget {
+  const ReorderUnitsList({
+    super.key,
+    required this.vault,
+    required this.photos,
+    required this.collection,
+    required this.groups,
+  });
+
+  final Vault vault;
+  final PhotoFiles? photos;
+  final Collection collection;
+  final List<({Category? category, List<Unit> units})> groups;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = TextStyle(color: theme.colorScheme.onSurfaceVariant);
+    final rows = <Object>[
+      for (final g in [
+        ...groups,
+        if (!groups.any((g) => g.category == null))
+          (category: null, units: const <Unit>[]),
+      ]) ...[
+        _Header(g.category),
+        if (g.units.isEmpty) _Empty(g.category),
+        ...g.units,
+      ],
+    ];
+    return ReorderableListView(
+      buildDefaultDragHandles: false,
+      padding: const EdgeInsets.only(bottom: 16),
+      onReorderItem: (from, to) {
+        final moved = [...rows];
+        final item = moved.removeAt(from);
+        moved.insert(to, item);
+        if (item is! Unit) return;
+        final above = moved.take(to).toList();
+        final at = above.lastIndexWhere((r) => r is _Header);
+        final header = at < 0
+            ? moved.whereType<_Header>().first
+            : above[at] as _Header;
+        attempt(
+          context,
+          () => vault.moveUnit(
+            collection,
+            item.name,
+            header.category?.id,
+            above.skip(at + 1).whereType<Unit>().length,
+          ),
+        );
+      },
+      header: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        child: Row(
+          spacing: 12,
+          children: [
+            Icon(Icons.drag_handle, size: 20, color: muted.color),
+            Expanded(
+              child: Text(
+                'Drag by the handle. Drop under another Category to move the Unit there. Saved as you go.',
+                style: muted,
+              ),
+            ),
+          ],
+        ),
+      ),
+      children: [
+        for (final (i, row) in rows.indexed)
+          switch (row) {
+            _Header(:final category) => SectionHeader(
+              key: ValueKey('header:${category?.id}'),
+              title: category?.name ?? 'Uncategorised',
+              count:
+                  groups
+                      .where((g) => g.category?.id == category?.id)
+                      .firstOrNull
+                      ?.units
+                      .length ??
+                  0,
+              muted: category == null,
+            ),
+            _Empty(:final category) => ListTile(
+              key: ValueKey('empty:${category?.id}'),
+              title: Text('No Units yet', style: muted),
+            ),
+            Unit unit => ListTile(
+              key: ValueKey('unit:${unit.name}'),
+              contentPadding: const EdgeInsets.only(left: 16),
+              leading: IgnorePointer(
+                child: UnitThumbnail(
+                  vault: vault,
+                  files: photos,
+                  collectionId: collection.id,
+                  unitName: unit.name,
+                ),
+              ),
+              title: Text(unit.name),
+              subtitle: Text(modelCountText(unit.modelCount)),
+              trailing: ReorderableDragStartListener(
+                index: i,
+                child: SizedBox.square(
+                  dimension: 48,
+                  child: Icon(
+                    Icons.drag_handle,
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+              ),
+            ),
+            _ => throw StateError('Unknown row $row'),
+          },
+      ],
     );
   }
 }
