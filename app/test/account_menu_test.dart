@@ -76,14 +76,18 @@ Future<void> openMenu(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// The heading font and AppBar colour as shown on screen.
+/// The heading font and AppBar colour as shown on screen; Sign in has no AppBar, so its Scaffold's colour.
 (String?, Color?) looks(WidgetTester tester, String title) {
   final text = tester.widget<RichText>(
     find.descendant(of: find.text(title), matching: find.byType(RichText)),
   );
+  final appBar = find.byType(AppBar);
   final bar = tester.widget<Material>(
     find
-        .descendant(of: find.byType(AppBar), matching: find.byType(Material))
+        .descendant(
+          of: appBar.evaluate().isEmpty ? find.byType(Scaffold) : appBar,
+          matching: find.byType(Material),
+        )
         .first,
   );
   return (text.text.style!.fontFamily, bar.color);
@@ -182,7 +186,7 @@ void main() {
     final reloaded = (await tester.runAsync(() => ThemeSetting.load(file)))!;
     expect(reloaded.brightness, ThemeMode.dark);
     await pumpApp(tester, db, reloaded);
-    expect(looks(tester, 'Mini Vault'), (
+    expect(looks(tester, 'MINI VAULT'), (
       cinzelFont,
       surface(AppTheme.fantasy, Brightness.dark),
     ));
@@ -196,14 +200,14 @@ void main() {
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
     await pumpApp(tester, db, setting);
     expect(
-      looks(tester, 'Mini Vault').$2,
+      looks(tester, 'MINI VAULT').$2,
       surface(AppTheme.grimdark, Brightness.dark),
     );
 
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
     await settle(tester);
     expect(
-      looks(tester, 'Mini Vault').$2,
+      looks(tester, 'MINI VAULT').$2,
       surface(AppTheme.grimdark, Brightness.light),
     );
   });
