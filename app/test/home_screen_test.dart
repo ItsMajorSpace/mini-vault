@@ -88,7 +88,9 @@ void main() {
 
     await tab(tester, 'Workflows');
     expect(find.byType(WorkflowsScreen), findsOneWidget);
-    await tester.tap(find.text('Starter'));
+    await tester.tap(
+      find.text('Starter').first,
+    ); // The name, not its Starter badge.
     await settle(tester);
     expect(find.byType(WorkflowScreen), findsOneWidget);
 
