@@ -212,7 +212,7 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
 }
 
 /// The app's `version (build)`, e.g. `0.3.0 (42)`, so bug reports say which release they came from.
-/// The About dialog: app version, the font's source, and (through "View licenses") every bundled license.
+/// The About dialog: app version, the font's source, the privacy policy's URL, and (through "View licenses") every bundled license.
 Future<void> showAbout(BuildContext context) async {
   final info = await PackageInfo.fromPlatform();
   if (!context.mounted) return;
@@ -225,6 +225,10 @@ Future<void> showAbout(BuildContext context) async {
         'Headings use Black Ops One: fonts.google.com/specimen/Black+Ops+One',
       ),
       Text('and Cinzel: fonts.google.com/specimen/Cinzel'),
+      SizedBox(height: 16),
+      SelectableText(
+        'Privacy policy: itsmajorspace.github.io/mini-vault/privacy/',
+      ),
     ],
   );
 }

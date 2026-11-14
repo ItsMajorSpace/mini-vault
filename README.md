@@ -18,6 +18,9 @@ whole hobby has come. It works offline and syncs between devices.
 Android: download the APK from the latest [GitHub Release](https://github.com/ItsMajorSpace/mini-vault/releases/latest)
 and install it.
 
+Privacy: Mini Vault stores only your account email, your Collections and your photos, and has no ads or tracking. See
+the [privacy policy](https://itsmajorspace.github.io/mini-vault/privacy/).
+
 ## How it's built
 
 | Package | What it is |
