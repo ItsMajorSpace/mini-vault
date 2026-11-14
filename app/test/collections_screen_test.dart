@@ -71,11 +71,14 @@ void main() {
       }
 
       expect(find.text('Ultramarines'), findsOneWidget);
-      expect(find.text('0 / 0 finished'), findsOneWidget);
       expect(
-        find.text('1 Collection · 0 owned · 0 finished · 0 wanted'),
+        find.descendant(
+          of: find.byType(CollectionRow),
+          matching: find.text('0 / 0 finished'),
+        ),
         findsOneWidget,
       );
+      expect(find.text('1 Collection · 1 Workflow'), findsOneWidget);
       expect(find.byTooltip('2 changes waiting to sync'), findsOneWidget);
       expect(find.byTooltip('New Collection'), findsOneWidget);
       expect(
@@ -91,6 +94,9 @@ void main() {
   testWidgets('groups Collections under their Game System, A–Z, then Other', (
     tester,
   ) async {
+    // Tall enough to build every row of the lazy list.
+    tester.view.physicalSize = const Size(2400, 4800);
+    addTearDown(tester.view.resetPhysicalSize);
     final dir = (await tester.runAsync(
       () => Directory.systemTemp.createTemp('app_test'),
     ))!;
@@ -218,7 +224,13 @@ void main() {
       expect(find.text('Orks'), findsNothing);
       expect(find.text('Ultramarines'), findsNothing);
       expect(find.text('2 Collections · 5 / 5 finished'), findsOneWidget);
-      expect(find.byIcon(Icons.expand_more), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(SectionHeader),
+          matching: find.byIcon(Icons.expand_more),
+        ),
+        findsOneWidget,
+      );
       expect(header(false), findsOneWidget);
       expect(
         find.ancestor(
@@ -388,7 +400,13 @@ void main() {
       expect(find.byType(TextField), findsNothing);
       expect(find.text('Collections'), findsOneWidget);
       expect(find.text('Orks'), findsNothing);
-      expect(find.byIcon(Icons.expand_more), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(SectionHeader),
+          matching: find.byIcon(Icons.expand_more),
+        ),
+        findsOneWidget,
+      );
       expect(
         find.text('Terrain'),
         findsNWidgets(2),

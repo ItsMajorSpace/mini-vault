@@ -266,6 +266,131 @@ class StageBar extends StatelessWidget {
   );
 }
 
+/// All [workflows]' Progress at the top of the Collections list: a [ProgressRing], "finished / owned finished",
+/// "[collections] Collections · n Workflows", a [StageBar] and [ProgressFigures]. Show Stages grows it in place to a
+/// [StageBreakdown] per Workflow; it starts closed every time.
+class ProgressOverview extends StatefulWidget {
+  const ProgressOverview({
+    super.key,
+    required this.collections,
+    required this.workflows,
+  });
+
+  final int collections;
+  final List<WorkflowProgress> workflows;
+
+  @override
+  State<ProgressOverview> createState() => _ProgressOverviewState();
+}
+
+class _ProgressOverviewState extends State<ProgressOverview> {
+  var _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = Progress.combined(widget.workflows.map((w) => w.progress));
+    String count(int n, String noun) => '$n $noun${n == 1 ? '' : 's'}';
+    return Card.filled(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                ProgressRing(total, size: 72),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${total.finished} / ${total.owned} finished',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      Text(
+                        '${count(widget.collections, 'Collection')} · '
+                        '${count(widget.workflows.length, 'Workflow')}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            StageBar(total, height: 8),
+            const SizedBox(height: 12),
+            ProgressFigures(total),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              alignment: Alignment.topCenter,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_expanded)
+                    for (final (i, w) in widget.workflows.indexed) ...[
+                      if (i > 0) const Divider(),
+                      StageBreakdown(w),
+                    ],
+                ],
+              ),
+            ),
+            Center(
+              child: TextButton.icon(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                iconAlignment: IconAlignment.end,
+                icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                label: Text(_expanded ? 'Hide Stages' : 'Show Stages'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// [progress]'s owned, finished and wanted models as three equal columns, figure over word, divided.
+class ProgressFigures extends StatelessWidget {
+  const ProgressFigures(this.progress, {super.key});
+
+  final Progress progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    Widget figure(int n, String word) => Expanded(
+      child: Column(
+        children: [
+          Text('$n', style: text.titleLarge),
+          Text(
+            word,
+            style: text.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+    return IntrinsicHeight(
+      child: Row(
+        children: [
+          figure(progress.owned, 'owned'),
+          const VerticalDivider(),
+          figure(progress.finished, 'finished'),
+          const VerticalDivider(),
+          figure(progress.wanted, 'wanted'),
+        ],
+      ),
+    );
+  }
+}
+
 /// Progress peeking from the bottom of the screen: [count] [noun]s and the owned, finished and wanted totals over a
 /// [StageBar]. Dragged up (or its button tapped) it shows a [StageBreakdown] per Workflow. Hidden while
 /// [count] is 0. Meant for [Scaffold.bottomNavigationBar], which shrinks the body so nothing hides behind it.
