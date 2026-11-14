@@ -11,6 +11,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
 import 'package:mini_vault/progress.dart';
+import 'package:mini_vault/stage_strip.dart';
 import 'package:mini_vault/theme.dart';
 import 'package:mini_vault/unit.dart';
 import 'package:mini_vault/workflows.dart';
@@ -182,6 +183,70 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(result, ('Orks', null, 'Warhammer 40k', ''));
+    },
+  );
+
+  testWidgets(
+    'the New Collection Workflow picker shows each Workflow\'s Stage strip',
+    (tester) async {
+      Workflow workflow(String id, String name, List<String> stages) =>
+          Workflow(
+            id: id,
+            name: name,
+            stages: [
+              for (final (i, s) in stages.indexed)
+                Stage(id: '$id$i', name: s, colour: Vault.stageColours[i]),
+            ],
+            ownedStageId: '${id}0',
+            finishedStageId: '$id${stages.length - 1}',
+          );
+      (String, String?, String, String)? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => result = await showDialog(
+                context: context,
+                builder: (_) => NewCollectionDialog(
+                  workflows: [
+                    workflow('w', 'Standard', ['Wishlist', 'Done']),
+                    workflow('k', 'Kitbash', ['Ordered', 'Built', 'Painted']),
+                  ],
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      final dialog = find.byType(AlertDialog);
+      StageStrip selected() => tester.widget<StageStrip>(
+        find.descendant(of: dialog, matching: find.byType(StageStrip)).first,
+      );
+      // The starter is preselected, its strip under the field.
+      expect(selected().workflow.name, 'Standard');
+
+      await tester.tap(find.widgetWithText(DropdownMenu<Workflow>, 'Workflow'));
+      await tester.pumpAndSettle();
+      for (final name in ['Standard', 'Kitbash']) {
+        expect(
+          find.descendant(
+            of: find.widgetWithText(MenuItemButton, name).last,
+            matching: find.byType(StageStrip),
+          ),
+          findsOneWidget,
+        );
+      }
+      await tester.tap(find.widgetWithText(MenuItemButton, 'Kitbash').last);
+      await tester.pumpAndSettle();
+      expect(selected().workflow.name, 'Kitbash');
+
+      await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Orks');
+      await tester.tap(find.text('Create'));
+      await tester.pumpAndSettle();
+      expect(result?.$2, 'k');
     },
   );
 
@@ -738,6 +803,25 @@ void main() {
         ),
         findsOneWidget,
       );
+
+      // Edit shows the current Workflow with its strip; Switch… closes it, discarding the edits, and runs the switch.
+      await openMenu();
+      await tapAndWait(find.text('Edit Collection'));
+      final edit = find.byType(NewCollectionDialog);
+      expect(
+        find.descendant(of: edit, matching: find.text('Starter')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: edit, matching: find.byType(StageStrip)),
+        findsOneWidget,
+      );
+      await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Orks');
+      await tapAndWait(find.text('Switch…'));
+      expect(edit, findsNothing);
+      expect(find.text('Switch Ultramarines to'), findsOneWidget);
+      await tester.tapAt(const Offset(5, 5)); // Dismisses it.
+      await tester.pumpAndSettle();
 
       // Switch Workflow offers the other Workflow.
       await openMenu();
