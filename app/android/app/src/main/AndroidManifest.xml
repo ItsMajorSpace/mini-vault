@@ -2,7 +2,7 @@
     <!-- Sign-in and sync. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="mini_vault"
+        android:label="Mini Vault"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
