@@ -336,6 +336,8 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
   // Kept up to date rather than read on tap, so signing out can warn without waiting on SQLite.
   int _unsynced = 0;
   late final StreamSubscription<int> _unsyncedSubscription;
+  final _search = TextEditingController();
+  bool _searchOpen = false;
 
   @override
   void initState() {
@@ -351,6 +353,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
   void dispose() {
     widget.collapsed?.removeListener(_rebuild);
     _unsyncedSubscription.cancel();
+    _search.dispose();
     super.dispose();
   }
 
@@ -417,217 +420,342 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
     }
   }
 
+  void _endSearch() => setState(() {
+    _search.clear();
+    _searchOpen = false;
+  });
+
   @override
-  Widget build(BuildContext context) => StreamBuilder(
-    stream: _collections,
-    builder: (context, snapshot) => Scaffold(
-      appBar: AppBar(
-        title: const Text('Collections'),
-        actions: [
-          SyncIcon(db: widget.db, onSyncNow: widget.onSyncNow),
-          PopupMenuButton<VoidCallback>(
-            tooltip: 'Account',
-            onSelected: (action) => action(),
-            itemBuilder: (context) => [
-              if (widget.email case final email?)
-                PopupMenuItem(enabled: false, child: Text(email)),
-              if (widget.onSignOut case final signOut?)
-                PopupMenuItem(
-                  value: () => _signOut(signOut),
-                  child: const Text('Sign out'),
+  Widget build(BuildContext context) {
+    final query = _search.text.trim().toLowerCase();
+    final searching = query.isNotEmpty;
+    return PopScope(
+      canPop: !_searchOpen,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _endSearch();
+      },
+      child: StreamBuilder(
+        stream: _collections,
+        builder: (context, snapshot) => Scaffold(
+          appBar: switch (_searchOpen) {
+            true => AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'End search',
+                onPressed: _endSearch,
+              ),
+              title: TextField(
+                controller: _search,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search Collections',
+                  border: InputBorder.none,
                 ),
-              if (widget.onDeleteAccount case final delete?) ...[
-                const PopupMenuDivider(),
-                PopupMenuItem(
-                  value: delete,
-                  child: Text(
-                    'Delete account',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
+                onChanged: (_) => setState(() {}),
+              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Clear search',
+                  onPressed: () => setState(_search.clear),
                 ),
               ],
-              if (widget.theme case final theme?)
-                PopupMenuItem(
-                  value: () => pickTheme(context, theme),
-                  child: const Text('Theme'),
+            ),
+            false => AppBar(
+              title: const Text('Collections'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  tooltip: 'Search',
+                  onPressed: () => setState(() => _searchOpen = true),
                 ),
-              PopupMenuItem(
-                value: () => showAbout(context),
-                child: const Text('About'),
-              ),
-            ],
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          SyncBanner(db: widget.db),
-          Expanded(
-            child: Builder(
-              builder: (context) {
-                if (snapshot.error case final error?) {
-                  return LoadError(
-                    what: 'your Collections',
-                    error: error,
-                    onRetry: () => setState(
-                      () => _collections = widget.vault.watchCollections(),
-                    ),
-                  );
-                }
-                final collections = snapshot.data;
-                if (collections == null) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (collections.isEmpty) {
-                  return EmptyState(
-                    explanation: 'A Collection is a named set of Units that progress through the same Workflow.',
-                    label: 'New Collection',
-                    onPressed: _create,
-                    alternative: TextButton(
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => ArmyListScreen(vault: widget.vault),
+                SyncIcon(db: widget.db, onSyncNow: widget.onSyncNow),
+                PopupMenuButton<VoidCallback>(
+                  tooltip: 'Account',
+                  onSelected: (action) => action(),
+                  itemBuilder: (context) => [
+                    if (widget.email case final email?)
+                      PopupMenuItem(enabled: false, child: Text(email)),
+                    if (widget.onSignOut case final signOut?)
+                      PopupMenuItem(
+                        value: () => _signOut(signOut),
+                        child: const Text('Sign out'),
+                      ),
+                    if (widget.onDeleteAccount case final delete?) ...[
+                      const PopupMenuDivider(),
+                      PopupMenuItem(
+                        value: delete,
+                        child: Text(
+                          'Delete account',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
                         ),
                       ),
-                      child: const Text('Import army list'),
+                    ],
+                    if (widget.theme case final theme?)
+                      PopupMenuItem(
+                        value: () => pickTheme(context, theme),
+                        child: const Text('Theme'),
+                      ),
+                    PopupMenuItem(
+                      value: () => showAbout(context),
+                      child: const Text('About'),
                     ),
-                  );
-                }
-                final groups = groupByGameSystem(collections);
-                // Headers only once some Collection has a Game System; until then the list is as before.
-                final headed = groups.any((g) => g.gameSystem != null);
-                String groupKey(String? gameSystem) =>
-                    'game-system:${gameSystem?.toLowerCase() ?? ''}';
-                bool open(String? gameSystem) =>
-                    !headed ||
-                    !(widget.collapsed?.isCollapsed(groupKey(gameSystem)) ??
-                        false);
-                return ListView(
-                  children: [
-                    StreamBuilder(
-                      stream: _recent,
-                      builder: (context, recent) => switch (recent.data) {
-                        null || [] => const SizedBox.shrink(),
-                        final units => Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                              child: Text(
-                                'Recently painted',
-                                style: heading(context),
-                              ),
+                  ],
+                ),
+              ],
+            ),
+          },
+          body: Column(
+            children: [
+              SyncBanner(db: widget.db),
+              Expanded(
+                child: Builder(
+                  builder: (context) {
+                    if (snapshot.error case final error?) {
+                      return LoadError(
+                        what: 'your Collections',
+                        error: error,
+                        onRetry: () => setState(
+                          () => _collections = widget.vault.watchCollections(),
+                        ),
+                      );
+                    }
+                    final collections = snapshot.data;
+                    if (collections == null) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (collections.isEmpty) {
+                      return EmptyState(
+                        explanation: 'A Collection is a named set of Units that progress through the same Workflow.',
+                        label: 'New Collection',
+                        onPressed: _create,
+                        alternative: TextButton(
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  ArmyListScreen(vault: widget.vault),
                             ),
-                            for (final r in units)
-                              ListTile(
-                                title: Text(r.unit.name),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(r.collection.name),
-                                    const SizedBox(height: 4),
-                                    StageBar(r.unit.progress),
-                                  ],
+                          ),
+                          child: const Text('Import army list'),
+                        ),
+                      );
+                    }
+                    final groups = [
+                      for (final g in groupByGameSystem(collections))
+                        if (g.gameSystem?.toLowerCase().contains(query) ??
+                            false)
+                          g
+                        else
+                          (
+                            gameSystem: g.gameSystem,
+                            collections: [
+                              for (final c in g.collections)
+                                if (c.name.toLowerCase().contains(query)) c,
+                            ],
+                          ),
+                    ].where((g) => g.collections.isNotEmpty).toList();
+                    // Headers only once some Collection has a Game System; until then the list is as before.
+                    final headed = groups.any((g) => g.gameSystem != null);
+                    String groupKey(String? gameSystem) =>
+                        'game-system:${gameSystem?.toLowerCase() ?? ''}';
+                    bool open(String? gameSystem) =>
+                        searching ||
+                        !headed ||
+                        !(widget.collapsed?.isCollapsed(groupKey(gameSystem)) ??
+                            false);
+                    return ListView(
+                      children: [
+                        // Kept mounted while searching: the stream can be listened to once.
+                        StreamBuilder(
+                          stream: _recent,
+                          builder: (context, recent) => switch (searching
+                              ? null
+                              : recent.data) {
+                            null || [] => const SizedBox.shrink(),
+                            final units => Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    16,
+                                    16,
+                                    0,
+                                  ),
+                                  child: Text(
+                                    'Recently painted',
+                                    style: heading(context),
+                                  ),
                                 ),
-                                onTap: () => showMoveSheet(
-                                  context,
-                                  widget.vault,
-                                  r.collection,
-                                  r.unit.name,
-                                  [for (final g in r.unit.stages) g.stage],
-                                  // shortcut: no recount from here, it needs the Unit screen; open it for that.
-                                  r.from,
-                                ),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.chevron_right),
-                                  tooltip: 'Open ${r.unit.name}',
-                                  onPressed: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => UnitScreen(
-                                        vault: widget.vault,
-                                        photos: widget.photos,
-                                        collection: r.collection,
-                                        name: r.unit.name,
+                                for (final r in units)
+                                  ListTile(
+                                    title: Text(r.unit.name),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(r.collection.name),
+                                        const SizedBox(height: 4),
+                                        StageBar(r.unit.progress),
+                                      ],
+                                    ),
+                                    onTap: () => showMoveSheet(
+                                      context,
+                                      widget.vault,
+                                      r.collection,
+                                      r.unit.name,
+                                      [for (final g in r.unit.stages) g.stage],
+                                      // shortcut: no recount from here, it needs the Unit screen; open it for that.
+                                      r.from,
+                                    ),
+                                    trailing: IconButton(
+                                      icon: const Icon(Icons.chevron_right),
+                                      tooltip: 'Open ${r.unit.name}',
+                                      onPressed: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => UnitScreen(
+                                            vault: widget.vault,
+                                            photos: widget.photos,
+                                            collection: r.collection,
+                                            name: r.unit.name,
+                                          ),
+                                        ),
                                       ),
+                                    ),
+                                  ),
+                                const Divider(),
+                              ],
+                            ),
+                          },
+                        ),
+                        if (groups.isEmpty)
+                          NoMatches(
+                            query: _search.text.trim(),
+                            onClear: () => setState(_search.clear),
+                          ),
+                        for (final g in groups) ...[
+                          if (headed)
+                            GameSystemHeader(
+                              // Restarts the watches when the group's Collections or their Workflows change.
+                              key: ValueKey(
+                                [
+                                  for (final c in g.collections)
+                                    '${c.id}/${c.workflowId}',
+                                ].join(','),
+                              ),
+                              vault: widget.vault,
+                              title: g.gameSystem ?? 'Other',
+                              collections: g.collections,
+                              match: query,
+                              expanded: open(g.gameSystem),
+                              onToggle: switch (widget.collapsed) {
+                                _ when searching => null,
+                                null => null,
+                                final c => () => c.toggle(
+                                  groupKey(g.gameSystem),
+                                ),
+                              },
+                            ),
+                          if (open(g.gameSystem))
+                            for (final c in g.collections)
+                              ListTile(
+                                key: ValueKey(c.id),
+                                title: Text.rich(
+                                  highlight(context, c.name, query),
+                                ),
+                                // Keyed by Workflow, so switching it restarts the watch on the new one.
+                                subtitle: ProgressSummary(
+                                  key: ValueKey(c.workflowId),
+                                  vault: widget.vault,
+                                  collection: c,
+                                ),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => CollectionScreen(
+                                      vault: widget.vault,
+                                      db: widget.db,
+                                      photos: widget.photos,
+                                      collection: c,
+                                      onSyncNow: widget.onSyncNow,
                                     ),
                                   ),
                                 ),
                               ),
-                            const Divider(),
-                          ],
-                        ),
-                      },
-                    ),
-                    for (final g in groups) ...[
-                      if (headed)
-                        GameSystemHeader(
-                          // Restarts the watches when the group's Collections or their Workflows change.
-                          key: ValueKey(
-                            [
-                              for (final c in g.collections)
-                                '${c.id}/${c.workflowId}',
-                            ].join(','),
-                          ),
-                          vault: widget.vault,
-                          title: g.gameSystem ?? 'Other',
-                          collections: g.collections,
-                          expanded: open(g.gameSystem),
-                          onToggle: switch (widget.collapsed) {
-                            null => null,
-                            final c => () => c.toggle(groupKey(g.gameSystem)),
-                          },
-                        ),
-                      if (open(g.gameSystem))
-                        for (final c in g.collections)
-                          ListTile(
-                            key: ValueKey(c.id),
-                            title: Text(c.name),
-                            // Keyed by Workflow, so switching it restarts the watch on the new one.
-                            subtitle: ProgressSummary(
-                              key: ValueKey(c.workflowId),
-                              vault: widget.vault,
-                              collection: c,
-                            ),
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute<void>(
-                                builder: (_) => CollectionScreen(
-                                  vault: widget.vault,
-                                  db: widget.db,
-                                  photos: widget.photos,
-                                  collection: c,
-                                  onSyncNow: widget.onSyncNow,
-                                ),
-                              ),
-                            ),
-                          ),
-                    ],
-                  ],
-                );
-              },
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          bottomNavigationBar: StreamBuilder(
+            stream: _progress,
+            builder: (context, progress) => ProgressDrawer(
+              count: progress.hasData ? snapshot.data?.length ?? 0 : 0,
+              noun: 'Collection',
+              workflows: progress.data ?? const [],
             ),
           ),
-        ],
-      ),
-      bottomNavigationBar: StreamBuilder(
-        stream: _progress,
-        builder: (context, progress) => ProgressDrawer(
-          count: progress.hasData ? snapshot.data?.length ?? 0 : 0,
-          noun: 'Collection',
-          workflows: progress.data ?? const [],
+          floatingActionButton: searching
+              ? null
+              : FloatingActionButton(
+                  onPressed: _create,
+                  tooltip: 'New Collection',
+                  child: const Icon(Icons.add),
+                ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _create,
-        tooltip: 'New Collection',
-        child: const Icon(Icons.add),
+    );
+  }
+}
+
+/// A search that found no Collections: the [query], what is searched, and a button to [onClear] it. Not [EmptyState],
+/// whose "New Collection" would read as an answer to the query.
+class NoMatches extends StatelessWidget {
+  const NoMatches({super.key, required this.query, required this.onClear});
+
+  final String query;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final colours = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 64, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off, size: 48, color: colours.outline),
+            const SizedBox(height: 16),
+            Text(
+              'No Collections match "$query"',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Search looks at Collection names and Game Systems.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: colours.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: onClear,
+              icon: const Icon(Icons.close),
+              label: const Text('Clear search'),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// A Game System's [SectionHeader] on the Collections list, its [collections]' combined Progress as the summary.
@@ -639,10 +767,14 @@ class GameSystemHeader extends StatefulWidget {
     required this.collections,
     required this.expanded,
     this.onToggle,
+    this.match = '',
   });
 
   final Vault vault;
   final String title;
+
+  /// Search text to highlight in [title].
+  final String match;
   final List<Collection> collections;
   final bool expanded;
 
@@ -688,6 +820,7 @@ class _GameSystemHeaderState extends State<GameSystemHeader> {
       count: n,
       expanded: widget.onToggle == null ? null : widget.expanded,
       onToggle: widget.onToggle,
+      match: widget.match,
       summary: groupSummary(
         n,
         'Collection',
