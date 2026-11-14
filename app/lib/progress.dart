@@ -1,43 +1,123 @@
 import 'package:domain_core/domain_core.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'section.dart';
 import 'theme.dart';
 
-/// A Collection's progress totals ("86 / 140 finished"), kept live as Batches and the Workflow change.
-class ProgressSummary extends StatefulWidget {
-  const ProgressSummary({
+/// A Collection's row in a group card: its [ProgressRing], [collection]'s name with [match] highlighted, its
+/// [progressWords] and a [StageBar], then a chevron; kept live as Batches and the Workflow change. Tapping calls [onTap].
+class CollectionRow extends StatefulWidget {
+  const CollectionRow({
     super.key,
     required this.vault,
     required this.collection,
+    this.match = '',
+    required this.onTap,
   });
 
   final Vault vault;
   final Collection collection;
+  final String match;
+  final VoidCallback onTap;
 
   @override
-  State<ProgressSummary> createState() => _ProgressSummaryState();
+  State<CollectionRow> createState() => _CollectionRowState();
 }
 
-class _ProgressSummaryState extends State<ProgressSummary> {
+class _CollectionRowState extends State<CollectionRow> {
   late final _progress = widget.vault.watchProgress(widget.collection);
 
   @override
-  Widget build(BuildContext context) => StreamBuilder(
-    stream: _progress,
-    builder: (context, snapshot) {
-      final p = snapshot.data;
-      if (p == null) return const SizedBox.shrink();
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(progressWords(p)),
-          const SizedBox(height: 4),
-          StageBar(p),
-        ],
-      );
-    },
+  Widget build(BuildContext context) => InkWell(
+    onTap: widget.onTap,
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 76),
+      padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+      child: StreamBuilder(
+        stream: _progress,
+        builder: (context, snapshot) {
+          final p = snapshot.data;
+          return Row(
+            children: [
+              if (p != null) ...[ProgressRing(p), const SizedBox(width: 14)],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text.rich(
+                      highlight(context, widget.collection.name, widget.match),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    if (p != null) ...[
+                      Text(
+                        progressWords(p),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      StageBar(p, height: 6),
+                    ],
+                  ],
+                ),
+              ),
+              SizedBox.square(
+                dimension: 48,
+                child: Icon(
+                  Icons.chevron_right,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    ),
   );
+}
+
+/// [progress]'s finished share as a ring around the rounded %, in the heading font from [size] 64 up.
+class ProgressRing extends StatelessWidget {
+  const ProgressRing(this.progress, {super.key, this.size = 48});
+
+  final Progress progress;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = '${(progress.finishedShare * 100).round()}%';
+    return Semantics(
+      label: '$percent finished',
+      child: ExcludeSemantics(
+        child: SizedBox.square(
+          dimension: size,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox.expand(
+                child: CircularProgressIndicator(
+                  value: progress.finishedShare,
+                  strokeWidth: 4,
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
+                ),
+              ),
+              Text(
+                percent,
+                style: size >= 64
+                    ? heading(context)
+                    : const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// "86 / 140 finished · 12 wanted", leaving out wanted when there are none.
