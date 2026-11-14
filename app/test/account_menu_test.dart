@@ -262,6 +262,10 @@ void main() {
     await tester.tap(find.text('About'));
     await settle(tester);
     expect(find.text('0.0.0-dev (0)'), findsOneWidget);
+    expect(
+      find.text('Privacy policy: itsmajorspace.github.io/mini-vault/privacy/'),
+      findsOneWidget,
+    );
 
     registerFontLicense();
     final fonts = await tester.runAsync(
