@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
+import 'package:mini_vault/progress.dart';
 import 'package:mini_vault/section.dart';
 import 'package:powersync/powersync.dart';
 
@@ -138,7 +139,8 @@ void main() {
       );
       await settle(tester);
       expect(find.text('UNCATEGORISED'), findsNothing);
-      expectInOrder(tester, ['CORE', 'Scarabs', 'Warriors', 'SUPPORT']);
+      // Put in another Category, a Unit goes last there.
+      expectInOrder(tester, ['CORE', 'Warriors', 'Scarabs', 'SUPPORT']);
     },
   );
 
@@ -200,7 +202,8 @@ void main() {
         'Immortals',
       );
       await tapAndWait(tester, find.text('Save'));
-      expectInOrder(tester, ['CORE', 'Immortals', 'Warriors', 'SUPPORT']);
+      // A new Unit goes last in its Category.
+      expectInOrder(tester, ['CORE', 'Warriors', 'Immortals', 'SUPPORT']);
 
       await tapAndWait(tester, find.byTooltip('Add models'));
       expect(categoryShows('Uncategorised'), findsOneWidget);
@@ -256,7 +259,7 @@ void main() {
 
       await addNew('Lord', 'heroes');
       expect(find.text('HEROES'), findsOneWidget);
-      expectInOrder(tester, ['HEROES', 'Lord', 'Overlord', 'CORE']);
+      expectInOrder(tester, ['HEROES', 'Overlord', 'Lord', 'CORE']);
       expect(
         (await tester.runAsync(
           () => vault.watchCategories(collection.id).first,
@@ -572,6 +575,166 @@ void main() {
       await tapAndWait(tester, find.text('Undo'));
       expectInOrder(tester, ['Heroes', 'Core', 'Support', 'Uncategorised']);
       expectInOrder(tester, ['HEROES', 'CORE', 'SUPPORT', 'UNCATEGORISED']);
+    },
+  );
+
+  Future<void> openMenu(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Collection'));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> reorderMode(WidgetTester tester) async {
+    await openMenu(tester);
+    await tapAndWait(tester, find.text('Reorder Units'));
+  }
+
+  /// Drags row [from] of the Reorder Units list to [to], as ReorderableListView reports it (index after removal).
+  Future<void> drag(WidgetTester tester, int from, int to) async {
+    await tester.runAsync(() async {
+      tester
+          .widget<ReorderableListView>(find.byType(ReorderableListView))
+          .onReorderItem!(from, to);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await settle(tester);
+  }
+
+  testWidgets(
+    "'Reorder Units' sits above Categories in the menu, hidden with fewer than 2 Units",
+    (tester) async {
+      await seed(tester);
+      await open(tester);
+      await openMenu(tester);
+      expect(find.byIcon(Icons.swap_vert), findsOneWidget);
+      expectInOrder(tester, ['Reorder Units', 'Categories']);
+      await tester.tapAt(Offset.zero);
+      await tester.pumpAndSettle();
+
+      await tester.runAsync(() async {
+        for (final b in await vault.batchesOf(collection)) {
+          if (b.name != 'Overlord') await vault.deleteBatch(b.id);
+        }
+      });
+      await settle(tester);
+      await openMenu(tester);
+      expect(find.text('Categories'), findsOneWidget);
+      expect(find.text('Reorder Units'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Reorder Units lists every Category with handles on Unit rows only, and Done or back leaves it',
+    (tester) async {
+      await seed(tester, categories: true);
+      await open(tester);
+      await reorderMode(tester);
+
+      expect(find.text('Reorder Units'), findsOneWidget);
+      expectInOrder(tester, [
+        'HEROES',
+        'Overlord',
+        'CORE',
+        'Warriors',
+        'SUPPORT',
+        'No Units yet',
+        'UNCATEGORISED',
+        'Scarabs',
+      ]);
+      expect(find.byType(ReorderableDragStartListener), findsNWidgets(3));
+      expect(
+        find.descendant(
+          of: find.byType(ReorderableDragStartListener),
+          matching: find.byIcon(Icons.drag_handle),
+        ),
+        findsNWidgets(3),
+      );
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.byTooltip('Add models to Core'), findsNothing);
+      expect(find.text('Paint Schemes'.toUpperCase()), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(ReorderableListView),
+          matching: find.byType(StageBar),
+        ),
+        findsNothing,
+      );
+      expect(find.text('10 models'), findsOneWidget);
+
+      await tapAndWait(tester, find.text('Overlord'));
+      expect(
+        find.text('Reorder Units'),
+        findsOneWidget,
+      ); // Row taps do nothing.
+
+      await tapAndWait(tester, find.byTooltip('Categories'));
+      expect(
+        find.text(
+          'Tap to rename, drag to reorder. Units keep their order within a Category.',
+        ),
+        findsOneWidget,
+      );
+      await tester.runAsync(() => tester.binding.handlePopRoute());
+      await settle(tester);
+
+      await tester.runAsync(() => tester.binding.handlePopRoute());
+      await settle(tester);
+      expect(find.text('Reorder Units'), findsNothing);
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+
+      await reorderMode(tester);
+      await tapAndWait(tester, find.byTooltip('Done'));
+      expect(find.text('Reorder Units'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'dragging a Unit reorders it within its Category; below another header it moves there, empty and Uncategorised too',
+    (tester) async {
+      await seed(tester);
+      await tester.runAsync(() async {
+        for (final name in ['Lord', 'Cryptek']) {
+          await vault.addBatch(
+            collection,
+            name: name,
+            modelCount: 1,
+            stageId: 's',
+            categoryId: heroes.id,
+          );
+        }
+      });
+      await open(tester);
+      expectInOrder(tester, ['HEROES', 'Overlord', 'Lord', 'Cryptek', 'CORE']);
+      await reorderMode(tester);
+      // HEROES, Overlord, Lord, Cryptek, CORE, Warriors, SUPPORT, No Units yet, UNCATEGORISED, Scarabs
+
+      await drag(tester, 3, 1); // Cryptek to the top of Heroes.
+      await drag(tester, 1, 4); // Cryptek below CORE, above Warriors.
+      await drag(
+        tester,
+        1,
+        6,
+      ); // Overlord below SUPPORT, into the empty Category.
+      // HEROES, Lord, CORE, Cryptek, Warriors, SUPPORT, Overlord, UNCATEGORISED, Scarabs
+      await drag(tester, 4, 8); // Warriors last in Uncategorised.
+      await tapAndWait(tester, find.byTooltip('Done'));
+
+      expectInOrder(tester, [
+        'HEROES',
+        'Lord',
+        'CORE',
+        'Cryptek',
+        'SUPPORT',
+        'Overlord',
+        'UNCATEGORISED',
+        'Scarabs',
+        'Warriors',
+      ]);
+      expect(
+        await tester.runAsync(
+          () => vault.categoryOf(collection.id, 'Overlord'),
+        ),
+        isNotNull,
+      );
     },
   );
 }
