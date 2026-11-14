@@ -29,15 +29,16 @@ Future<void> attempt(BuildContext context, Future<void> Function() op) async {
   }
 }
 
-/// Asks for a name; null if cancelled or blank.
+/// Asks for a name; null if cancelled or blank. Save is refused while [refuse] returns a reason for the name.
 Future<String?> askName(
   BuildContext context,
   String title, [
   String initial = '',
+  String? Function(String name)? refuse,
 ]) async {
   final name = await showDialog<String>(
     context: context,
-    builder: (_) => NameDialog(title: title, initial: initial),
+    builder: (_) => NameDialog(title: title, initial: initial, refuse: refuse),
   );
   return (name == null || name.trim().isEmpty) ? null : name;
 }
@@ -1433,11 +1434,15 @@ class NameDialog extends StatefulWidget {
     required this.title,
     required this.initial,
     this.label = 'Name',
+    this.refuse,
   });
 
   final String title;
   final String initial;
   final String label;
+
+  /// Why the name cannot be saved, shown under the field; null if it can.
+  final String? Function(String name)? refuse;
 
   @override
   State<NameDialog> createState() => _NameDialogState();
@@ -1445,6 +1450,7 @@ class NameDialog extends StatefulWidget {
 
 class _NameDialogState extends State<NameDialog> {
   late final _controller = TextEditingController(text: widget.initial);
+  String? _error;
 
   @override
   void dispose() {
@@ -1454,13 +1460,20 @@ class _NameDialogState extends State<NameDialog> {
 
   @override
   Widget build(BuildContext context) {
-    void save() => Navigator.pop(context, _controller.text);
+    void save() {
+      final error = widget.refuse?.call(_controller.text);
+      if (error != null) return setState(() => _error = error);
+      Navigator.pop(context, _controller.text);
+    }
+
     return AlertDialog(
+      scrollable: true,
       title: Text(widget.title),
       content: TextField(
         controller: _controller,
         autofocus: true,
-        decoration: InputDecoration(labelText: widget.label),
+        decoration: InputDecoration(labelText: widget.label, errorText: _error),
+        onChanged: (_) => setState(() => _error = null),
         onSubmitted: (_) => save(),
       ),
       actions: [

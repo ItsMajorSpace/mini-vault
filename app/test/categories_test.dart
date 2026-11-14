@@ -439,4 +439,139 @@ void main() {
       ['Heroes', 'Core', 'Support', 'Lords'],
     );
   });
+
+  /// Opens the Categories sheet from the Collection menu.
+  Future<void> openSheet(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Collection'));
+    await tester.pumpAndSettle();
+    await tapAndWait(tester, find.text('Categories'));
+  }
+
+  testWidgets('the Categories sheet lists them in order, Uncategorised last', (
+    tester,
+  ) async {
+    await seed(tester);
+    await open(tester);
+    await openSheet(tester);
+    expectInOrder(tester, [
+      'Heroes',
+      'Core',
+      'Support',
+      'Uncategorised',
+      'New Category',
+    ]);
+    expect(find.text('1 Unit'), findsNWidgets(2));
+    expect(find.text('No Units'), findsOneWidget);
+    expect(find.text('1 Unit · always last'), findsOneWidget);
+  });
+
+  testWidgets('renaming a Category refuses a name another has, ignoring case', (
+    tester,
+  ) async {
+    await seed(tester);
+    await open(tester);
+    await openSheet(tester);
+
+    await tapAndWait(tester, find.text('Core'));
+    expect(find.text('Rename Category'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'heroes');
+    await tapAndWait(tester, find.text('Save'));
+    expect(
+      find.text('Necrons already has a Category "Heroes"'),
+      findsOneWidget,
+    );
+    expect(find.text('Rename Category'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'Troops');
+    await tapAndWait(tester, find.text('Save'));
+    expect(find.text('Rename Category'), findsNothing);
+    expectInOrder(tester, ['HEROES', 'TROOPS', 'Warriors', 'SUPPORT']);
+  });
+
+  testWidgets("reordering in the sheet reorders the Collection's headers", (
+    tester,
+  ) async {
+    await seed(tester);
+    await open(tester);
+    await openSheet(tester);
+
+    await tester.runAsync(() async {
+      tester
+          .widget<ReorderableListView>(find.byType(ReorderableListView))
+          .onReorderItem!(2, 0);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await settle(tester);
+    expectInOrder(tester, ['Support', 'Heroes', 'Core', 'Uncategorised']);
+    expectInOrder(tester, ['SUPPORT', 'HEROES', 'CORE', 'UNCATEGORISED']);
+  });
+
+  testWidgets('New Category in the sheet appends one, refusing a taken name', (
+    tester,
+  ) async {
+    await seed(tester);
+    await open(tester);
+    await openSheet(tester);
+
+    await tapAndWait(tester, find.text('New Category'));
+    await tester.enterText(find.byType(TextField), 'CORE');
+    await tapAndWait(tester, find.text('Save'));
+    expect(find.text('Necrons already has a Category "Core"'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'Elites');
+    await tapAndWait(tester, find.text('Save'));
+    expectInOrder(tester, ['Support', 'Elites', 'Uncategorised']);
+    expectInOrder(tester, ['SUPPORT', 'ELITES', 'UNCATEGORISED']);
+  });
+
+  testWidgets(
+    'deleting a Category with Units asks, then they show Uncategorised with their models',
+    (tester) async {
+      await seed(tester);
+      await open(tester);
+      await openSheet(tester);
+
+      await tapAndWait(tester, find.byTooltip('Delete Core'));
+      expect(find.text('Delete Core?'), findsOneWidget);
+      expect(
+        find.text(
+          'Its 1 Unit (10 models) stay in Necrons and become Uncategorised. Nothing else is deleted.',
+        ),
+        findsOneWidget,
+      );
+      await tapAndWait(tester, find.widgetWithText(TextButton, 'Delete'));
+      expect(find.text('CORE'), findsNothing);
+      expect(find.text('Core'), findsNothing);
+      expectInOrder(tester, ['UNCATEGORISED', 'Scarabs', 'Warriors']);
+      expect(find.text('10 models'), findsOneWidget);
+      expect(find.text('2 Units · always last'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'deleting an empty Category needs no confirm and Undo restores it',
+    (tester) async {
+      await seed(tester);
+      await open(tester);
+      await openSheet(tester);
+
+      // Not tapAndWait: its settling outlasts the SnackBar.
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('Delete Support'));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      for (var i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('SUPPORT'), findsNothing);
+      expect(find.text('Deleted Support'), findsOneWidget);
+
+      await tapAndWait(tester, find.text('Undo'));
+      expectInOrder(tester, ['Heroes', 'Core', 'Support', 'Uncategorised']);
+      expectInOrder(tester, ['HEROES', 'CORE', 'SUPPORT', 'UNCATEGORISED']);
+    },
+  );
 }

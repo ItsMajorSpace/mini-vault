@@ -3059,5 +3059,25 @@ void main() {
       expect(await vault.watchCategories(collection.id).first, isEmpty);
       expect(await vault.categoryOf(collection.id, 'Overlord'), isNull);
     });
+
+    test('rename refuses another Category\'s name ignoring case; move reorders; delete leaves its Units Uncategorised', () async {
+      final heroes = await vault.addCategory(collection.id, 'Heroes');
+      final core = await vault.addCategory(collection.id, 'Core');
+      await vault.addBatch(
+        collection,
+        name: 'Warriors',
+        modelCount: 10,
+        stageId: 's2',
+        categoryId: core.id,
+      );
+      expect(() => vault.renameCategory(core, 'heroes'), throwsStateError);
+      await vault.renameCategory(core, ' troops ');
+      await vault.moveCategory(heroes, 1);
+      expect(await groups(), ['troops: Warriors', 'Heroes: ']);
+
+      await vault.deleteCategory(core.id);
+      expect(await groups(), ['Heroes: ', '-: Warriors']);
+      expect(await vault.categoryOf(collection.id, 'Warriors'), isNull);
+    });
   });
 }

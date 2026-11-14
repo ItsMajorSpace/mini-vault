@@ -569,6 +569,24 @@ class SqliteVaultStore implements VaultStore {
   );
 
   @override
+  Future<void> renameCategory(String id, String name) =>
+      _db.execute('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
+
+  @override
+  Future<void> reorderCategories(List<String> order) =>
+      _db.writeTransaction((tx) => _writeOrder(tx, order, 'categories'));
+
+  // The local store does not enforce the server's ON DELETE SET NULL, so the Units are made Uncategorised here.
+  @override
+  Future<void> deleteCategory(String id) => _db.writeTransaction((tx) async {
+    await tx.execute(
+      'UPDATE squad_categories SET category_id = NULL WHERE category_id = ?',
+      [id],
+    );
+    await tx.execute('DELETE FROM categories WHERE id = ?', [id]);
+  });
+
+  @override
   Stream<Map<String, String>> watchUnitCategories(String collectionId) => _db
       .watch(
         'SELECT squad_name, category_id FROM squad_categories WHERE collection_id = ? AND category_id IS NOT NULL',

@@ -10,6 +10,7 @@ import 'package:powersync/powersync.dart' hide Column;
 
 import 'account.dart';
 import 'army_list.dart';
+import 'categories.dart';
 import 'paint_schemes.dart';
 import 'paints.dart';
 import 'photos.dart';
@@ -1126,6 +1127,14 @@ class _CollectionScreenState extends State<CollectionScreen> {
                       ),
                     ),
                     child: const Text('Import army list'),
+                  ),
+                  PopupMenuItem(
+                    value: () =>
+                        showCategoriesSheet(context, widget.vault, _collection),
+                    child: const Row(
+                      spacing: 12,
+                      children: [Icon(Icons.category), Text('Categories')],
+                    ),
                   ),
                   const PopupMenuDivider(),
                   PopupMenuItem(
