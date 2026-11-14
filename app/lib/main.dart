@@ -14,6 +14,7 @@ import 'paint_schemes.dart';
 import 'paints.dart';
 import 'photos.dart';
 import 'progress.dart';
+import 'section.dart';
 import 'unit.dart';
 import 'sync.dart';
 import 'theme.dart';
@@ -28,6 +29,9 @@ Future<void> main() async {
   await db.initialize();
   final auth = await openAuth(File('${dir.path}/session.json'));
   final theme = await ThemeSetting.load(File('${dir.path}/theme.txt'));
+  final collapsed = await CollapsedGroups.load(
+    File('${dir.path}/collapsed.txt'),
+  );
   final photos = PhotoFiles(db, auth, Directory('${dir.path}/photos'));
   syncWhileSignedIn(auth, db, photos.queue);
   // Batches meeting at a Stage through sync are Merged here, once for the whole app (ADR 0009).
@@ -35,7 +39,15 @@ Future<void> main() async {
     null,
     onError: (Object e) => debugPrint('Automatic Merge failed: $e'),
   );
-  runApp(MiniVaultApp(auth: auth, db: db, photos: photos, theme: theme));
+  runApp(
+    MiniVaultApp(
+      auth: auth,
+      db: db,
+      photos: photos,
+      theme: theme,
+      collapsed: collapsed,
+    ),
+  );
 }
 
 class MiniVaultApp extends StatelessWidget {
@@ -45,12 +57,16 @@ class MiniVaultApp extends StatelessWidget {
     required this.db,
     required this.photos,
     required this.theme,
+    this.collapsed,
   });
 
   final GoTrueClient auth;
   final PowerSyncDatabase db;
   final PhotoFiles photos;
   final ThemeSetting theme;
+
+  /// Null makes the Collections list's groups not collapsible.
+  final CollapsedGroups? collapsed;
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +94,7 @@ class MiniVaultApp extends StatelessWidget {
                 onSyncNow: () => syncNow(auth, db, photos.queue),
                 onDeleteAccount: () => deleteAccount(context, auth),
                 theme: theme,
+                collapsed: collapsed,
               ),
             );
           },
@@ -281,6 +298,7 @@ class CollectionsScreen extends StatefulWidget {
     this.onDeleteAccount,
     this.onSyncNow,
     this.theme,
+    this.collapsed,
   });
 
   final Vault vault;
@@ -304,6 +322,9 @@ class CollectionsScreen extends StatefulWidget {
   /// Null hides Theme.
   final ThemeSetting? theme;
 
+  /// Which Game System groups this device shows collapsed; null makes them not collapsible.
+  final CollapsedGroups? collapsed;
+
   @override
   State<CollectionsScreen> createState() => _CollectionsScreenState();
 }
@@ -321,10 +342,14 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
     super.initState();
     _unsyncedSubscription = watchUnsynced(widget.db)
         .listen((n) => setState(() => _unsynced = n));
+    widget.collapsed?.addListener(_rebuild);
   }
+
+  void _rebuild() => setState(() {});
 
   @override
   void dispose() {
+    widget.collapsed?.removeListener(_rebuild);
     _unsyncedSubscription.cancel();
     super.dispose();
   }
@@ -474,6 +499,12 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                 final groups = groupByGameSystem(collections);
                 // Headers only once some Collection has a Game System; until then the list is as before.
                 final headed = groups.any((g) => g.gameSystem != null);
+                String groupKey(String? gameSystem) =>
+                    'game-system:${gameSystem?.toLowerCase() ?? ''}';
+                bool open(String? gameSystem) =>
+                    !headed ||
+                    !(widget.collapsed?.isCollapsed(groupKey(gameSystem)) ??
+                        false);
                 return ListView(
                   children: [
                     StreamBuilder(
@@ -533,36 +564,47 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                     ),
                     for (final g in groups) ...[
                       if (headed)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                          child: Text(
-                            g.gameSystem ?? 'Other',
-                            style: heading(context),
+                        GameSystemHeader(
+                          // Restarts the watches when the group's Collections or their Workflows change.
+                          key: ValueKey(
+                            [
+                              for (final c in g.collections)
+                                '${c.id}/${c.workflowId}',
+                            ].join(','),
                           ),
+                          vault: widget.vault,
+                          title: g.gameSystem ?? 'Other',
+                          collections: g.collections,
+                          expanded: open(g.gameSystem),
+                          onToggle: switch (widget.collapsed) {
+                            null => null,
+                            final c => () => c.toggle(groupKey(g.gameSystem)),
+                          },
                         ),
-                      for (final c in g.collections)
-                        ListTile(
-                          key: ValueKey(c.id),
-                          title: Text(c.name),
-                          // Keyed by Workflow, so switching it restarts the watch on the new one.
-                          subtitle: ProgressSummary(
-                            key: ValueKey(c.workflowId),
-                            vault: widget.vault,
-                            collection: c,
-                          ),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => CollectionScreen(
-                                vault: widget.vault,
-                                db: widget.db,
-                                photos: widget.photos,
-                                collection: c,
-                                onSyncNow: widget.onSyncNow,
+                      if (open(g.gameSystem))
+                        for (final c in g.collections)
+                          ListTile(
+                            key: ValueKey(c.id),
+                            title: Text(c.name),
+                            // Keyed by Workflow, so switching it restarts the watch on the new one.
+                            subtitle: ProgressSummary(
+                              key: ValueKey(c.workflowId),
+                              vault: widget.vault,
+                              collection: c,
+                            ),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) => CollectionScreen(
+                                  vault: widget.vault,
+                                  db: widget.db,
+                                  photos: widget.photos,
+                                  collection: c,
+                                  onSyncNow: widget.onSyncNow,
+                                ),
                               ),
                             ),
                           ),
-                        ),
                     ],
                   ],
                 );
@@ -586,6 +628,73 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
       ),
     ),
   );
+}
+
+/// A Game System's [SectionHeader] on the Collections list, its [collections]' combined Progress as the summary.
+class GameSystemHeader extends StatefulWidget {
+  const GameSystemHeader({
+    super.key,
+    required this.vault,
+    required this.title,
+    required this.collections,
+    required this.expanded,
+    this.onToggle,
+  });
+
+  final Vault vault;
+  final String title;
+  final List<Collection> collections;
+  final bool expanded;
+
+  /// Null makes the header not collapsible.
+  final VoidCallback? onToggle;
+
+  @override
+  State<GameSystemHeader> createState() => _GameSystemHeaderState();
+}
+
+class _GameSystemHeaderState extends State<GameSystemHeader> {
+  final _progress = <String, Progress>{};
+  late final List<StreamSubscription<Progress>> _subscriptions;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscriptions = [
+      for (final c in widget.collections)
+        widget.vault
+            .watchProgress(c)
+            .listen(
+              (p) => setState(() => _progress[c.id] = p),
+              // A Workflow not synced yet: that Collection counts once it has.
+              onError: (_) {},
+            ),
+    ];
+  }
+
+  @override
+  void dispose() {
+    for (final s in _subscriptions) {
+      s.cancel();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final n = widget.collections.length;
+    return SectionHeader(
+      title: widget.title,
+      count: n,
+      expanded: widget.onToggle == null ? null : widget.expanded,
+      onToggle: widget.onToggle,
+      summary: groupSummary(
+        n,
+        'Collection',
+        Progress.combined(_progress.values),
+      ),
+    );
+  }
 }
 
 /// An empty screen: one line on what belongs here and a large button to add the first one.
