@@ -248,7 +248,7 @@ class _WorkflowCard extends StatelessWidget {
 }
 
 /// One Workflow's Stages in Wanted / Owned / Finished zones: drag Stages to reorder and the zone markers to set the
-/// Owned and Finished Stages; tap a Stage for its menu.
+/// Owned and Finished Stages; tap a Stage for its sheet.
 class WorkflowScreen extends StatefulWidget {
   const WorkflowScreen({
     super.key,
@@ -317,50 +317,32 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     }
   }
 
-  Future<void> _onMenu(_StageAction action, Stage stage, int index) async {
-    switch (action) {
-      case _StageAction.rename:
-        final name = await askName(context, 'Rename Stage', stage.name);
-        if (name != null && mounted) {
-          await attempt(context, () => vault.renameStage(stage.id, name));
-        }
-      case _StageAction.addAbove:
-        await _addStage(index);
-      case _StageAction.addBelow:
-        await _addStage(index + 1);
-      case _StageAction.owned:
-        await attempt(context, () => vault.setOwnedStage(id, stage.id));
-      case _StageAction.finished:
-        await attempt(context, () => vault.setFinishedStage(id, stage.id));
-      case _StageAction.colour:
-        final colour = await showDialog<String>(
-          context: context,
-          builder: (context) => SimpleDialog(
-            title: Text('Colour of ${stage.name}'),
-            contentPadding: const EdgeInsets.all(16),
-            children: [
-              Wrap(
-                children: [
-                  for (final c in Vault.stageColours)
-                    IconButton(
-                      tooltip: c,
-                      icon: Icon(
-                        c == stage.colour ? Icons.check_circle : Icons.circle,
-                        color: stageColour(c),
-                      ),
-                      onPressed: () => Navigator.pop(context, c),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        );
-        if (colour != null && mounted) {
-          await attempt(context, () => vault.setStageColour(stage.id, colour));
-        }
-      case _StageAction.delete:
-        await _deleteStage(stage);
-    }
+  /// The Stage sheet; Save commits the name, colour and Owned/Finished switches together.
+  Future<void> _openSheet(Workflow w, Stage stage, int index) async {
+    final edit = await showModalBottomSheet<_StageEdit>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _StageSheet(
+        workflow: w,
+        stage: stage,
+        onAddAbove: () => _addStage(index),
+        onAddBelow: () => _addStage(index + 1),
+        onDelete: () => _deleteStage(stage),
+      ),
+    );
+    if (edit == null || !mounted) return;
+    await attempt(context, () async {
+      if (edit.name != stage.name) {
+        await vault.renameStage(stage.id, edit.name);
+      }
+      if (edit.colour != stage.colour) {
+        await vault.setStageColour(stage.id, edit.colour);
+      }
+    });
+    final saved = Stage(id: stage.id, name: edit.name, colour: edit.colour);
+    if (edit.owned) await _setBoundary(w, _Boundary.owned, saved);
+    if (edit.finished) await _setBoundary(w, _Boundary.finished, saved);
   }
 
   /// Deletes the Stage, first asking where its Batches go and which Stage replaces it as Owned or Finished, if needed.
@@ -515,7 +497,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     );
   }
 
-  /// A Stage in its zone card: colour swatch, name and drag handle; tap for its menu (until the Stage sheet).
+  /// A Stage in its zone card: colour swatch, name and drag handle; tap for its sheet.
   Widget _stageRow(
     BuildContext context,
     Workflow w,
@@ -535,33 +517,26 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           : _Zone.finished,
       first: starts(i),
       last: i == w.stages.length - 1 || starts(i + 1),
-      child: PopupMenuButton<_StageAction>(
-        tooltip: 'Stage actions for ${stage.name}',
-        onSelected: (action) => _onMenu(action, stage, i),
-        itemBuilder: (_) => [
-          for (final a in _StageAction.values)
-            PopupMenuItem(value: a, child: Text(a.label)),
-        ],
-        child: ListTile(
-          contentPadding: const EdgeInsets.only(left: 14),
-          leading: Container(
-            key: ValueKey('swatch:${stage.id}'),
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: stageColour(stage.colour),
-              shape: BoxShape.circle,
-            ),
+      child: ListTile(
+        onTap: () => _openSheet(w, stage, i),
+        contentPadding: const EdgeInsets.only(left: 14),
+        leading: Container(
+          key: ValueKey('swatch:${stage.id}'),
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: stageColour(stage.colour),
+            shape: BoxShape.circle,
           ),
-          title: Text(stage.name),
-          trailing: ReorderableDragStartListener(
-            index: row,
-            child: SizedBox.square(
-              dimension: 48,
-              child: Icon(
-                Icons.drag_handle,
-                color: Theme.of(context).colorScheme.outline,
-              ),
+        ),
+        title: Text(stage.name),
+        trailing: ReorderableDragStartListener(
+          index: row,
+          child: SizedBox.square(
+            dimension: 48,
+            child: Icon(
+              Icons.drag_handle,
+              color: Theme.of(context).colorScheme.outline,
             ),
           ),
         ),
@@ -625,19 +600,6 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
       },
     );
   }
-}
-
-enum _StageAction {
-  rename('Rename'),
-  addAbove('Add Stage above'),
-  addBelow('Add Stage below'),
-  owned('Set as Owned Stage'),
-  finished('Set as Finished Stage'),
-  colour('Set colour'),
-  delete('Delete');
-
-  const _StageAction(this.label);
-  final String label;
 }
 
 /// Where the Owned or Finished zone begins.
@@ -768,6 +730,214 @@ class _ZoneMarker extends StatelessWidget {
           ),
           if (empty) const SectionHint('Finished as soon as owned'),
         ],
+      ),
+    );
+  }
+}
+
+typedef _StageEdit = ({String name, String colour, bool owned, bool finished});
+
+/// A Stage's name, colour from [Vault.stageColours], Owned/Finished switches, add above/below and delete; pops a
+/// [_StageEdit] on Save.
+class _StageSheet extends StatefulWidget {
+  const _StageSheet({
+    required this.workflow,
+    required this.stage,
+    required this.onAddAbove,
+    required this.onAddBelow,
+    required this.onDelete,
+  });
+
+  final Workflow workflow;
+  final Stage stage;
+  final VoidCallback onAddAbove;
+  final VoidCallback onAddBelow;
+  final VoidCallback onDelete;
+
+  @override
+  State<_StageSheet> createState() => _StageSheetState();
+}
+
+class _StageSheetState extends State<_StageSheet> {
+  late final _name = TextEditingController(text: widget.stage.name);
+  late String _colour = widget.stage.colour;
+  late bool _owned = _isOwned;
+  late bool _finished = _isFinished;
+
+  Workflow get w => widget.workflow;
+  bool get _isOwned => widget.stage.id == w.ownedStage.id;
+  bool get _isFinished => widget.stage.id == w.finishedStage.id;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _then(VoidCallback action) {
+    Navigator.pop(context);
+    action();
+  }
+
+  /// Can only be turned on (there is always exactly one); disabled with [forbidden] when the order rule refuses it.
+  Widget _switch({
+    required IconData icon,
+    required String title,
+    required bool current,
+    required Stage now,
+    required String? forbidden,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) => SwitchListTile(
+    secondary: Icon(icon),
+    title: Text(title),
+    subtitle: current ? null : Text(forbidden ?? 'Now from ${now.name}'),
+    value: value,
+    onChanged: current || forbidden != null ? null : onChanged,
+    contentPadding: EdgeInsets.zero,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colours = theme.colorScheme;
+    final i = w.stages.indexWhere((s) => s.id == widget.stage.id);
+    final ownedAt = w.stages.indexWhere((s) => s.id == w.ownedStage.id);
+    final finishedAt = w.stages.indexWhere((s) => s.id == w.finishedStage.id);
+    final name = _name.text.trim();
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        24,
+        0,
+        24,
+        16 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              spacing: 12,
+              children: [
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: stageColour(_colour),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Expanded(child: Text(name, style: theme.textTheme.titleLarge)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'Name'),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Colour',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: colours.onSurfaceVariant,
+              ),
+            ),
+            Wrap(
+              children: [
+                for (final c in Vault.stageColours)
+                  IconButton(
+                    tooltip: c,
+                    isSelected: c == _colour,
+                    onPressed: () => setState(() => _colour = c),
+                    icon: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: stageColour(c),
+                        shape: BoxShape.circle,
+                        border: c == _colour
+                            ? Border.all(color: colours.onSurface, width: 3)
+                            : null,
+                      ),
+                      // Every preset theme's surface is dark enough to read on the light Stage colours.
+                      child: c == _colour
+                          ? Icon(Icons.check, size: 20, color: colours.surface)
+                          : null,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _switch(
+              icon: Icons.flag,
+              title: 'Owned from here',
+              current: _isOwned,
+              now: w.ownedStage,
+              forbidden: i > finishedAt
+                  ? 'Comes after the Finished Stage'
+                  : null,
+              value: _owned,
+              onChanged: (v) => setState(() => _owned = v),
+            ),
+            _switch(
+              icon: Icons.military_tech,
+              title: 'Finished from here',
+              current: _isFinished,
+              now: w.finishedStage,
+              forbidden: i < ownedAt ? 'Comes before the Owned Stage' : null,
+              value: _finished,
+              onChanged: (v) => setState(() => _finished = v),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              spacing: 8,
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _then(widget.onAddAbove),
+                    icon: const Icon(Icons.vertical_align_top),
+                    label: const Text('Add above'),
+                  ),
+                ),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _then(widget.onAddBelow),
+                    icon: const Icon(Icons.vertical_align_bottom),
+                    label: const Text('Add below'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () => _then(widget.onDelete),
+                  style: destructive(context),
+                  child: const Text('Delete'),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: name.isEmpty
+                      ? null
+                      : () => Navigator.pop<_StageEdit>(context, (
+                          name: name,
+                          colour: _colour,
+                          owned: _owned && !_isOwned,
+                          finished: _finished && !_isFinished,
+                        )),
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
