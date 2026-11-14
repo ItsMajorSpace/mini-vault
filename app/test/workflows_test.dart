@@ -781,4 +781,150 @@ void main() {
       expect((await tester.runAsync(() => vault.batchesAt('s5')))!.length, 1);
     },
   );
+
+  testWidgets(
+    'Switch Workflow: pick by strip, map Stages by zone, warn on a zone change',
+    (tester) async {
+      // Phone width: the mapping rows must fit 320dp.
+      tester.view.physicalSize = const Size(320, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final (vault, ultramarines) = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        // Standard: owned from Unassembled, finished from Done. Kitbash: owned from Ordered, finished from Painted.
+        // Speed paint: owned from Primed, finished from Based.
+        for (final (id, name, stages, owned, finished) in [
+          ('w', 'Standard', standard, 1, 6),
+          (
+            'k',
+            'Kitbash',
+            ['Wishlist', 'Ordered', 'Built', 'Sprayed', 'Painted', 'Varnished'],
+            1,
+            4,
+          ),
+          ('p', 'Speed paint', ['Primed', 'Pink', 'Based'], 0, 2),
+        ]) {
+          await db.execute(
+            'INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id, starter) VALUES (?, ?, ?, ?, ?)',
+            [id, name, '$id$owned', '$id$finished', id == 'w' ? 1 : 0],
+          );
+          for (final (i, s) in stages.indexed) {
+            await db.execute(
+              'INSERT INTO stages (id, workflow_id, name, position, colour) VALUES (?, ?, ?, ?, ?)',
+              ['$id$i', id, s, i, Vault.stageColours[i]],
+            );
+          }
+        }
+        final vault = Vault(SqliteVaultStore(db));
+        await vault.createCollection('Kill Team', workflowId: 'k');
+        final c = await vault.createCollection('Ultramarines', workflowId: 'w');
+        for (final (name, stage) in [
+          ('Captain', 'w0'),
+          ('Intercessors', 'w1'),
+          ('Hellblasters', 'w1'),
+          ('Terminators', 'w3'),
+          ('Dreadnought', 'w4'),
+          ('Librarian', 'w6'),
+        ]) {
+          await vault.addBatch(c, name: name, modelCount: 1, stageId: stage);
+        }
+        return (vault, c);
+      }))!;
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      Future<void> tapAndWait(Finder f) async {
+        await tester.runAsync(() async {
+          await tester.tap(f);
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        });
+        await settle();
+      }
+
+      DropdownMenu<Stage> target(String fromId) => tester
+          .widget<DropdownMenu<Stage>>(find.byKey(ValueKey('to:$fromId')));
+      final dialog = find.byType(AlertDialog);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: grimdarkTheme,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => switchWorkflow(context, vault, ultramarines),
+                child: const Text('switch'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tapAndWait(find.text('switch'));
+
+      // Pick: radio rows with each other Workflow's strip, range and users.
+      expect(find.text('Switch Ultramarines to'), findsOneWidget);
+      expect(find.text('Now on Standard.'), findsOneWidget);
+      expect(find.byType(RadioListTile<Workflow>), findsNWidgets(2));
+      expect(
+        find.descendant(of: dialog, matching: find.byType(StageStrip)),
+        findsNWidgets(2),
+      );
+      expect(
+        find.text('Wishlist → Varnished · used by Kill Team'),
+        findsOneWidget,
+      );
+      expect(find.text('Primed → Based · not used'), findsOneWidget);
+      await tapAndWait(find.text('Kitbash'));
+      await tapAndWait(find.text('Next'));
+
+      // Map: same name first, else the target's Stage in the same zone; Unit counts per source Stage.
+      expect(find.text('Switch to Kitbash?'), findsOneWidget);
+      expect(target('w0').initialSelection?.name, 'Wishlist');
+      expect(target('w1').initialSelection?.name, 'Ordered');
+      expect(target('w3').initialSelection?.name, 'Ordered');
+      expect(target('w4').initialSelection?.name, 'Painted');
+      expect(target('w6').initialSelection?.name, 'Painted');
+      expect(find.text('2 Units'), findsOneWidget);
+      expect(find.text('1 Unit'), findsNWidgets(4));
+      // Painted keeps its name but moves from the Owned to the Finished zone.
+      expect(find.text('Owned models would count as finished'), findsOneWidget);
+      expect(find.byIcon(Icons.warning_amber), findsOneWidget);
+
+      // Moving the finished models back to Wishlist warns too, but stays allowed.
+      await tapAndWait(find.byKey(const ValueKey('to:w6')));
+      await tapAndWait(find.widgetWithText(MenuItemButton, 'Wishlist').last);
+      expect(
+        find.text('Finished models would count as wanted'),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.warning_amber), findsNWidgets(2));
+      await tapAndWait(find.text('Switch'));
+
+      final moved = (await tester.runAsync(
+        () async => [
+          for (final c in await vault.collections())
+            if (c.id == ultramarines.id)
+              for (final b in await vault.batchesOf(c))
+                '${b.name}:${b.stageId}',
+        ],
+      ))!;
+      expect(moved..sort(), [
+        'Captain:k0',
+        'Dreadnought:k4',
+        'Hellblasters:k1',
+        'Intercessors:k1',
+        'Librarian:k0',
+        'Terminators:k1',
+      ]);
+    },
+  );
 }

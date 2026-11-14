@@ -716,11 +716,16 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   Future<void> _edit(Collection collection) async {
     final gameSystems = await widget.vault.gameSystems();
+    final workflows = await widget.vault.workflows();
     if (!mounted) return;
     final edited = await showDialog<(String, String?, String, String)>(
       context: context,
-      builder: (_) =>
-          NewCollectionDialog(gameSystems: gameSystems, collection: collection),
+      builder: (_) => NewCollectionDialog(
+        workflows: workflows,
+        gameSystems: gameSystems,
+        collection: collection,
+        onSwitch: () => switchWorkflow(context, widget.vault, collection),
+      ),
     );
     if (edited case (final name, _, final gameSystem, final description)
         when mounted) {

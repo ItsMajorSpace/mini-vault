@@ -613,6 +613,25 @@ enum _Boundary { owned, finished }
 
 enum _Zone { wanted, owned, finished }
 
+_Zone _zoneOf(Workflow w, Stage s) {
+  final i = w.stages.indexOf(s);
+  return i < w.stages.indexOf(w.ownedStage)
+      ? _Zone.wanted
+      : i < w.stages.indexOf(w.finishedStage)
+      ? _Zone.owned
+      : _Zone.finished;
+}
+
+/// A Stage's colour as a dot.
+Widget _dot(Stage s, [double size = 16]) => Container(
+  width: size,
+  height: size,
+  decoration: BoxDecoration(
+    color: stageColour(s.colour),
+    shape: BoxShape.circle,
+  ),
+);
+
 /// One row of a zone's card: rounded at the zone's [first] and [last] row, with a left rail (outline = Wanted,
 /// half accent = Owned, accent = Finished) and a hairline between rows.
 class _ZoneCard extends StatelessWidget {
@@ -995,15 +1014,6 @@ class _DeleteStageDialogState extends State<_DeleteStageDialog> {
       _isFinished ? _rest : _rest.sublist(0, _rest.indexOf(_finished) + 1);
   List<Stage> get _finishedChoices => _rest.sublist(_rest.indexOf(_owned));
 
-  Widget _dot(Stage s, [double size = 16]) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(
-      color: stageColour(s.colour),
-      shape: BoxShape.circle,
-    ),
-  );
-
   Widget _picker(
     String label,
     Stage value,
@@ -1126,8 +1136,11 @@ Future<void> switchWorkflow(
   Vault vault,
   Collection collection,
 ) async {
+  final workflows = await vault.workflows();
+  final collections = await vault.collections();
+  final source = await vault.workflowOf(collection);
   final others = [
-    for (final w in await vault.workflows())
+    for (final w in workflows)
       if (w.id != collection.workflowId) w,
   ];
   if (!context.mounted) return;
@@ -1139,23 +1152,29 @@ Future<void> switchWorkflow(
   }
   final target = await showDialog<Workflow>(
     context: context,
-    builder: (context) => SimpleDialog(
-      title: Text('Switch ${collection.name} to'),
-      children: [
-        for (final w in others)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(context, w),
-            child: Text(w.name),
-          ),
-      ],
+    builder: (_) => _PickWorkflowDialog(
+      collection: collection,
+      source: source,
+      others: others,
+      collections: collections,
     ),
   );
   if (target == null || !context.mounted) return;
   final mapping = await vault.stageMapping(collection, target);
+  final units = <String, int>{};
+  // A Unit has at most one Batch per Stage.
+  for (final b in await vault.batchesOf(collection)) {
+    units.update(b.stageId, (n) => n + 1, ifAbsent: () => 1);
+  }
   if (!context.mounted) return;
   final moveTo = await showDialog<Map<String, String>>(
     context: context,
-    builder: (_) => _MapStagesDialog(target: target, mapping: mapping),
+    builder: (_) => _MapStagesDialog(
+      source: source,
+      target: target,
+      mapping: mapping,
+      units: units,
+    ),
   );
   if (moveTo == null || !context.mounted) return;
   await attempt(
@@ -1164,12 +1183,105 @@ Future<void> switchWorkflow(
   );
 }
 
-/// One target Stage picker per old Stage that holds Batches, pre-set to the same-name Stage or else the first.
-class _MapStagesDialog extends StatefulWidget {
-  const _MapStagesDialog({required this.target, required this.mapping});
+/// The Workflows a Collection can switch to, one radio row each with its [StageStrip], Stage range and users.
+class _PickWorkflowDialog extends StatefulWidget {
+  const _PickWorkflowDialog({
+    required this.collection,
+    required this.source,
+    required this.others,
+    required this.collections,
+  });
 
+  final Collection collection;
+  final Workflow source;
+  final List<Workflow> others;
+  final List<Collection> collections;
+
+  @override
+  State<_PickWorkflowDialog> createState() => _PickWorkflowDialogState();
+}
+
+class _PickWorkflowDialogState extends State<_PickWorkflowDialog> {
+  late Workflow _picked = widget.others.first;
+
+  String _summary(Workflow w) {
+    final users = [
+      for (final c in widget.collections)
+        if (c.workflowId == w.id) c.name,
+    ]..sort();
+    return '${w.stages.first.name} → ${w.stages.last.name} · '
+        '${users.isEmpty ? 'not used' : 'used by ${users.join(', ')}'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return AlertDialog(
+      title: Text('Switch ${widget.collection.name} to'),
+      content: SingleChildScrollView(
+        child: RadioGroup<Workflow>(
+          groupValue: _picked,
+          onChanged: (w) => setState(() => _picked = w!),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Now on ${widget.source.name}.'),
+              for (final w in widget.others)
+                RadioListTile<Workflow>(
+                  value: w,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(w.name),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      spacing: 6,
+                      children: [
+                        StageStrip(w),
+                        Text(_summary(w), style: muted),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _picked),
+          child: const Text('Next'),
+        ),
+      ],
+    );
+  }
+}
+
+/// One row per old Stage that holds Batches: its dot, name and Unit count → a picker of the new Workflow's Stages,
+/// pre-set to the same-name Stage, else the Stage that starts the same zone (the first Stage for wanted). A choice
+/// that changes the zone is flagged, not barred.
+class _MapStagesDialog extends StatefulWidget {
+  const _MapStagesDialog({
+    required this.source,
+    required this.target,
+    required this.mapping,
+    required this.units,
+  });
+
+  final Workflow source;
   final Workflow target;
   final List<({Stage from, Stage? to})> mapping;
+
+  /// Units per old Stage id.
+  final Map<String, int> units;
 
   @override
   State<_MapStagesDialog> createState() => _MapStagesDialogState();
@@ -1178,32 +1290,115 @@ class _MapStagesDialog extends StatefulWidget {
 class _MapStagesDialogState extends State<_MapStagesDialog> {
   late final _moveTo = {
     for (final m in widget.mapping)
-      m.from.id: (m.to ?? widget.target.stages.first).id,
+      m.from.id:
+          m.to ??
+          switch (_zoneOf(widget.source, m.from)) {
+            _Zone.wanted => widget.target.stages.first,
+            _Zone.owned => widget.target.ownedStage,
+            _Zone.finished => widget.target.finishedStage,
+          },
   };
+
+  Widget _row(ThemeData theme, Stage from) {
+    final colours = theme.colorScheme;
+    final to = _moveTo[from.id]!;
+    final was = _zoneOf(widget.source, from);
+    final now = _zoneOf(widget.target, to);
+    final n = widget.units[from.id] ?? 0;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        spacing: 4,
+        children: [
+          Row(
+            spacing: 8,
+            children: [
+              _dot(from),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(from.name, overflow: TextOverflow.ellipsis),
+                    Text(
+                      '$n ${n == 1 ? 'Unit' : 'Units'}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colours.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward, color: colours.onSurfaceVariant),
+              Expanded(
+                flex: 2,
+                child: DropdownMenu<Stage>(
+                  key: ValueKey('to:${from.id}'),
+                  initialSelection: to,
+                  expandedInsets: EdgeInsets.zero,
+                  leadingIcon: Center(widthFactor: 1, child: _dot(to)),
+                  // Dense with a narrow dot slot, to fit three columns in 320dp; outlined in the error colour on a zone change.
+                  inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+                    isDense: true,
+                    prefixIconConstraints: const BoxConstraints(minWidth: 32),
+                    enabledBorder: was == now
+                        ? null
+                        : OutlineInputBorder(
+                            borderSide: BorderSide(color: colours.error),
+                          ),
+                  ),
+                  dropdownMenuEntries: [
+                    for (final s in widget.target.stages)
+                      DropdownMenuEntry(
+                        value: s,
+                        label: s.name,
+                        leadingIcon: _dot(s),
+                      ),
+                  ],
+                  onSelected: (s) => setState(() => _moveTo[from.id] = s!),
+                ),
+              ),
+            ],
+          ),
+          if (was != now)
+            Row(
+              spacing: 4,
+              children: [
+                Icon(Icons.warning_amber, size: 16, color: colours.error),
+                Expanded(
+                  child: Text(
+                    '${was.name[0].toUpperCase()}${was.name.substring(1)} '
+                    'models would count as ${now.name}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colours.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return AlertDialog(
       title: Text('Switch to ${widget.target.name}?'),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
               widget.mapping.isEmpty
                   ? 'This Collection has no Units to move.'
                   : 'Move the Units at each Stage to:',
             ),
-            for (final m in widget.mapping)
-              DropdownButtonFormField<String>(
-                initialValue: _moveTo[m.from.id],
-                decoration: InputDecoration(labelText: m.from.name),
-                items: [
-                  for (final s in widget.target.stages)
-                    DropdownMenuItem(value: s.id, child: Text(s.name)),
-                ],
-                onChanged: (id) => setState(() => _moveTo[m.from.id] = id!),
-              ),
+            for (final m in widget.mapping) _row(theme, m.from),
           ],
         ),
       ),
@@ -1213,7 +1408,9 @@ class _MapStagesDialogState extends State<_MapStagesDialog> {
           child: const Text('Cancel'),
         ),
         TextButton(
-          onPressed: () => Navigator.pop(context, _moveTo),
+          onPressed: () => Navigator.pop(context, {
+            for (final e in _moveTo.entries) e.key: e.value.id,
+          }),
           child: const Text('Switch'),
         ),
       ],
@@ -1271,12 +1468,15 @@ class _NameDialogState extends State<NameDialog> {
 /// Asks for a new Collection's name and Workflow, the first (starter) Workflow preselected.
 /// Name, Game System and either (for a new Collection) Workflow or (when editing) description. Pops
 /// `(name, workflowId, gameSystem, description)`; the Workflow is null when editing, the description '' when not.
+/// Workflows show their [StageStrip]. When editing, the current one shows read-only with "Switch…", which closes the
+/// dialog without saving its edits (as the Stage sheet's actions do) and calls [onSwitch].
 class NewCollectionDialog extends StatefulWidget {
   const NewCollectionDialog({
     super.key,
     this.workflows = const [],
     this.gameSystems = const [],
     this.collection,
+    this.onSwitch,
   });
 
   final List<Workflow> workflows;
@@ -1286,6 +1486,9 @@ class NewCollectionDialog extends StatefulWidget {
 
   /// The Collection being edited; null for a new one.
   final Collection? collection;
+
+  /// Runs the Switch Workflow flow (when editing).
+  final VoidCallback? onSwitch;
 
   @override
   State<NewCollectionDialog> createState() => _NewCollectionDialogState();
@@ -1300,7 +1503,7 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
     text: widget.collection?.description,
   );
   final _gameSystemFocus = FocusNode();
-  late String? _workflowId = widget.workflows.firstOrNull?.id;
+  late Workflow? _workflow = widget.workflows.firstOrNull;
 
   @override
   void dispose() {
@@ -1314,9 +1517,13 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
   @override
   Widget build(BuildContext context) {
     final editing = widget.collection != null;
+    final theme = Theme.of(context);
+    final current = widget.workflows
+        .where((w) => w.id == widget.collection?.workflowId)
+        .firstOrNull;
     void save() => Navigator.pop(context, (
       _name.text,
-      _workflowId,
+      editing ? null : _workflow?.id,
       _gameSystem.text,
       _description.text,
     ));
@@ -1324,6 +1531,7 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
       title: Text(editing ? 'Edit Collection' : 'New Collection'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TextField(
             controller: _name,
@@ -1352,17 +1560,61 @@ class _NewCollectionDialogState extends State<NewCollectionDialog> {
               maxLines: 5,
               keyboardType: TextInputType.multiline,
               decoration: const InputDecoration(labelText: 'Description'),
-            )
-          else
-            DropdownButtonFormField<String>(
-              initialValue: _workflowId,
-              decoration: const InputDecoration(labelText: 'Workflow'),
-              items: [
-                for (final w in widget.workflows)
-                  DropdownMenuItem(value: w.id, child: Text(w.name)),
-              ],
-              onChanged: (id) => setState(() => _workflowId = id!),
             ),
+          if (editing && current != null) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Workflow',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            Row(
+              spacing: 8,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    spacing: 6,
+                    children: [Text(current.name), StageStrip(current)],
+                  ),
+                ),
+                if (widget.onSwitch case final onSwitch?)
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      onSwitch();
+                    },
+                    child: const Text('Switch…'),
+                  ),
+              ],
+            ),
+          ],
+          if (!editing) ...[
+            const SizedBox(height: 8),
+            DropdownMenu<Workflow>(
+              initialSelection: _workflow,
+              label: const Text('Workflow'),
+              expandedInsets: EdgeInsets.zero,
+              dropdownMenuEntries: [
+                for (final w in widget.workflows)
+                  DropdownMenuEntry(
+                    value: w,
+                    label: w.name,
+                    labelWidget: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      spacing: 4,
+                      children: [Text(w.name), StageStrip(w, height: 6)],
+                    ),
+                  ),
+              ],
+              onSelected: (w) => setState(() => _workflow = w),
+            ),
+            if (_workflow case final w?) ...[
+              const SizedBox(height: 8),
+              StageStrip(w),
+            ],
+          ],
         ],
       ),
       actions: [
