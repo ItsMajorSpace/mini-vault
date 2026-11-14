@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Categories and Search Mockups</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Cinzel:wght@500;700&family=Roboto:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
+<style>
+:root {
+  color-scheme: dark;
+  /* Grimdark dark, app/lib/theme.dart */
+  --g-bg: #1C1F22; --g-accent: #FFA000; --g-err: #F6937A; --g-text: #E4E6E8; --g-muted: #B0B7BD;
+  --g-c0: #16191B; --g-c1: #23272B; --g-c2: #2B3035; --g-c3: #31373C; --g-c4: #3A4046; --g-outline: #6B737A;
+  --g-tint: rgba(255,160,0,.14); --g-font: 'Black Ops One';
+  /* Fantasy dark */
+  --f-bg: #17231B; --f-accent: #D9B44A; --f-err: #F49C8A; --f-text: #F1E8D0; --f-muted: #C9BFA3;
+  --f-c0: #111A14; --f-c1: #1E2C22; --f-c2: #25352A; --f-c3: #2B3D30; --f-c4: #33473A; --f-outline: #7A8A72;
+  --f-tint: rgba(217,180,74,.16); --f-font: 'Cinzel';
+  /* active */
+  --bg: var(--g-bg); --accent: var(--g-accent); --err: var(--g-err); --text: var(--g-text); --muted: var(--g-muted);
+  --c0: var(--g-c0); --c1: var(--g-c1); --c2: var(--g-c2); --c3: var(--g-c3); --c4: var(--g-c4); --outline: var(--g-outline);
+  --tint: var(--g-tint); --hfont: var(--g-font);
+  --scrim: rgba(0,0,0,.6); --shadow: rgba(0,0,0,.5); --kbd: #24272A; --key: #3C4145;
+  /* Stage colours, Vault.stageColours (Standard Workflow) */
+  --wish: #9AA1A8; --unas: #C2B59B; --asm: #FFC24D; --prim: #A3A3FF; --paint: #5CC8EB; --based: #B5E061; --done: #6FD98A;
+  /* page */
+  --page: #0E1012; --note-bg: #15181A; --note-ink: #C9CED2; --bad: #F6937A; --flag: #7FB2FF;
+  /* photo placeholders */
+  --ph1: #2F5A5A; --ph2: #C9C2A8; --ph3: #3F4A52;
+}
+.fantasy {
+  --bg: var(--f-bg); --accent: var(--f-accent); --err: var(--f-err); --text: var(--f-text); --muted: var(--f-muted);
+  --c0: var(--f-c0); --c1: var(--f-c1); --c2: var(--f-c2); --c3: var(--f-c3); --c4: var(--f-c4); --outline: var(--f-outline);
+  --tint: var(--f-tint); --hfont: var(--f-font);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 14px/1.4 Roboto, system-ui, sans-serif; padding: 24px 16px 48px; overflow-x: hidden; }
+h1 { font: 28px 'Black Ops One', sans-serif; color: var(--g-accent); margin: 0 0 4px; }
+h2.grp { font: 18px 'Black Ops One', sans-serif; color: var(--g-accent); margin: 40px 0 16px; font-weight: 400; }
+.lede { color: var(--g-muted); max-width: 780px; margin: 0 0 8px; }
+.board { display: flex; flex-wrap: wrap; gap: 32px 28px; align-items: flex-start; }
+.col { width: 360px; max-width: 100%; }
+.cap { font: 13px 'Black Ops One', sans-serif; color: var(--g-muted); letter-spacing: 1px; margin: 0 0 8px; text-transform: uppercase; }
+.cap b { color: var(--g-accent); font-weight: 400; }
+
+.phone { position: relative; width: 100%; height: 760px; background: var(--bg); color: var(--text); border: 1px solid #2E3338; border-radius: 22px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 12px 40px var(--shadow); }
+.status { height: 24px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; font-size: 12px; color: var(--muted); }
+.appbar { height: 64px; flex: none; display: flex; align-items: center; padding: 0 4px; }
+.appbar .t { flex: 1; min-width: 0; font: 22px var(--hfont), sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 12px; }
+.appbar .ib + .t { padding-left: 4px; }
+.appbar.ctx { background: var(--c2); }
+.sfield { flex: 1; min-width: 0; height: 48px; display: flex; align-items: center; font-size: 18px; border-bottom: 2px solid var(--accent); margin-right: 4px; }
+.sfield .caret { width: 2px; height: 22px; background: var(--accent); margin-left: 1px; }
+.body { flex: 1; overflow: hidden; position: relative; }
+.ms { font-family: 'Material Symbols Outlined'; font-size: 24px; line-height: 1; font-weight: 400; font-style: normal; display: inline-block; font-feature-settings: 'liga'; }
+.ib { width: 48px; height: 48px; flex: none; display: inline-grid; place-items: center; color: var(--muted); }
+.ib.ac { color: var(--accent); }
+.tile { min-height: 56px; display: flex; align-items: center; gap: 16px; padding: 8px 16px; }
+.tile .main { flex: 1; min-width: 0; }
+.tile .nm { font-size: 16px; }
+.sub { color: var(--muted); font-size: 13px; }
+mark { background: none; color: var(--accent); font-weight: 700; }
+.fab { position: absolute; right: 16px; bottom: 16px; height: 56px; width: 56px; border-radius: 16px; background: var(--accent); color: var(--bg); display: grid; place-items: center; box-shadow: 0 4px 10px var(--shadow); z-index: 1; }
+.nav { height: 80px; flex: none; background: var(--c1); display: flex; }
+.nav div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.nav .pill { width: 64px; height: 32px; border-radius: 16px; display: grid; place-items: center; }
+.nav .on .pill { background: var(--tint); color: var(--accent); }
+.nav .on { color: var(--text); }
+/* ProgressDrawer (progress.dart), collapsed */
+.drawer { flex: none; background: var(--c2); padding: 0 16px 12px; text-align: center; font-size: 14px; }
+.drawer .ms { display: block; height: 40px; line-height: 40px; color: var(--muted); }
+.drawer .sbar { margin-top: 4px; }
+/* StageBar: 4dp, latest Stage leftmost, wanted as outlined Wishlist segment */
+.sbar { display: flex; height: 4px; margin-top: 6px; background: var(--c4); outline: .5px solid var(--outline); }
+.sbar i { display: block; }
+.sbar i.w { box-shadow: inset 0 0 0 1px var(--wish); }
+
+/* Section header (section.dart), plus proposed collapse */
+.sh { display: flex; align-items: center; min-height: 48px; padding-left: 16px; }
+.sh .bar { width: 4px; height: 18px; background: var(--accent); border-radius: 2px; margin-right: 10px; flex: none; }
+.sh .st { font: 15px var(--hfont), sans-serif; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh .count { margin-left: 8px; color: var(--muted); font-size: 12px; }
+.sh .sp, .sp { flex: 1; }
+.sh.col { align-items: flex-start; padding-top: 12px; padding-bottom: 12px; background: var(--c0); margin: 0 0 2px; }
+.sh.col .bar { background: var(--outline); margin-top: 1px; }
+.sh.col .gm { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sh.col .gs { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.sh.col .ib { margin: -12px 0; }
+.sh.drop { box-shadow: inset 0 -3px 0 var(--accent); }
+.plain-h { font: 14px var(--hfont), sans-serif; padding: 16px 16px 0; }
+.hr { height: 1px; background: var(--c4); margin: 4px 0; }
+
+/* Unit rows (Collection screen) */
+.urow { display: flex; align-items: center; min-height: 72px; padding-left: 16px; gap: 12px; }
+.urow .main { flex: 1; min-width: 0; }
+.urow .nm { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.urow .trail { color: var(--muted); font-size: 13px; padding-right: 16px; white-space: nowrap; }
+.thumb { width: 48px; height: 48px; flex: none; border-radius: 6px; box-shadow: 0 0 0 1px var(--outline); }
+.thumb.a { background: linear-gradient(135deg, var(--ph2) 0 40%, var(--ph1) 41% 70%, #69E0C8 71% 74%, var(--ph1) 75%); }
+.thumb.b { background: radial-gradient(circle at 40% 40%, var(--ph2) 0 30%, var(--ph3) 32%); }
+.thumb.add { box-shadow: none; border: 1.5px dashed var(--outline); background: var(--c0); display: grid; place-items: center; color: var(--muted); }
+.thumb.add .ms { font-size: 22px; }
+.urow .h { width: 48px; flex: none; display: grid; place-items: center; color: var(--outline); }
+.urow.lift { background: var(--c3); box-shadow: 0 8px 18px var(--shadow); margin: 0 6px; border-radius: 8px; transform: rotate(-.6deg); position: relative; z-index: 2; }
+.urow.lift .h { color: var(--accent); }
+.urow.ghost { opacity: .0; min-height: 72px; }
+.slot { margin: 0 16px; height: 72px; border: 1.5px dashed var(--accent); border-radius: 8px; background: var(--tint); }
+.hint { margin: 8px 16px; padding: 10px 12px; background: var(--c2); border-radius: 8px; display: flex; gap: 10px; color: var(--muted); font-size: 13px; }
+.hint .ms { font-size: 20px; color: var(--accent); }
+.empty { padding: 14px 16px; color: var(--muted); font-style: italic; }
+.desc { padding: 12px 16px; color: var(--muted); }
+.schemes { display: flex; gap: 8px; padding: 0 16px; overflow: hidden; }
+.scheme { flex: none; height: 56px; min-width: 104px; padding: 0 12px; background: var(--c1); border-radius: 12px; display: flex; flex-direction: column; justify-content: center; border-left: 3px solid var(--accent); }
+.scheme b { font: 14px var(--hfont), sans-serif; font-weight: 400; }
+.scheme span { color: var(--muted); font-size: 12px; }
+
+/* menus, sheets, dialogs */
+.menu { position: absolute; right: 8px; top: 92px; width: 216px; background: var(--c2); border-radius: 4px; padding: 8px 0; box-shadow: 0 6px 16px var(--shadow); z-index: 3; }
+.menu div { height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 12px; }
+.menu .ms { font-size: 20px; color: var(--muted); }
+.menu hr { border: 0; border-top: 1px solid var(--c4); margin: 8px 0; }
+.scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 3; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--c1); border-radius: 28px 28px 0 0; z-index: 4; padding-bottom: 8px; }
+.grab { width: 32px; height: 4px; border-radius: 2px; background: var(--outline); margin: 14px auto 6px; }
+.sheet h3, .dlg h3 { font: 20px var(--hfont), sans-serif; font-weight: 400; margin: 6px 0 4px; }
+.sheet .in { padding: 0 24px; }
+.crow { display: flex; align-items: center; min-height: 56px; padding-left: 24px; }
+.crow + .crow { border-top: 1px solid var(--c4); }
+.crow .main { flex: 1; min-width: 0; }
+.crow .h { color: var(--outline); }
+.crow.fixed { color: var(--muted); }
+.dlg { position: absolute; left: 20px; right: 20px; top: 50%; transform: translateY(-50%); background: var(--c2); border-radius: 28px; padding: 24px 24px 12px; z-index: 4; }
+.dlg.up { top: 40px; transform: none; display: flex; flex-direction: column; }
+.dlg p { margin: 8px 0 12px; color: var(--muted); }
+.dlg .scroll { flex: 1; overflow: hidden; position: relative; padding-top: 8px; padding-right: 8px; }
+.dlg .scroll::after { content: ''; position: absolute; top: 8px; right: 0; width: 4px; height: 56%; border-radius: 2px; background: var(--outline); }
+.field { border: 1px solid var(--outline); border-radius: 4px; padding: 0 12px; min-height: 56px; display: flex; align-items: center; gap: 10px; position: relative; font-size: 16px; margin-bottom: 16px; --fbg: var(--c2); }
+.field.focus { border: 2px solid var(--accent); }
+.field .fl { position: absolute; top: -9px; left: 10px; background: var(--fbg); padding: 0 4px; font-size: 12px; color: var(--muted); }
+.field.focus .fl { color: var(--accent); }
+.field .grow { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.field .ms { color: var(--muted); }
+.field.dis { opacity: .55; }
+.help { font-size: 12px; color: var(--muted); margin: -12px 0 14px 14px; }
+.caret { display: inline-block; width: 2px; height: 20px; background: var(--accent); vertical-align: middle; }
+.btns { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 8px; }
+.tbtn { height: 40px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; font-weight: 500; color: var(--accent); }
+.tbtn.rust { color: var(--err); }
+.obtn { height: 40px; border: 1px solid var(--outline); border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--accent); font-weight: 500; padding: 0 20px 0 16px; }
+.dd { position: absolute; left: 44px; right: 44px; top: 214px; background: var(--c3); border-radius: 4px; padding: 8px 0; box-shadow: 0 6px 16px var(--shadow); z-index: 5; }
+.dd div { height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 16px; font-size: 16px; }
+.dd .on { background: var(--tint); }
+.dd .ital { color: var(--muted); font-style: italic; }
+.dd .new { color: var(--accent); font-weight: 500; }
+.dd hr { border: 0; border-top: 1px solid var(--c4); margin: 4px 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 16px 12px; }
+.chip { height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid var(--outline); border-radius: 8px; font-size: 14px; }
+.chip.cat { border-color: var(--accent); color: var(--accent); padding-left: 8px; }
+.chip .ms { font-size: 18px; }
+.nores { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 72px 32px 0; gap: 12px; color: var(--muted); }
+.nores .ms { font-size: 48px; color: var(--outline); }
+.nores b { color: var(--text); font-weight: 500; }
+
+/* keyboard */
+.kbd { position: absolute; left: 0; right: 0; bottom: 0; height: 284px; background: var(--kbd); padding: 10px 4px 22px; display: flex; flex-direction: column; gap: 10px; z-index: 6; }
+.kbd div { flex: 1; display: flex; gap: 5px; justify-content: center; }
+.kbd i { flex: 0 1 31px; background: var(--key); border-radius: 6px; display: grid; place-items: center; font-style: normal; color: #E4E6E8; font-size: 17px; }
+.kbd i.w { flex-basis: 46px; font-size: 13px; }
+.kbd i.sp { flex: 1 1 160px; }
+
+.notes { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.notes li { background: var(--note-bg); border-left: 3px solid var(--g-accent); border-radius: 4px; padding: 8px 10px; font-size: 13px; color: var(--note-ink); }
+.notes li.bad { border-left-color: var(--bad); }
+.notes li.flag { border-left-color: var(--flag); }
+.notes code { font: 12px ui-monospace, Menlo, monospace; color: var(--g-accent); }
+.widget { margin-top: 40px; max-width: 780px; background: var(--note-bg); border-radius: 12px; padding: 16px 18px; color: var(--note-ink); }
+.widget h2 { font: 18px 'Black Ops One', sans-serif; font-weight: 400; color: var(--g-accent); margin: 0 0 8px; }
+.widget pre { overflow-x: auto; font: 12px/1.5 ui-monospace, Menlo, monospace; margin: 8px 0 0; white-space: pre-wrap; }
+@media (max-width: 400px) { .phone { height: 720px; } }
+</style>
+</head>
+<body>
+
+<h1>Categories and Search Mockups</h1>
+<p class="lede">Collapsible Game System groups and search on the Collections list; Categories, drag-and-drop Unit order and the Add models dialog on the Collection screen; Category on the Unit screen. Grimdark dark throughout, one Fantasy frame. 360dp frames. Sample: Necrons (Grimdark Future), Workflow "Standard" (Wishlist → Done). Domain changes already decided: Category, Category order and Unit order are synced; collapse state is per device.</p>
+<p class="lede">Legend: amber notes = decision, rust = problem in the current app, blue = open question or suggestion.</p>
+
+<h2 class="grp">Collections list</h2>
+<div class="board">
+
+<!-- 1 COLLECTIONS BEFORE -->
+<div class="col">
+<p class="cap">1 · Collections <b>before</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="plain-h">Recently painted</div>
+    <div class="tile"><div class="main"><div class="nm">Forge Spider</div><div class="sub">Necrons</div><div class="sbar"><i style="flex:1;background:var(--paint)"></i></div></div><span class="ib"><span class="ms">chevron_right</span></span></div>
+    <div class="hr"></div>
+    <div class="plain-h">Grimdark Future</div>
+    <div class="tile"><div class="main"><div class="nm">Death Guard</div><div class="sub">24 / 61 finished · 10 wanted</div><div class="sbar"><i style="flex:24;background:var(--done)"></i><i style="flex:20;background:var(--paint)"></i><i style="flex:17;background:var(--unas)"></i><i class="w" style="flex:10"></i></div></div></div>
+    <div class="tile"><div class="main"><div class="nm">Necrons</div><div class="sub">18 / 47 finished · 6 wanted</div><div class="sbar"><i style="flex:18;background:var(--done)"></i><i style="flex:11;background:var(--prim)"></i><i style="flex:18;background:var(--asm)"></i><i class="w" style="flex:6"></i></div></div></div>
+    <div class="tile"><div class="main"><div class="nm">Space Marines</div><div class="sub">40 / 52 finished</div><div class="sbar"><i style="flex:40;background:var(--done)"></i><i style="flex:12;background:var(--based)"></i></div></div></div>
+    <div class="plain-h">Killteam</div>
+    <div class="tile"><div class="main"><div class="nm">Orks</div><div class="sub">3 / 12 finished</div><div class="sbar"><i style="flex:3;background:var(--done)"></i><i style="flex:9;background:var(--unas)"></i></div></div></div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="drawer"><span class="ms">expand_less</span>6 Collections · 207 owned · 91 finished · 24 wanted<div class="sbar"><i style="flex:91;background:var(--done)"></i><i style="flex:116;background:var(--prim)"></i><i class="w" style="flex:24"></i></div></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li class="bad">Every Collection of every Game System is always listed; with ProgressDrawer and NavigationBar only ~5 rows fit at 360×760, so "Age of Fantasy" and "Other" sit well below the fold.</li>
+  <li class="bad">Game System headers are plain <code>titleSmall</code> text, not the <code>Section</code> look used elsewhere, and do nothing on tap. No way to find a Collection by name.</li>
+</ul>
+</div>
+
+<!-- 2 COLLECTIONS AFTER -->
+<div class="col">
+<p class="cap">2 · Collections <b>after</b>, groups collapsed and expanded</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">search</span></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="plain-h">Recently painted</div>
+    <div class="tile"><div class="main"><div class="nm">Forge Spider</div><div class="sub">Necrons</div><div class="sbar"><i style="flex:1;background:var(--paint)"></i></div></div><span class="ib"><span class="ms">chevron_right</span></span></div>
+    <div class="hr"></div>
+    <div class="sh"><span class="bar"></span><span class="st">Grimdark Future</span><span class="count">3</span><span class="sp"></span><span class="ib"><span class="ms">expand_less</span></span></div>
+    <div class="tile"><div class="main"><div class="nm">Death Guard</div><div class="sub">24 / 61 finished · 10 wanted</div><div class="sbar"><i style="flex:24;background:var(--done)"></i><i style="flex:20;background:var(--paint)"></i><i style="flex:17;background:var(--unas)"></i><i class="w" style="flex:10"></i></div></div></div>
+    <div class="tile"><div class="main"><div class="nm">Necrons</div><div class="sub">18 / 47 finished · 6 wanted</div><div class="sbar"><i style="flex:18;background:var(--done)"></i><i style="flex:11;background:var(--prim)"></i><i style="flex:18;background:var(--asm)"></i><i class="w" style="flex:6"></i></div></div></div>
+    <div class="tile"><div class="main"><div class="nm">Space Marines</div><div class="sub">40 / 52 finished</div><div class="sbar"><i style="flex:40;background:var(--done)"></i><i style="flex:12;background:var(--based)"></i></div></div></div>
+    <div class="sh col"><span class="bar"></span><div class="gm"><span class="st">Killteam <span class="count">1</span></span><span class="gs">1 Collection · 3 / 12 finished</span></div><span class="ib"><span class="ms">expand_more</span></span></div>
+    <div class="sh col"><span class="bar"></span><div class="gm"><span class="st">Age of Fantasy <span class="count">1</span></span><span class="gs">1 Collection · 0 / 22 finished · 8 wanted</span></div><span class="ib"><span class="ms">expand_more</span></span></div>
+    <div class="sh col"><span class="bar"></span><div class="gm"><span class="st">Other <span class="count">1</span></span><span class="gs">1 Collection · 6 / 14 finished</span></div><span class="ib"><span class="ms">expand_more</span></span></div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="drawer"><span class="ms">expand_less</span>6 Collections · 207 owned · 91 finished · 24 wanted<div class="sbar"><i style="flex:91;background:var(--done)"></i><i style="flex:116;background:var(--prim)"></i><i class="w" style="flex:24"></i></div></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>Game System headers use the proposed <code>SectionHeader</code> (the header row of <code>Section</code>, extracted) with <code>expanded</code>/<code>onToggle</code>: the whole 48dp row is an <code>InkWell</code>, chevron last (<code>expand_less</code> open, <code>expand_more</code> closed), <code>Semantics(expanded:)</code>.</li>
+  <li>Collapsed: same header on <code>surfaceContainerLowest</code> with an outline-grey bar and one summary line under the title: "<i>n</i> Collections · finished / owned finished · wanted" (same words as <code>ProgressSummary</code>, summed via <code>Progress.combined</code>). No StageBar, so collapsed rows stay ~64dp.</li>
+  <li>Collapse state per device in a <code>CollapsedGroups</code> file next to <code>theme.txt</code> (like <code>ThemeSetting</code>), keyed by lower-cased Game System, "" for Other. All start expanded. "Recently painted" unchanged and not collapsible.</li>
+  <li>Search is an AppBar action, not a persistent <code>SearchBar</code>: body here is ~500dp after drawer and nav; a fixed field would cost another 72dp on every visit.</li>
+</ul>
+</div>
+
+<!-- 3 SEARCH RESULTS -->
+<div class="col">
+<p class="cap">3 · Collections <b>search</b>, typing</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><div class="sfield">ri<span class="caret"></span></div><span class="ib"><span class="ms">close</span></span></div>
+  <div class="body">
+    <div class="sh"><span class="bar"></span><span class="st">G<mark>ri</mark>mdark Future</span><span class="count">3</span></div>
+    <div class="tile"><div class="main"><div class="nm">Death Guard</div><div class="sub">24 / 61 finished · 10 wanted</div><div class="sbar"><i style="flex:24;background:var(--done)"></i><i style="flex:20;background:var(--paint)"></i><i style="flex:17;background:var(--unas)"></i><i class="w" style="flex:10"></i></div></div></div>
+    <div class="tile"><div class="main"><div class="nm">Necrons</div><div class="sub">18 / 47 finished · 6 wanted</div><div class="sbar"><i style="flex:18;background:var(--done)"></i><i style="flex:11;background:var(--prim)"></i><i style="flex:18;background:var(--asm)"></i><i class="w" style="flex:6"></i></div></div></div>
+    <div class="tile"><div class="main"><div class="nm">Space Ma<mark>ri</mark>nes</div><div class="sub">40 / 52 finished</div><div class="sbar"><i style="flex:40;background:var(--done)"></i><i style="flex:12;background:var(--based)"></i></div></div></div>
+    <div class="sh"><span class="bar"></span><span class="st">Age of Fantasy</span><span class="count">1</span></div>
+    <div class="tile"><div class="main"><div class="nm">Sau<mark>ri</mark>ans</div><div class="sub">0 / 22 finished · 8 wanted</div><div class="sbar"><i style="flex:22;background:var(--unas)"></i><i class="w" style="flex:8"></i></div></div></div>
+  </div>
+  <div class="kbd"><div><i>q</i><i>w</i><i>e</i><i>r</i><i>t</i><i>y</i><i>u</i><i>i</i><i>o</i><i>p</i></div><div><i>a</i><i>s</i><i>d</i><i>f</i><i>g</i><i>h</i><i>j</i><i>k</i><i>l</i></div><div><i class="w">⇧</i><i>z</i><i>x</i><i>c</i><i>v</i><i>b</i><i>n</i><i>m</i><i class="w">⌫</i></div><div><i class="w">?123</i><i>,</i><i class="sp"></i><i>.</i><i class="w">⏎</i></div></div>
+</div>
+<ul class="notes">
+  <li>Search icon swaps the AppBar for a back arrow, an autofocused <code>TextField</code> (hint "Search Collections") and a clear <code>IconButton</code>; back or system back ends search. Plain <code>AppBar(title: TextField)</code>, no <code>SearchAnchor</code> route, so results stay this same list.</li>
+  <li>Filter: case-insensitive substring on Collection name or Game System name. A Game System match keeps all its Collections (Grimdark Future); otherwise only the matching ones (Saurians under Age of Fantasy, collapsed in 2 but open here). Matched text in bold accent (<code>Text.rich</code>).</li>
+  <li>While a query is active: groups always expanded with no chevron (saved state untouched), "Recently painted" and the FAB hidden. The ProgressDrawer stays as is (under the keyboard here).</li>
+</ul>
+</div>
+
+<!-- 4 SEARCH NO MATCH (Fantasy) -->
+<div class="col">
+<p class="cap">4 · Search, <b>no matches</b> (Fantasy, keyboard closed)</p>
+<div class="phone fantasy">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><div class="sfield" style="border-bottom-color:var(--outline)">tyranids</div><span class="ib"><span class="ms">close</span></span></div>
+  <div class="body">
+    <div class="nores"><span class="ms">search_off</span><div><b>No Collections match "tyranids"</b></div><div>Search looks at Collection names and Game Systems.</div><span class="obtn"><span class="ms" style="font-size:18px;color:inherit">close</span>Clear search</span></div>
+  </div>
+  <div class="drawer"><span class="ms">expand_less</span>6 Collections · 207 owned · 91 finished · 24 wanted<div class="sbar"><i style="flex:91;background:var(--done)"></i><i style="flex:116;background:var(--prim)"></i><i class="w" style="flex:24"></i></div></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>No matches: centred icon (<code>Icons.search_off</code>, outline colour), the query quoted, one line on what is searched, and an <code>OutlinedButton.icon</code> "Clear search" that empties the field and keeps search open.</li>
+  <li>Not <code>EmptyState</code>: that one invites "New Collection", which here would read as an answer to the query.</li>
+  <li class="flag">Fantasy check: Cinzel headings, gold accent on the field; contrast of muted text on forest stays above 4.5:1.</li>
+</ul>
+</div>
+</div>
+
+<h2 class="grp">Collection screen</h2>
+<div class="board">
+
+<!-- 5 COLLECTION BEFORE -->
+<div class="col">
+<p class="cap">5 · Collection <b>before</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="desc">Robot Legions for Grimdark Future, 2000 pts. Bone carapace, teal glow.</div>
+    <div class="sh"><span class="bar"></span><span class="st">Paint Schemes</span><span class="sp"></span><span class="ib ac"><span class="ms">add</span></span></div>
+    <div class="schemes"><div class="scheme"><b>Carapace</b><span>6 Scheme Steps</span></div><div class="scheme"><b>Glow</b><span>3 Scheme Steps</span></div><div class="scheme"><b>Bases</b><span>4 Scheme Steps</span></div></div>
+    <div style="height:12px"></div>
+    <div class="urow"><span class="thumb a"></span><div class="main"><div class="nm">Annihilator Lord</div><div class="sbar"><i style="flex:1;background:var(--done)"></i></div></div><span class="trail">1 model</span></div>
+    <div class="urow"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Bot Swarms</div><div class="sbar"><i style="flex:3;background:var(--prim)"></i></div></div><span class="trail">3 models</span></div>
+    <div class="urow"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Crawler Scarabs</div><div class="sbar"><i style="flex:6;background:var(--unas)"></i></div></div><span class="trail">6 models</span></div>
+    <div class="urow"><span class="thumb b"></span><div class="main"><div class="nm">Destroyer Lord</div><div class="sbar"><i style="flex:1;background:var(--paint)"></i></div></div><span class="trail">1 model</span></div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="drawer"><span class="ms">expand_less</span>9 Units · 47 owned · 18 finished · 6 wanted<div class="sbar"><i style="flex:18;background:var(--done)"></i><i style="flex:11;background:var(--prim)"></i><i style="flex:18;background:var(--asm)"></i><i class="w" style="flex:6"></i></div></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li class="bad">Units only alphabetical: heroes, troops and vehicles interleave (Annihilator Lord, Bot Swarms, Crawler Scarabs, Destroyer Lord…). No way to put them in army order.</li>
+  <li class="bad">Description and Paint Schemes sit outside the scrolling list, so only ~4 Units are ever visible at 360×760.</li>
+</ul>
+</div>
+
+<!-- 6 COLLECTION AFTER -->
+<div class="col">
+<p class="cap">6 · Collection <b>after</b>, Categories</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="sh"><span class="bar"></span><span class="st">Heroes</span><span class="count">2</span><span class="sp"></span><span class="ib ac"><span class="ms">add</span></span><span class="ib"><span class="ms">expand_less</span></span></div>
+    <div class="urow"><span class="thumb a"></span><div class="main"><div class="nm">Annihilator Lord</div><div class="sbar"><i style="flex:1;background:var(--done)"></i></div></div><span class="trail">1 model</span></div>
+    <div class="urow"><span class="thumb b"></span><div class="main"><div class="nm">Destroyer Lord</div><div class="sbar"><i style="flex:1;background:var(--paint)"></i></div></div><span class="trail">1 model</span></div>
+    <div class="sh"><span class="bar"></span><span class="st">Core</span><span class="count">3</span><span class="sp"></span><span class="ib ac"><span class="ms">add</span></span><span class="ib"><span class="ms">expand_less</span></span></div>
+    <div class="urow"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Warriors</div><div class="sbar"><i style="flex:10;background:var(--done)"></i><i style="flex:10;background:var(--prim)"></i></div></div><span class="trail">20 models</span></div>
+    <div class="urow"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Eternals</div><div class="sbar"><i style="flex:5;background:var(--done)"></i><i style="flex:5;background:var(--asm)"></i></div></div><span class="trail">10 models</span></div>
+    <div class="urow"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Bot Swarms</div><div class="sbar"><i style="flex:3;background:var(--prim)"></i></div></div><span class="trail">3 models</span></div>
+    <div class="sh col" style="padding-right:0"><span class="bar"></span><div class="gm"><span class="st">Support <span class="count">3</span></span><span class="gs">3 Units · 1 / 6 finished · 6 wanted</span></div><span class="ib ac"><span class="ms">add</span></span><span class="ib"><span class="ms">expand_more</span></span></div>
+    <div class="sh"><span class="bar" style="background:var(--outline)"></span><span class="st" style="color:var(--muted)">Uncategorised</span><span class="count">1</span><span class="sp"></span><span class="ib ac"><span class="ms">add</span></span><span class="ib"><span class="ms">expand_less</span></span></div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="drawer"><span class="ms">expand_less</span>9 Units · 47 owned · 18 finished · 6 wanted<div class="sbar"><i style="flex:18;background:var(--done)"></i><i style="flex:11;background:var(--prim)"></i><i style="flex:18;background:var(--asm)"></i><i class="w" style="flex:6"></i></div></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>One <code>ListView</code> of flat rows: description and Paint Schemes scroll away above (shown scrolled past here), then per Category a <code>SectionHeader</code> and its Unit rows in person-chosen order. Unit rows unchanged (thumbnail, name, <code>StageBar</code>, model count).</li>
+  <li>Header actions: <code>add</code> (accent, tooltip "Add models to Core") opens Add models with that Category; chevron collapses. Collapsed shows "3 Units · finished / owned finished · wanted". Keys in <code>CollapsedGroups</code>: <code>category:&lt;id&gt;</code>, <code>uncategorised:&lt;collectionId&gt;</code>.</li>
+  <li>"Uncategorised" is last, header bar and title in muted colour (it is not a Category), only when it has Units. With no Categories at all the list shows no headers, exactly as today.</li>
+</ul>
+</div>
+
+<!-- 7 MENU ENTRY -->
+<div class="col">
+<p class="cap">7 · Entering <b>Reorder Units</b> and Categories</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib" style="background:var(--c3);border-radius:24px"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="sh"><span class="bar"></span><span class="st">Heroes</span><span class="count">2</span><span class="sp"></span><span class="ib ac"><span class="ms">add</span></span><span class="ib"><span class="ms">expand_less</span></span></div>
+    <div class="urow"><span class="thumb a"></span><div class="main"><div class="nm">Annihilator Lord</div><div class="sbar"><i style="flex:1;background:var(--done)"></i></div></div><span class="trail">1 model</span></div>
+    <div class="urow"><span class="thumb b"></span><div class="main"><div class="nm">Destroyer Lord</div><div class="sbar"><i style="flex:1;background:var(--paint)"></i></div></div><span class="trail">1 model</span></div>
+    <div class="sh"><span class="bar"></span><span class="st">Core</span><span class="count">3</span><span class="sp"></span><span class="ib ac"><span class="ms">add</span></span><span class="ib"><span class="ms">expand_less</span></span></div>
+    <div class="urow"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Warriors</div><div class="sbar"><i style="flex:10;background:var(--done)"></i><i style="flex:10;background:var(--prim)"></i></div></div><span class="trail">20 models</span></div>
+    <div class="menu" style="top:0"><div>Edit Collection</div><div>Switch Workflow</div><div>Import army list</div><hr><div><span class="ms">swap_vert</span>Reorder Units</div><div><span class="ms">category</span>Categories</div><hr><div style="color:var(--err)">Delete Collection</div></div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="drawer"><span class="ms">expand_less</span>9 Units · 47 owned · 18 finished · 6 wanted<div class="sbar"><i style="flex:18;background:var(--done)"></i><i style="flex:29;background:var(--prim)"></i><i class="w" style="flex:6"></i></div></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>Recommend an explicit <b>Reorder Units</b> mode over an always-on handle: a Unit row already has two tap targets (thumbnail, row), a 48dp handle would cost the name ~15% width at 360dp, and a thumb resting on the right edge while scrolling would start drags. Unit order changes rarely; scrolling and opening Units happen constantly.</li>
+  <li>Two new <code>PopupMenuItem</code>s in the existing Collection menu, grouped between Import and Delete: "Reorder Units" and "Categories" (opens the sheet in 9). Reorder Units is hidden while the Collection has fewer than 2 Units.</li>
+</ul>
+</div>
+
+<!-- 8 REORDER MID-DRAG -->
+<div class="col">
+<p class="cap">8 · Reorder Units, <b>mid-drag</b> into another Category</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar ctx"><span class="ib"><span class="ms">check</span></span><span class="t" style="font-size:20px">Reorder Units</span><span class="ib ac"><span class="ms">category</span></span></div>
+  <div class="body">
+    <div class="hint"><span class="ms">drag_handle</span>Drag by the handle. Drop under another Category to move the Unit there. Saved as you go.</div>
+    <div class="sh"><span class="bar"></span><span class="st">Heroes</span><span class="count">2</span></div>
+    <div class="urow"><span class="thumb a"></span><div class="main"><div class="nm">Annihilator Lord</div><div class="sub">1 model</div></div><span class="h"><span class="ms">drag_handle</span></span></div>
+    <div class="urow"><span class="thumb b"></span><div class="main"><div class="nm">Destroyer Lord</div><div class="sub">1 model</div></div><span class="h"><span class="ms">drag_handle</span></span></div>
+    <div class="slot"></div>
+    <div class="urow lift" style="margin-top:-60px;margin-bottom:-12px"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Forge Spider</div><div class="sub">1 model · Support → Heroes</div></div><span class="h"><span class="ms">drag_handle</span></span></div>
+    <div class="sh"><span class="bar"></span><span class="st">Core</span><span class="count">3</span></div>
+    <div class="urow"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Warriors</div><div class="sub">20 models</div></div><span class="h"><span class="ms">drag_handle</span></span></div>
+    <div class="urow"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Eternals</div><div class="sub">10 models</div></div><span class="h"><span class="ms">drag_handle</span></span></div>
+    <div class="urow"><span class="thumb add"><span class="ms">add_a_photo</span></span><div class="main"><div class="nm">Bot Swarms</div><div class="sub">3 models</div></div><span class="h"><span class="ms">drag_handle</span></span></div>
+    <div class="sh"><span class="bar"></span><span class="st">Support</span><span class="count">2</span></div>
+  </div>
+  <div class="drawer"><span class="ms">expand_less</span>9 Units · 47 owned · 18 finished · 6 wanted<div class="sbar"><i style="flex:18;background:var(--done)"></i><i style="flex:29;background:var(--prim)"></i><i class="w" style="flex:6"></i></div></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>Same build as the Stage editor: one <code>ReorderableListView(buildDefaultDragHandles: false)</code> over flat rows (headers + Units); only Unit rows carry a trailing 48dp <code>ReorderableDragStartListener</code> with <code>Icons.drag_handle</code>. The Category of a dropped Unit is the nearest header above it, so crossing a header moves it.</li>
+  <li>In the mode: contextual AppBar (<code>surfaceContainer</code>, check = Done, back also exits), all Categories expanded, no chevrons, add buttons, FAB, description or Paint Schemes; row taps do nothing; StageBar swapped for the model count so rows read as items to move.</li>
+  <li>Each drop writes order (and Category if changed) at once, like Stage reorder. An empty Category keeps a "No Units yet" row as a drop target; Uncategorised always shows here as the last target.</li>
+</ul>
+</div>
+</div>
+
+<h2 class="grp">Managing Categories</h2>
+<div class="board">
+
+<!-- 9 CATEGORIES SHEET -->
+<div class="col">
+<p class="cap">9 · <b>Categories</b> sheet</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="in"><h3>Categories</h3><p class="sub" style="margin:0 0 8px">Tap to rename, drag to reorder. Units keep their order within a Category.</p></div>
+    <div class="crow"><div class="main">Heroes<div class="sub">2 Units</div></div><span class="ib" style="color:var(--err)"><span class="ms">delete</span></span><span class="ib h"><span class="ms">drag_handle</span></span></div>
+    <div class="crow"><div class="main">Core<div class="sub">3 Units</div></div><span class="ib" style="color:var(--err)"><span class="ms">delete</span></span><span class="ib h"><span class="ms">drag_handle</span></span></div>
+    <div class="crow"><div class="main">Support<div class="sub">3 Units</div></div><span class="ib" style="color:var(--err)"><span class="ms">delete</span></span><span class="ib h"><span class="ms">drag_handle</span></span></div>
+    <div class="crow"><div class="main">Elites<div class="sub">No Units</div></div><span class="ib" style="color:var(--err)"><span class="ms">delete</span></span><span class="ib h"><span class="ms">drag_handle</span></span></div>
+    <div class="crow fixed"><div class="main" style="font-style:italic">Uncategorised<div class="sub" style="font-style:normal">1 Unit · always last</div></div></div>
+    <div class="in" style="padding-top:12px;padding-bottom:16px"><span class="obtn"><span class="ms" style="font-size:18px;color:inherit">add</span>New Category</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li><code>showModalBottomSheet(isScrollControlled: true)</code> with a <code>ReorderableListView</code> of Categories; reuses the Stage editor row shape: name and Unit count, rust delete <code>IconButton</code>, 48dp <code>ReorderableDragStartListener</code>. Row tap opens Rename (10).</li>
+  <li>Uncategorised listed last as a non-draggable, non-tappable reminder of where Units go. "New Category" (<code>OutlinedButton.icon</code>) appends to the end.</li>
+  <li>Same sheet from the menu (7) and from the <code>category</code> action in Reorder mode (8), so one place manages Categories.</li>
+</ul>
+</div>
+
+<!-- 10 NEW / RENAME DIALOG -->
+<div class="col">
+<p class="cap">10 · <b>New / Rename Category</b> dialog</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg up" style="top:150px">
+    <h3>Rename Category</h3>
+    <div style="height:16px"></div>
+    <div class="field focus"><span class="fl">Name</span><span class="grow">heroes<span class="caret"></span></span></div>
+    <div class="help" style="color:var(--err)">Necrons already has a Category "Heroes"</div>
+    <div class="btns"><span class="tbtn">Cancel</span><span class="tbtn">Save</span></div>
+  </div>
+  <div class="kbd"><div><i>q</i><i>w</i><i>e</i><i>r</i><i>t</i><i>y</i><i>u</i><i>i</i><i>o</i><i>p</i></div><div><i>a</i><i>s</i><i>d</i><i>f</i><i>g</i><i>h</i><i>j</i><i>k</i><i>l</i></div><div><i class="w">⇧</i><i>z</i><i>x</i><i>c</i><i>v</i><i>b</i><i>n</i><i>m</i><i class="w">⌫</i></div><div><i class="w">?123</i><i>,</i><i class="sp"></i><i>.</i><i class="w">⏎</i></div></div>
+</div>
+<ul class="notes">
+  <li>One <code>AlertDialog(scrollable: true)</code> with an autofocused <code>TextFormField</code> "Name", titled "New Category" or "Rename Category". Enter submits.</li>
+  <li class="flag">Shown with a validation error: suggest refusing a name another Category of the same Collection already has, ignoring case (as Game Systems compare). Not in GLOSSARY.md yet; decide before implementing.</li>
+</ul>
+</div>
+
+<!-- 11 DELETE CONFIRM -->
+<div class="col">
+<p class="cap">11 · <b>Delete Category</b> confirm</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg">
+    <h3>Delete Support?</h3>
+    <p>Its 3 Units (6 models) stay in Necrons and become Uncategorised. Nothing else is deleted.</p>
+    <div class="btns"><span class="tbtn">Cancel</span><span class="tbtn rust">Delete</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Plain <code>AlertDialog</code> like Delete Collection; Delete uses <code>destructive(context)</code>. The text names the Units' fate, since "delete" otherwise suggests the Units go too.</li>
+  <li>A Category with no Units deletes without asking (nothing to lose), with a <code>SnackBar</code> "Deleted Elites" + Undo.</li>
+</ul>
+</div>
+</div>
+
+<h2 class="grp">Add models dialog</h2>
+<div class="board">
+
+<!-- 12 ADD BEFORE -->
+<div class="col">
+<p class="cap">12 · Add models <b>before</b>, keyboard open</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg" style="top:440px">
+    <h3>Add models</h3>
+    <div style="height:16px"></div>
+    <div class="field focus"><span class="fl">Name</span><span class="grow">Lychguard<span class="caret"></span></span></div>
+    <div class="field"><span class="fl">Models</span><span class="grow">1</span></div>
+    <div class="field"><span class="fl">Stage</span><span class="grow">Unassembled</span><span class="ms">arrow_drop_down</span></div>
+    <div class="btns"><span class="tbtn">Cancel</span><span class="tbtn">Save</span></div>
+  </div>
+  <div class="kbd"><div><i>q</i><i>w</i><i>e</i><i>r</i><i>t</i><i>y</i><i>u</i><i>i</i><i>o</i><i>p</i></div><div><i>a</i><i>s</i><i>d</i><i>f</i><i>g</i><i>h</i><i>j</i><i>k</i><i>l</i></div><div><i class="w">⇧</i><i>z</i><i>x</i><i>c</i><i>v</i><i>b</i><i>n</i><i>m</i><i class="w">⌫</i></div><div><i class="w">?123</i><i>,</i><i class="sp"></i><i>.</i><i class="w">⏎</i></div></div>
+</div>
+<ul class="notes">
+  <li class="bad">Tester's screenshot: the dialog stays centred on the full screen, so Models, Stage and Save end up under the keyboard and cannot be reached without closing it.</li>
+  <li class="bad">Only Name, Models, Stage; no way to place the new Unit.</li>
+</ul>
+</div>
+
+<!-- 13 ADD AFTER -->
+<div class="col">
+<p class="cap">13 · Add models <b>after</b>, opened from Core</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg up" style="bottom:300px;padding-bottom:8px">
+    <h3>Add models</h3>
+    <div class="scroll">
+      <div class="field focus"><span class="fl">Name</span><span class="grow">Lychguard<span class="caret"></span></span></div>
+      <div class="field"><span class="fl">Category</span><span class="grow">Core</span><span class="ms">arrow_drop_down</span></div>
+      <div class="field"><span class="fl">Models</span><span class="grow">1</span></div>
+      <div class="field"><span class="fl">Stage</span><span class="grow">Unassembled</span><span class="ms">arrow_drop_down</span></div>
+    </div>
+    <div class="btns"><span class="tbtn">Cancel</span><span class="tbtn">Save</span></div>
+  </div>
+  <div class="kbd"><div><i>q</i><i>w</i><i>e</i><i>r</i><i>t</i><i>y</i><i>u</i><i>i</i><i>o</i><i>p</i></div><div><i>a</i><i>s</i><i>d</i><i>f</i><i>g</i><i>h</i><i>j</i><i>k</i><i>l</i></div><div><i class="w">⇧</i><i>z</i><i>x</i><i>c</i><i>v</i><i>b</i><i>n</i><i>m</i><i class="w">⌫</i></div><div><i class="w">?123</i><i>,</i><i class="sp"></i><i>.</i><i class="w">⏎</i></div></div>
+</div>
+<ul class="notes">
+  <li>Fields in order Name, Category, Models, Stage. <code>AlertDialog(scrollable: true)</code> (drop the inner <code>SingleChildScrollView</code>): the dialog fits the space above the keyboard, fields scroll, Cancel/Save stay visible. Name field <code>textInputAction: next</code>.</li>
+  <li>Default Category: the header's Category when opened from its <code>add</code>; <b>Uncategorised</b> from the FAB or a Unit's "Add models". Predictable and needs no remembered state; the header buttons are the fast path for adding many into one Category.</li>
+  <li>If Name is an existing Unit, Category shows that Unit's and is disabled, helper "Change it on the Unit screen": adding models never moves a Unit. New Units go last in their Category.</li>
+</ul>
+</div>
+
+<!-- 14 CATEGORY DROPDOWN -->
+<div class="col">
+<p class="cap">14 · Add models, <b>Category menu</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg up" style="top:120px">
+    <h3>Add models</h3>
+    <div style="height:16px"></div>
+    <div class="field"><span class="fl">Name</span><span class="grow">Lychguard</span></div>
+    <div class="field focus"><span class="fl">Category</span><span class="grow">Core</span><span class="ms">arrow_drop_up</span></div>
+    <div class="field"><span class="fl">Models</span><span class="grow">5</span></div>
+    <div class="field"><span class="fl">Stage</span><span class="grow">Unassembled</span><span class="ms">arrow_drop_down</span></div>
+    <div class="btns"><span class="tbtn">Cancel</span><span class="tbtn">Save</span></div>
+  </div>
+  <div class="dd" style="top:262px"><div>Heroes</div><div class="on">Core</div><div>Support</div><div class="ital">Uncategorised</div><hr><div class="new"><span class="ms">add</span>New Category…</div></div>
+</div>
+<ul class="notes">
+  <li><code>DropdownButtonFormField&lt;String?&gt;</code>: the Collection's Categories in their order, then Uncategorised (value <code>null</code>, italic), a divider and "New Category…" in accent with <code>Icons.add</code>.</li>
+  <li>Keyboard closed here; at 360×760 the menu fits below the field. Long lists scroll inside the menu (<code>menuMaxHeight: 320</code>).</li>
+</ul>
+</div>
+
+<!-- 15 NEW CATEGORY INLINE -->
+<div class="col">
+<p class="cap">15 · Add models, <b>New Category…</b> inline</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg up" style="bottom:300px;padding-bottom:8px">
+    <h3>Add models</h3>
+    <div class="scroll">
+      <div class="field"><span class="fl">Name</span><span class="grow">Lychguard</span></div>
+      <div class="field focus" style="padding-right:0"><span class="fl">New Category</span><span class="grow">Elites<span class="caret"></span></span><span class="ib"><span class="ms">close</span></span></div>
+      <div class="help">Created when you save</div>
+      <div class="field"><span class="fl">Models</span><span class="grow">5</span></div>
+    </div>
+    <div class="btns"><span class="tbtn">Cancel</span><span class="tbtn">Save</span></div>
+  </div>
+  <div class="kbd"><div><i>q</i><i>w</i><i>e</i><i>r</i><i>t</i><i>y</i><i>u</i><i>i</i><i>o</i><i>p</i></div><div><i>a</i><i>s</i><i>d</i><i>f</i><i>g</i><i>h</i><i>j</i><i>k</i><i>l</i></div><div><i class="w">⇧</i><i>z</i><i>x</i><i>c</i><i>v</i><i>b</i><i>n</i><i>m</i><i class="w">⌫</i></div><div><i class="w">?123</i><i>,</i><i class="sp"></i><i>.</i><i class="w">⏎</i></div></div>
+</div>
+<ul class="notes">
+  <li>Picking "New Category…" swaps the dropdown for an autofocused <code>TextFormField</code> "New Category" in the same slot, suffix close <code>IconButton</code> (tooltip "Pick a Category") back to the dropdown. No nested dialog.</li>
+  <li>Nothing is created until Save: then the Category is appended last and the Unit added to it. A name equal to an existing Category (ignoring case) just picks that one.</li>
+</ul>
+</div>
+</div>
+
+<h2 class="grp">Unit screen</h2>
+<div class="board">
+
+<!-- 16 UNIT BEFORE -->
+<div class="col">
+<p class="cap">16 · Unit <b>before</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Forge Spider</span><span class="ib"><span class="ms">edit</span></span><span class="ib"><span class="ms">delete</span></span></div>
+  <div class="body">
+    <div class="chips"><span class="chip">Walker</span><span class="chip">Magnetised</span></div>
+    <div class="sh"><span class="bar"></span><span class="st">Painted</span><span class="count">1</span></div>
+    <div style="margin:0 16px" class="tile card"><div class="main" style="background:var(--c1);border-radius:12px;padding:14px 16px">1 model<div class="sbar"><i style="flex:1;background:var(--paint)"></i></div></div></div>
+    <div class="sh"><span class="bar"></span><span class="st">Notes</span><span class="sp"></span><span class="ib ac"><span class="ms">edit</span></span></div>
+    <div class="empty">No notes yet</div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Tags are <code>Chip</code>s above every section; the pencil opens Edit Unit (Name, Notes, Tags).</li>
+</ul>
+</div>
+
+<!-- 17 UNIT AFTER -->
+<div class="col">
+<p class="cap">17 · Unit <b>after</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Forge Spider</span><span class="ib"><span class="ms">edit</span></span><span class="ib"><span class="ms">delete</span></span></div>
+  <div class="body">
+    <div class="chips"><span class="chip cat"><span class="ms">category</span>Support</span><span class="chip">Walker</span><span class="chip">Magnetised</span></div>
+    <div class="sh"><span class="bar"></span><span class="st">Painted</span><span class="count">1</span></div>
+    <div style="margin:0 16px" class="tile card"><div class="main" style="background:var(--c1);border-radius:12px;padding:14px 16px">1 model<div class="sbar"><i style="flex:1;background:var(--paint)"></i></div></div></div>
+    <div class="sh"><span class="bar"></span><span class="st">Notes</span><span class="sp"></span><span class="ib ac"><span class="ms">edit</span></span></div>
+    <div class="empty">No notes yet</div>
+  </div>
+</div>
+<ul class="notes">
+  <li>The Category leads the existing Tag <code>Wrap</code> as one more <code>Chip</code>: accent outline and label, avatar <code>Icons.category</code>, semantics "Category Support". Uncategorised shows no chip.</li>
+  <li>Display only; changed in Edit Unit (18). No new section, no new tap target.</li>
+</ul>
+</div>
+
+<!-- 18 EDIT UNIT -->
+<div class="col">
+<p class="cap">18 · <b>Edit Unit</b> with Category</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Forge Spider</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg up" style="top:110px">
+    <h3>Edit Unit</h3>
+    <div style="height:16px"></div>
+    <div class="field"><span class="fl">Name</span><span class="grow">Forge Spider</span></div>
+    <div class="field"><span class="fl">Category</span><span class="grow">Support</span><span class="ms">arrow_drop_down</span></div>
+    <div class="field" style="min-height:72px"><span class="fl">Notes</span><span class="grow" style="color:var(--muted)"></span></div>
+    <div class="field"><span class="fl">Add Tag</span><span class="grow"></span></div>
+    <div class="chips" style="padding:0 0 4px"><span class="chip">Walker <span class="ms">close</span></span><span class="chip">Magnetised <span class="ms">close</span></span></div>
+    <div class="btns"><span class="tbtn">Cancel</span><span class="tbtn">Save</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Same Category dropdown as Add models (incl. "New Category…"), placed after Name. Saved only if changed, like the other fields. A moved Unit goes last in its new Category.</li>
+  <li>Same <code>scrollable: true</code> fix applies: this dialog is taller than Add models and also opens the keyboard.</li>
+</ul>
+</div>
+</div>
+
+<div class="widget">
+<h2>Proposed shared pieces</h2>
+<pre>/// The header row of Section, extracted so flat lists (Collections, Units) use it too.
+/// Collapsible when expanded is non-null: whole row taps to toggle, chevron last.
+SectionHeader({
+  required String title,
+  int? count,
+  List&lt;Widget&gt; actions = const [],   // accent IconButtons, before the chevron
+  bool? expanded,                       // null = not collapsible
+  VoidCallback? onToggle,
+  String? summary,                      // one muted line under the title while collapsed
+  bool muted = false,                   // Uncategorised: outline bar, muted title
+})
+Section(...) keeps its API and builds SectionHeader.
+
+/// Per-device collapse state, like ThemeSetting: a ChangeNotifier over collapsed.txt (one key per line).
+CollapsedGroups.load(File) / isCollapsed(String key) / toggle(String key)
+keys: 'game-system:' + lower-cased name ('' = Other), 'category:' + id, 'uncategorised:' + collectionId
+
+/// The Category picker in UnitDialog (add and edit).
+CategoryField({required List&lt;Category&gt; categories, String? categoryId, bool enabled = true,
+  required ValueChanged&lt;CategoryChoice&gt; onChanged})   // existing id, null (Uncategorised) or a new name</pre>
+</div>
+
+</body>
+</html>
