@@ -204,7 +204,10 @@ void main() {
       // A rename also carries the Unit's notes, Tags, Photos and Paints, one write each: wait for it to finish.
       for (
         var i = 0;
-        i < 10 && find.text('Assault Intercessors').evaluate().isEmpty;
+        i < 10 &&
+            (find.text('Assault Intercessors').evaluate().isEmpty ||
+                find.widgetWithText(Chip, 'Ultramarines').evaluate().isEmpty ||
+                find.text('Magnetised').evaluate().isEmpty);
         i++
       ) {
         await settle(tester);
