@@ -1,0 +1,548 @@
+<title>Workflow Mockups</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Cinzel:wght@500;700&family=Roboto:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
+<style>
+:root {
+  color-scheme: dark;
+  /* Grimdark, app/lib/theme.dart */
+  --g-bg: #1C1F22; --g-accent: #FFA000; --g-err: #F4876A; --g-text: #E4E6E8; --g-muted: #B0B7BD;
+  --g-c0: #16191B; --g-c1: #23272B; --g-c2: #2B3035; --g-c3: #31373C; --g-c4: #3A4046; --g-outline: #6B737A;
+  --g-tint: rgba(255,160,0,.14); --g-font: 'Black Ops One';
+  /* Fantasy */
+  --f-bg: #17231B; --f-accent: #D9B44A; --f-err: #F2907C; --f-text: #F1E8D0; --f-muted: #C9BFA3;
+  --f-c0: #111A14; --f-c1: #1E2C22; --f-c2: #25352A; --f-c3: #2B3D30; --f-c4: #33473A; --f-outline: #7A8A72;
+  --f-tint: rgba(217,180,74,.16); --f-font: 'Cinzel';
+  /* active (Grimdark unless .fantasy) */
+  --bg: var(--g-bg); --accent: var(--g-accent); --err: var(--g-err); --text: var(--g-text); --muted: var(--g-muted);
+  --c0: var(--g-c0); --c1: var(--g-c1); --c2: var(--g-c2); --c3: var(--g-c3); --c4: var(--g-c4); --outline: var(--g-outline);
+  --tint: var(--g-tint); --hfont: var(--g-font);
+  --scrim: rgba(0,0,0,.6); --shadow: rgba(0,0,0,.5);
+  /* Stage colours, all from Vault.stageColours */
+  --wish: #9AA1A8; --unas: #C2B59B; --asm: #FFC24D; --prim: #A3A3FF; --paint: #5CC8EB; --based: #B5E061; --done: #6FD98A;
+  --pink: #F28AD2; --red: #FF7B7B; --orange: #FF9E5E; --yellow: #F2E05C; --teal: #4FD1C0; --blue: #7FB2FF; --violet: #C79BFF; --white: #F2F2F2; --grey: #C4C9CE;
+  /* page */
+  --page: #0E1012; --note-bg: #15181A; --note-ink: #C9CED2; --bad: #F4876A;
+}
+.fantasy {
+  --bg: var(--f-bg); --accent: var(--f-accent); --err: var(--f-err); --text: var(--f-text); --muted: var(--f-muted);
+  --c0: var(--f-c0); --c1: var(--f-c1); --c2: var(--f-c2); --c3: var(--f-c3); --c4: var(--f-c4); --outline: var(--f-outline);
+  --tint: var(--f-tint); --hfont: var(--f-font);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 14px/1.4 Roboto, system-ui, sans-serif; padding: 24px 16px 48px; }
+h1 { font: 28px 'Black Ops One', sans-serif; color: var(--g-accent); margin: 0 0 4px; }
+.lede { color: var(--g-muted); max-width: 780px; margin: 0 0 24px; }
+.board { display: flex; flex-wrap: wrap; gap: 32px 28px; align-items: flex-start; }
+.col { width: 360px; max-width: 100%; }
+.cap { font: 13px 'Black Ops One', sans-serif; color: var(--g-muted); letter-spacing: 1px; margin: 0 0 8px; text-transform: uppercase; }
+.cap b { color: var(--g-accent); font-weight: 400; }
+
+.phone { position: relative; width: 100%; height: 760px; background: var(--bg); color: var(--text); border: 1px solid #2E3338; border-radius: 22px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 12px 40px var(--shadow); }
+.status { height: 24px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; font-size: 12px; color: var(--muted); }
+.appbar { height: 64px; flex: none; display: flex; align-items: center; padding: 0 4px; }
+.appbar .t { flex: 1; min-width: 0; font: 22px var(--hfont), sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 12px; }
+.appbar .ib:first-child + .t { padding-left: 4px; }
+.body { flex: 1; overflow: hidden; position: relative; }
+.ms { font-family: 'Material Symbols Outlined'; font-size: 24px; line-height: 1; font-weight: 400; font-style: normal; display: inline-block; font-feature-settings: 'liga'; }
+.ib { width: 48px; height: 48px; flex: none; display: inline-grid; place-items: center; color: var(--muted); }
+.ib.ac { color: var(--accent); }
+.tile { min-height: 48px; display: flex; align-items: center; gap: 16px; padding: 8px 16px; }
+.tile .main { flex: 1; min-width: 0; }
+.sub { color: var(--muted); font-size: 13px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; display: inline-block; }
+.sw { width: 28px; height: 28px; border-radius: 50%; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+.fab { position: absolute; right: 16px; bottom: 16px; height: 56px; min-width: 56px; border-radius: 16px; background: var(--accent); color: var(--bg); display: flex; align-items: center; justify-content: center; gap: 10px; padding: 0 16px; font-weight: 500; box-shadow: 0 4px 10px var(--shadow); }
+.fab.ext { padding: 0 20px 0 16px; }
+.nav { height: 80px; flex: none; background: var(--c1); display: flex; }
+.nav div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.nav .pill { width: 64px; height: 32px; border-radius: 16px; display: grid; place-items: center; }
+.nav .on .pill { background: var(--tint); color: var(--accent); }
+.nav .on { color: var(--text); }
+
+/* StageStrip */
+.strip { display: flex; gap: 2px; height: 10px; align-items: stretch; }
+.strip i { flex: 1; border-radius: 2px; }
+.strip b { width: 3px; margin: -3px 1px; background: var(--accent); border-radius: 2px; flex: none; }
+.strip.big { height: 14px; }
+.zl { display: flex; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+
+/* Section header (section.dart) */
+.sh { display: flex; align-items: center; min-height: 48px; }
+.sh .bar { width: 4px; height: 18px; background: var(--accent); border-radius: 2px; margin-right: 10px; }
+.sh .st { font: 15px var(--hfont), sans-serif; letter-spacing: 1.2px; text-transform: uppercase; }
+.sh .count { margin-left: 8px; color: var(--muted); font-size: 12px; }
+.card { background: var(--c1); border-radius: 12px; overflow: hidden; }
+.card .tile + .tile { border-top: 1px solid var(--c4); }
+
+/* Workflow card */
+.wf { background: var(--c1); border-radius: 12px; padding: 14px 4px 14px 16px; margin: 0 16px 12px; display: flex; gap: 8px; align-items: flex-start; }
+.wf .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.wf .name { font: 17px var(--hfont), sans-serif; display: flex; align-items: center; gap: 8px; }
+.badge { font: 500 11px Roboto, sans-serif; letter-spacing: .5px; color: var(--muted); border: 1px solid var(--outline); border-radius: 4px; padding: 1px 5px; text-transform: uppercase; }
+.uses { display: flex; flex-wrap: wrap; gap: 6px; }
+.uchip { height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 12px; background: var(--c3); font-size: 12px; }
+.uchip .ms { font-size: 14px; color: var(--muted); }
+.unused { color: var(--muted); font-size: 12px; font-style: italic; }
+
+/* Stage editor zones */
+.used { margin: 0 16px 12px; padding: 10px 12px; background: var(--c2); border-radius: 8px; display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--muted); }
+.used .ms { font-size: 20px; color: var(--accent); }
+.used b { color: var(--text); font-weight: 500; }
+.zhead { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; }
+.zhead .zn { font: 13px var(--hfont), sans-serif; letter-spacing: 1.2px; text-transform: uppercase; }
+.zhead .zs { color: var(--muted); font-size: 12px; }
+.zone { margin: 0 16px; border-radius: 12px; overflow: hidden; background: var(--c1); border-left: 4px solid var(--outline); }
+.zone.wanted { background: var(--c0); border-left-style: dashed; }
+.zone.owned { border-left-color: color-mix(in srgb, var(--accent) 55%, var(--c1)); }
+.zone.fin { border-left-color: var(--accent); }
+.srow { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 0 0 14px; }
+.srow + .srow { border-top: 1px solid var(--c4); }
+.srow .nm { flex: 1; font-size: 16px; }
+.srow .ms.h { width: 48px; text-align: center; color: var(--outline); }
+.marker { margin: 6px 16px; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 0 0 12px; border: 1.5px solid var(--accent); border-radius: 24px; background: var(--tint); color: var(--accent); }
+.marker .mt { font: 13px var(--hfont), sans-serif; letter-spacing: 1px; text-transform: uppercase; }
+.marker .ms { font-size: 20px; }
+.marker .ms.h { width: 48px; text-align: center; font-size: 24px; }
+.marker.lift { box-shadow: 0 8px 18px var(--shadow); background: var(--c3); transform: translateY(-4px); }
+.marker .sp { flex: 1; }
+.drop { margin: 0 16px; height: 3px; background: var(--accent); border-radius: 2px; }
+
+/* before-only */
+.menu { position: absolute; right: 8px; top: 160px; width: 216px; background: var(--c2); border-radius: 4px; padding: 8px 0; box-shadow: 0 6px 16px var(--shadow); z-index: 2; }
+.menu div { height: 48px; display: flex; align-items: center; padding: 0 12px; font-size: 14px; }
+
+/* sheets & dialogs */
+.scrim { position: absolute; inset: 0; background: var(--scrim); }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--c1); border-radius: 28px 28px 0 0; display: flex; flex-direction: column; }
+.grab { width: 32px; height: 4px; border-radius: 2px; background: var(--outline); margin: 14px auto 6px; }
+.sheet h3, .dlg h3 { font: 20px var(--hfont), sans-serif; font-weight: 400; margin: 6px 0 4px; display: flex; align-items: center; gap: 10px; }
+.sheet .in { padding: 0 24px; }
+.dlg { position: absolute; left: 20px; right: 20px; top: 50%; transform: translateY(-50%); background: var(--c2); border-radius: 28px; padding: 24px 24px 12px; }
+.dlg p { margin: 8px 0 12px; color: var(--muted); }
+.lbl { font-size: 12px; font-weight: 500; letter-spacing: .6px; color: var(--muted); text-transform: uppercase; margin: 16px 0 8px; }
+.field { border: 1px solid var(--outline); border-radius: 4px; padding: 0 12px; min-height: 56px; display: flex; align-items: center; gap: 10px; position: relative; font-size: 16px; margin-bottom: 16px; }
+.field.focus { border: 2px solid var(--accent); }
+.field .fl { position: absolute; top: -9px; left: 10px; background: var(--fbg, var(--c1)); padding: 0 4px; font-size: 12px; color: var(--muted); }
+.field.focus .fl { color: var(--accent); }
+.field .grow { flex: 1; min-width: 0; }
+.dlg .field { --fbg: var(--c2); }
+.pal { display: grid; grid-template-columns: repeat(6, 48px); justify-content: space-between; row-gap: 2px; }
+.pal span { width: 48px; height: 48px; display: grid; place-items: center; }
+.pal span i { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #1C1F22; font-style: normal; }
+.pal span.on i { box-shadow: 0 0 0 3px var(--c1), 0 0 0 5px var(--text); }
+.swrow { display: flex; align-items: center; min-height: 56px; gap: 12px; }
+.swrow .main { flex: 1; }
+.switch { width: 52px; height: 32px; border-radius: 16px; border: 2px solid var(--outline); background: var(--c4); position: relative; flex: none; }
+.switch::after { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: var(--outline); top: 6px; left: 6px; }
+.switch.on { background: var(--accent); border-color: var(--accent); }
+.switch.on::after { width: 24px; height: 24px; top: 2px; left: 22px; background: var(--bg); }
+.switch.off-dis { opacity: .38; }
+.obtns { display: flex; gap: 8px; margin: 8px 0 4px; }
+.obtn { flex: 1; height: 40px; border: 1px solid var(--outline); border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--accent); font-weight: 500; }
+.obtn .ms { font-size: 18px; }
+.btns { display: flex; align-items: center; gap: 8px; padding: 12px 16px 16px 12px; }
+.tbtn { height: 40px; padding: 0 12px; display: inline-flex; align-items: center; font-weight: 500; color: var(--accent); }
+.tbtn.rust { color: var(--err); }
+.tbtn.dis { color: var(--muted); opacity: .5; }
+.fbtn { height: 40px; padding: 0 24px; display: inline-flex; align-items: center; font-weight: 500; background: var(--accent); color: var(--bg); border-radius: 20px; }
+.sp { flex: 1; }
+.opt { display: flex; gap: 12px; align-items: flex-start; padding: 12px 8px 12px 4px; border-radius: 12px; }
+.opt.on { background: var(--tint); }
+.opt .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--outline); flex: none; margin: 2px 4px 0; }
+.radio.on { border-color: var(--accent); box-shadow: inset 0 0 0 4px var(--c2), inset 0 0 0 10px var(--accent); }
+.map { display: grid; grid-template-columns: 1fr 20px 1.25fr; align-items: center; gap: 6px; min-height: 56px; }
+.map .from { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.map .from small { display: block; color: var(--muted); font-size: 12px; }
+.map .to { border: 1px solid var(--outline); border-radius: 4px; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 4px 0 10px; font-size: 14px; }
+.map .to .grow { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map .ms.arr { color: var(--muted); font-size: 18px; }
+.warn { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; color: var(--err); font-size: 12px; margin: -2px 0 6px; }
+.warn .ms { font-size: 16px; }
+.ddmenu { position: absolute; left: 24px; right: 24px; background: var(--c3); border-radius: 4px; padding: 8px 0; box-shadow: 0 6px 16px var(--shadow); }
+.ddmenu .opt { border-radius: 0; padding: 10px 16px; }
+
+.notes { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.notes li { background: var(--note-bg); border-left: 3px solid var(--g-accent); border-radius: 4px; padding: 8px 10px; font-size: 13px; color: var(--note-ink); }
+.notes li.bad { border-left-color: var(--bad); }
+.notes li.flag { border-left-color: #7FB2FF; }
+.notes code { font: 12px ui-monospace, Menlo, monospace; color: var(--g-accent); }
+.widget { margin-top: 40px; max-width: 780px; background: var(--note-bg); border-radius: 12px; padding: 16px 18px; color: var(--note-ink); }
+.widget h2 { font: 18px 'Black Ops One', sans-serif; font-weight: 400; color: var(--g-accent); margin: 0 0 8px; }
+.widget pre { overflow-x: auto; font: 12px/1.5 ui-monospace, Menlo, monospace; margin: 8px 0 0; }
+@media (max-width: 400px) { .phone { height: 720px; } }
+</style>
+
+<h1>Workflow Mockups</h1>
+<p class="lede">Workflows list, Stage editor, Stage sheet, Delete Stage, Switch Workflow and the Collection dialogs. Grimdark theme throughout, one Fantasy frame. Sample: the starter Workflow "Standard" (Wishlist → Done, Owned from Unassembled, Finished from Done) used by Ultramarines and Death Guard. No domain changes: Stages stay linear, exactly one Owned and one Finished Stage, Finished at or after Owned.</p>
+
+<div class="board">
+
+<!-- 1 WORKFLOWS BEFORE -->
+<div class="col">
+<p class="cap">1 · Workflows <b>before</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Workflows</span></div>
+  <div class="body">
+    <div class="tile"><div class="main">Standard<div class="sub">7 Stages</div></div><span class="ib" style="color:var(--err)"><span class="ms">delete</span></span></div>
+    <div class="tile"><div class="main">Kitbash<div class="sub">6 Stages</div></div><span class="ib" style="color:var(--err)"><span class="ms">delete</span></span></div>
+    <div class="tile"><div class="main">Speed paint<div class="sub">3 Stages</div></div><span class="ib" style="color:var(--err)"><span class="ms">delete</span></span></div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="nav"><div><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div class="on"><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li class="bad">Only a name and a count. Nothing says what the Stages are or that editing one changes every Collection using it.</li>
+  <li class="bad">A rust delete on every row, even the starter and Workflows in use (the Vault refuses those with a snack bar after the tap).</li>
+</ul>
+</div>
+
+<!-- 2 WORKFLOWS AFTER -->
+<div class="col">
+<p class="cap">2 · Workflows <b>after</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Workflows</span></div>
+  <div class="body" style="padding-top:4px">
+    <div class="wf"><div class="main">
+      <span class="name">Standard <span class="badge">Starter</span></span>
+      <div class="strip"><i style="background:var(--wish)"></i><b></b><i style="background:var(--unas)"></i><i style="background:var(--asm)"></i><i style="background:var(--prim)"></i><i style="background:var(--paint)"></i><i style="background:var(--based)"></i><b></b><i style="background:var(--done)"></i></div>
+      <span class="sub">7 Stages · Wishlist → Done</span>
+      <div class="uses"><span class="uchip"><span class="ms">inventory_2</span>Ultramarines</span><span class="uchip"><span class="ms">inventory_2</span>Death Guard</span></div>
+    </div><span class="ib"><span class="ms">more_vert</span></span></div>
+
+    <div class="wf"><div class="main">
+      <span class="name">Kitbash</span>
+      <div class="strip"><i style="background:var(--wish)"></i><b></b><i style="background:var(--unas)"></i><i style="background:var(--asm)"></i><i style="background:var(--prim)"></i><b></b><i style="background:var(--paint)"></i><i style="background:var(--done)"></i></div>
+      <span class="sub">6 Stages · Wishlist → Varnished</span>
+      <div class="uses"><span class="uchip"><span class="ms">inventory_2</span>Kill Team</span></div>
+    </div><span class="ib"><span class="ms">more_vert</span></span></div>
+
+    <div class="wf"><div class="main">
+      <span class="name">Speed paint</span>
+      <div class="strip"><b></b><i style="background:var(--prim)"></i><i style="background:var(--pink)"></i><b></b><i style="background:var(--based)"></i></div>
+      <span class="sub">3 Stages · Primed → Based</span>
+      <span class="unused">Not used by any Collection</span>
+    </div><span class="ib"><span class="ms">more_vert</span></span></div>
+    <div class="fab ext"><span class="ms">add</span>New Workflow</div>
+  </div>
+  <div class="nav"><div><span class="pill"><span class="ms">inventory_2</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div class="on"><span class="pill"><span class="ms">conversion_path</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>Each Workflow is a <code>Card.filled</code> with a <code>StageStrip</code>: one segment per Stage in its colour, amber ticks where Owned and Finished begin. With no Wanted Stages, the Owned tick sits at the start (Speed paint).</li>
+  <li>"Used by" Collections as small chips (from <code>watchCollections()</code> grouped by <code>workflowId</code>), or an italic "Not used by any Collection". Starter gets a badge.</li>
+  <li>Delete and Rename move into the <code>PopupMenuButton</code>. Delete is disabled there with "Used by 2 Collections" when in use, so nobody hits a refusal.</li>
+</ul>
+</div>
+
+<!-- 3 EDITOR BEFORE -->
+<div class="col">
+<p class="cap">3 · Workflow editor <b>before</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Standard</span><span class="ib"><span class="ms">edit</span></span></div>
+  <div class="body">
+    <div class="tile"><div class="main">Wishlist</div><span class="ms" style="color:var(--muted)">more_vert</span></div>
+    <div class="tile"><div class="main">Unassembled<div class="sub">Owned Stage</div></div><span class="ms" style="color:var(--muted)">more_vert</span></div>
+    <div class="tile"><div class="main">Assembled</div><span class="ms" style="color:var(--muted)">more_vert</span></div>
+    <div class="tile" style="background:var(--c3)"><div class="main">Primed</div><span class="ms" style="color:var(--muted)">more_vert</span></div>
+    <div class="tile"><div class="main">Painted</div><span class="ms" style="color:var(--muted)">more_vert</span></div>
+    <div class="tile"><div class="main">Based</div><span class="ms" style="color:var(--muted)">more_vert</span></div>
+    <div class="tile"><div class="main">Done<div class="sub">Finished Stage</div></div><span class="ms" style="color:var(--muted)">more_vert</span></div>
+    <div class="menu"><div>Rename</div><div>Add Stage above</div><div>Add Stage below</div><div>Set as Owned Stage</div><div>Set as Finished Stage</div><div>Set colour</div><div>Delete</div></div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li class="bad">No Stage colours at all, though the Collection screen shows them everywhere.</li>
+  <li class="bad">Owned and Finished are subtitle text on two rows; what is wanted, owned or finished has to be worked out. Every action, even rename, hides in a 7-item ⋮ menu. Reordering is an undiscoverable long press.</li>
+</ul>
+</div>
+
+<!-- 4 EDITOR AFTER -->
+<div class="col">
+<p class="cap">4 · Workflow editor <b>after</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Standard</span><span class="ib"><span class="ms">edit</span></span></div>
+  <div class="body">
+    <div class="used"><span class="ms">info</span><span>Used by <b>Ultramarines</b> and <b>Death Guard</b>. Changes apply to both.</span></div>
+    <div class="zhead"><span class="zn">Wanted</span><span class="zs">not yet owned</span></div>
+    <div class="zone wanted">
+      <div class="srow"><span class="sw" style="background:var(--wish)"></span><span class="nm">Wishlist</span><span class="ms h">drag_handle</span></div>
+    </div>
+    <div class="marker"><span class="ms">flag</span><span class="mt">Owned from here</span><span class="sp"></span><span class="ms h">drag_indicator</span></div>
+    <div class="zone owned">
+      <div class="srow"><span class="sw" style="background:var(--unas)"></span><span class="nm">Unassembled</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--asm)"></span><span class="nm">Assembled</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--prim)"></span><span class="nm">Primed</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--paint)"></span><span class="nm">Painted</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--based)"></span><span class="nm">Based</span><span class="ms h">drag_handle</span></div>
+    </div>
+    <div class="marker"><span class="ms">military_tech</span><span class="mt">Finished from here</span><span class="sp"></span><span class="ms h">drag_indicator</span></div>
+    <div class="zone fin">
+      <div class="srow"><span class="sw" style="background:var(--done)"></span><span class="nm">Done</span><span class="ms h">drag_handle</span></div>
+    </div>
+    <div class="fab ext" style="bottom:12px"><span class="ms">add</span>New Stage</div>
+  </div>
+</div>
+<ul class="notes">
+  <li>One <code>ReorderableListView</code> holding Stages and two <code>ZoneMarker</code> items, all with explicit <code>ReorderableDragStartListener</code> handles. Stages between markers form a zone card (rounded first and last row, left rail: dashed outline = Wanted, half accent = Owned, accent = Finished).</li>
+  <li>Dragging a marker sets the Owned/Finished Stage to the Stage right below where it drops (<code>setOwnedStage</code>/<code>setFinishedStage</code>). Owned can't drop below Finished, nor either below the last Stage. Both can share a Stage: markers stacked, Owned zone shows a <code>SectionHint</code>.</li>
+  <li>Every Stage shows its colour as a 28dp swatch. Tapping the row opens the Stage sheet. The ⋮ menu is gone. The info strip names the Collections using the Workflow.</li>
+  <li>An empty Wanted zone (Owned is the first Stage) keeps its header with "No Wanted Stages", so the three zones always read in order.</li>
+</ul>
+</div>
+
+<!-- 4b DRAG -->
+<div class="col">
+<p class="cap">4b · Editor, <b>dragging a marker</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Standard</span><span class="ib"><span class="ms">edit</span></span></div>
+  <div class="body">
+    <div class="used"><span class="ms">info</span><span>Used by <b>Ultramarines</b> and <b>Death Guard</b>. Changes apply to both.</span></div>
+    <div class="zhead"><span class="zn">Wanted</span><span class="zs">not yet owned</span></div>
+    <div class="zone wanted"><div class="srow"><span class="sw" style="background:var(--wish)"></span><span class="nm">Wishlist</span><span class="ms h">drag_handle</span></div></div>
+    <div class="marker"><span class="ms">flag</span><span class="mt">Owned from here</span><span class="sp"></span><span class="ms h">drag_indicator</span></div>
+    <div class="zone owned">
+      <div class="srow"><span class="sw" style="background:var(--unas)"></span><span class="nm">Unassembled</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--asm)"></span><span class="nm">Assembled</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--prim)"></span><span class="nm">Primed</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--paint)"></span><span class="nm">Painted</span><span class="ms h">drag_handle</span></div>
+    </div>
+    <div class="marker lift"><span class="ms">military_tech</span><span class="mt">Finished from here</span><span class="sp"></span><span class="ms h">drag_indicator</span></div>
+    <div class="drop" style="margin-top:2px"></div>
+    <div class="zone fin" style="margin-top:4px">
+      <div class="srow"><span class="sw" style="background:var(--based)"></span><span class="nm">Based</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--done)"></span><span class="nm">Done</span><span class="ms h">drag_handle</span></div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li>The lifted marker uses <code>proxyDecorator</code> (surfaceContainerHigh + elevation). The zone cards re-form live, so "Based now counts as finished" is visible before letting go.</li>
+  <li>On drop: one Vault call plus <code>showUndo</code> ("Finished from Based", Undo). Progress on every Collection using the Workflow changes, which the info strip already warns about.</li>
+  <li>Accessibility: markers get <code>Semantics(customSemanticsActions: move up/down)</code>, and the Stage sheet has the same setting as a switch, so dragging is never the only way.</li>
+</ul>
+</div>
+
+<!-- 5 STAGE SHEET -->
+<div class="col">
+<p class="cap">5 · Stage <b>sheet</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Standard</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="sheet" style="top:64px">
+    <div class="grab"></div>
+    <div class="in">
+      <h3><span class="sw" style="background:var(--prim)"></span>Primed</h3>
+      <div class="field focus" style="margin-top:16px"><span class="fl">Name</span><span class="grow">Primed</span></div>
+      <div class="lbl" style="margin-top:4px">Colour</div>
+      <div class="pal">
+        <span><i style="background:var(--red)"></i></span><span><i style="background:var(--orange)"></i></span><span><i style="background:var(--asm)"></i></span><span><i style="background:var(--yellow)"></i></span><span><i style="background:var(--based)"></i></span><span><i style="background:var(--done)"></i></span>
+        <span><i style="background:var(--teal)"></i></span><span><i style="background:var(--paint)"></i></span><span><i style="background:var(--blue)"></i></span><span class="on"><i style="background:var(--prim)"><span class="ms" style="font-size:20px">check</span></i></span><span><i style="background:var(--violet)"></i></span><span><i style="background:var(--pink)"></i></span>
+        <span><i style="background:var(--white)"></i></span><span><i style="background:var(--grey)"></i></span><span><i style="background:var(--wish)"></i></span><span><i style="background:var(--unas)"></i></span>
+      </div>
+      <div class="swrow" style="margin-top:8px"><span class="ms" style="color:var(--muted)">flag</span><div class="main">Owned from here<div class="sub">Now from Unassembled</div></div><span class="switch"></span></div>
+      <div class="swrow"><span class="ms" style="color:var(--muted)">military_tech</span><div class="main">Finished from here<div class="sub">Now from Done</div></div><span class="switch"></span></div>
+      <div class="obtns"><span class="obtn"><span class="ms">vertical_align_top</span>Add above</span><span class="obtn"><span class="ms">vertical_align_bottom</span>Add below</span></div>
+    </div>
+    <div class="btns"><span class="tbtn rust">Delete</span><span class="sp"></span><span class="tbtn">Cancel</span><span class="fbtn">Save</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li><code>showModalBottomSheet(isScrollControlled, showDragHandle)</code> replaces the ⋮ menu: name <code>TextField</code>, colour grid, Owned/Finished switches, add above/below, delete. Title shows the live swatch in the heading font.</li>
+  <li>Colour grid: the 16 <code>Vault.stageColours</code> as 48dp <code>IconButton</code>s in rows of 6 (fits 312dp), selected = check + ring, tooltip = hex. No free colour picker (flag: needs only a UI change, <code>validColour</code> already allows other hex).</li>
+  <li>Switches are <code>SwitchListTile</code>s. They can only be turned on (exactly one Owned/Finished) and are disabled with a reason when the order rule forbids it ("Comes after the Finished Stage"). Save commits name, colour and boundary together.</li>
+</ul>
+</div>
+
+<!-- 6 DELETE STAGE -->
+<div class="col">
+<p class="cap">6 · Delete Stage <b>dialog</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Standard</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg">
+    <h3><span class="sw" style="background:var(--unas);width:24px;height:24px"></span>Delete Unassembled?</h3>
+    <p>5 Units across Ultramarines and Death Guard are at this Stage. It is also the Owned Stage.</p>
+    <div class="field"><span class="fl">Move their models to</span><span class="dot" style="background:var(--asm)"></span><span class="grow">Assembled</span><span class="ms" style="color:var(--muted)">arrow_drop_down</span></div>
+    <div class="field"><span class="fl">Owned from</span><span class="dot" style="background:var(--asm)"></span><span class="grow">Assembled</span><span class="ms" style="color:var(--muted)">arrow_drop_down</span></div>
+    <div class="strip" style="margin:4px 0 6px"><i style="background:var(--wish)"></i><b></b><i style="background:var(--asm)"></i><i style="background:var(--prim)"></i><i style="background:var(--paint)"></i><i style="background:var(--based)"></i><b></b><i style="background:var(--done)"></i></div>
+    <span class="sub">After deleting</span>
+    <div class="btns" style="padding:16px 0 0;justify-content:flex-end"><span class="tbtn">Cancel</span><span class="tbtn rust">Delete</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Same rules and Vault call as <code>_DeleteStageDialog</code>. Pickers become <code>DropdownMenu</code>s with a colour dot per entry, defaulting to the next Stage (not the first), so models don't drop back to Wanted by accident.</li>
+  <li>The Owned/Finished pickers list only Stages the order rule allows, so Delete never ends in a refusal. A <code>StageStrip</code> previews the Workflow after the delete.</li>
+  <li>The text names the Collections affected (from the Batches' Collections) rather than "across all Collections using this Workflow".</li>
+</ul>
+</div>
+
+<!-- 7 SWITCH PICK -->
+<div class="col">
+<p class="cap">7 · Switch Workflow <b>pick</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Ultramarines</span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg">
+    <h3>Switch Ultramarines to</h3>
+    <p style="margin-bottom:8px">Now on Standard.</p>
+    <div class="opt on"><span class="radio on"></span><div class="main"><span style="font-size:16px">Kitbash</span>
+      <div class="strip"><i style="background:var(--wish)"></i><b></b><i style="background:var(--unas)"></i><i style="background:var(--asm)"></i><i style="background:var(--prim)"></i><b></b><i style="background:var(--paint)"></i><i style="background:var(--done)"></i></div>
+      <span class="sub">Wishlist → Varnished · used by Kill Team</span></div></div>
+    <div class="opt"><span class="radio"></span><div class="main"><span style="font-size:16px">Speed paint</span>
+      <div class="strip"><b></b><i style="background:var(--prim)"></i><i style="background:var(--pink)"></i><b></b><i style="background:var(--based)"></i></div>
+      <span class="sub">Primed → Based · not used</span></div></div>
+    <div class="btns" style="padding:16px 0 0;justify-content:flex-end"><span class="tbtn">Cancel</span><span class="tbtn">Next</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li><code>AlertDialog</code> with <code>RadioListTile</code>-style rows replacing the bare <code>SimpleDialogOption</code> names, each with its <code>StageStrip</code> and who uses it, so the target is picked by its Stages, not by its name alone.</li>
+  <li>Next leads to the Stage mapping. Triggered as today from the Collection ⋮ menu and, newly, from Edit Collection (frame 10).</li>
+</ul>
+</div>
+
+<!-- 8 MAP STAGES -->
+<div class="col">
+<p class="cap">8 · Switch Workflow <b>map Stages</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Ultramarines</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg" style="padding-left:20px;padding-right:20px">
+    <h3>Switch to Kitbash?</h3>
+    <p>Move the Units at each Stage to:</p>
+    <div class="map"><div class="from"><span class="dot" style="background:var(--wish)"></span><span>Wishlist<small>1 Unit</small></span></div><span class="ms arr">arrow_forward</span><div class="to"><span class="dot" style="background:var(--wish)"></span><span class="grow">Wishlist</span><span class="ms" style="color:var(--muted)">arrow_drop_down</span></div></div>
+    <div class="map"><div class="from"><span class="dot" style="background:var(--unas)"></span><span>Unassembled<small>2 Units</small></span></div><span class="ms arr">arrow_forward</span><div class="to"><span class="dot" style="background:var(--unas)"></span><span class="grow">Ordered</span><span class="ms" style="color:var(--muted)">arrow_drop_down</span></div></div>
+    <div class="map"><div class="from"><span class="dot" style="background:var(--prim)"></span><span>Primed<small>4 Units</small></span></div><span class="ms arr">arrow_forward</span><div class="to"><span class="dot" style="background:var(--prim)"></span><span class="grow">Sprayed</span><span class="ms" style="color:var(--muted)">arrow_drop_down</span></div></div>
+    <div class="map"><div class="from"><span class="dot" style="background:var(--paint)"></span><span>Painted<small>2 Units</small></span></div><span class="ms arr">arrow_forward</span><div class="to"><span class="dot" style="background:var(--paint)"></span><span class="grow">Painted</span><span class="ms" style="color:var(--muted)">arrow_drop_down</span></div></div>
+    <div class="map"><div class="from"><span class="dot" style="background:var(--done)"></span><span>Done<small>1 Unit</small></span></div><span class="ms arr">arrow_forward</span><div class="to" style="border-color:var(--err)"><span class="dot" style="background:var(--wish)"></span><span class="grow">Wishlist</span><span class="ms" style="color:var(--muted)">arrow_drop_down</span></div>
+      <div class="warn"><span class="ms">warning</span>Finished models would count as wanted</div></div>
+    <div class="btns" style="padding:12px 0 0;justify-content:flex-end"><span class="tbtn">Back</span><span class="tbtn">Switch</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Each row: source Stage (dot, name, Unit count) → <code>DropdownMenu</code> of target Stages with dots, in a 3-column <code>Row</code> that fits 320dp. Same-name defaults stay.</li>
+  <li>Proposed default for no same-name match: the target's Stage in the same zone (Owned Stage for owned, Finished Stage for finished) instead of the first Stage. Only <code>_MapStagesDialog</code>'s initial value changes.</li>
+  <li>A row whose choice changes the zone (here finished → Wanted) gets a rust outline and a one-line warning. Switching is still allowed.</li>
+</ul>
+</div>
+
+<!-- 9 NEW COLLECTION -->
+<div class="col">
+<p class="cap">9 · New Collection <b>Workflow picker</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg" style="top:44%">
+    <h3>New Collection</h3>
+    <div class="field" style="margin-top:20px"><span class="fl">Name</span><span class="grow">Black Templars</span></div>
+    <div class="field"><span class="fl">Game System</span><span class="grow">Warhammer 40k</span></div>
+    <div class="field focus" style="margin-bottom:6px"><span class="fl">Workflow</span><span class="grow">Standard</span><span class="ms" style="color:var(--accent)">arrow_drop_up</span></div>
+    <div style="height:150px"></div>
+    <div class="btns" style="padding:16px 0 0;justify-content:flex-end"><span class="tbtn">Cancel</span><span class="tbtn">Create</span></div>
+    <div class="ddmenu" style="top:236px">
+      <div class="opt on"><div class="main"><span>Standard <span class="badge">Starter</span></span><div class="strip"><i style="background:var(--wish)"></i><b></b><i style="background:var(--unas)"></i><i style="background:var(--asm)"></i><i style="background:var(--prim)"></i><i style="background:var(--paint)"></i><i style="background:var(--based)"></i><b></b><i style="background:var(--done)"></i></div></div></div>
+      <div class="opt"><div class="main"><span>Kitbash</span><div class="strip"><i style="background:var(--wish)"></i><b></b><i style="background:var(--unas)"></i><i style="background:var(--asm)"></i><i style="background:var(--prim)"></i><b></b><i style="background:var(--paint)"></i><i style="background:var(--done)"></i></div></div></div>
+      <div class="opt"><div class="main"><span>Speed paint</span><div class="strip"><b></b><i style="background:var(--prim)"></i><i style="background:var(--pink)"></i><b></b><i style="background:var(--based)"></i></div></div></div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li><code>DropdownButtonFormField</code> → <code>DropdownMenu</code> whose entries show name + <code>StageStrip</code> (<code>labelWidget</code>). The selected one's strip shows under the field when closed. Starter still preselected.</li>
+</ul>
+</div>
+
+<!-- 10 EDIT COLLECTION -->
+<div class="col">
+<p class="cap">10 · Edit Collection <b>Workflow row</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Ultramarines</span></div>
+  <div class="body"></div>
+  <div class="scrim"></div>
+  <div class="dlg">
+    <h3>Edit Collection</h3>
+    <div class="field" style="margin-top:20px"><span class="fl">Name</span><span class="grow">Ultramarines</span></div>
+    <div class="field"><span class="fl">Game System</span><span class="grow">Warhammer 40k</span></div>
+    <div class="field" style="min-height:80px;align-items:flex-start;padding-top:14px"><span class="fl">Description</span><span class="grow">2nd Company strike force, Codex-compliant blue with gold trim.</span></div>
+    <div class="lbl" style="margin-top:0">Workflow</div>
+    <div style="display:flex;align-items:center;gap:8px"><div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px"><span style="font-size:16px">Standard</span><div class="strip"><i style="background:var(--wish)"></i><b></b><i style="background:var(--unas)"></i><i style="background:var(--asm)"></i><i style="background:var(--prim)"></i><i style="background:var(--paint)"></i><i style="background:var(--based)"></i><b></b><i style="background:var(--done)"></i></div></div><span class="tbtn">Switch…</span></div>
+    <div class="btns" style="padding:20px 0 0;justify-content:flex-end"><span class="tbtn">Cancel</span><span class="tbtn">Save</span></div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Edit shows the current Workflow read-only with its <code>StageStrip</code> and a "Switch…" <code>TextButton</code> that pops the dialog and runs the existing <code>switchWorkflow</code> (frames 7 and 8). No inline dropdown, because switching needs the Stage mapping.</li>
+</ul>
+</div>
+
+<!-- 11 FANTASY -->
+<div class="col">
+<p class="cap">11 · Workflow editor, <b>Fantasy theme</b></p>
+<div class="phone fantasy">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Adventurers</span><span class="ib"><span class="ms">edit</span></span></div>
+  <div class="body">
+    <div class="used"><span class="ms">info</span><span>Used by <b>Curse of Strahd</b>. Changes apply to it.</span></div>
+    <div class="zhead"><span class="zn">Wanted</span><span class="zs">not yet owned</span></div>
+    <div class="zone wanted"><div class="srow" style="color:var(--muted);font-style:italic;min-height:48px">No Wanted Stages</div></div>
+    <div class="marker"><span class="ms">flag</span><span class="mt">Owned from here</span><span class="sp"></span><span class="ms h">drag_indicator</span></div>
+    <div class="zone owned">
+      <div class="srow"><span class="sw" style="background:var(--unas)"></span><span class="nm">Printed</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--grey)"></span><span class="nm">Cleaned</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--prim)"></span><span class="nm">Primed</span><span class="ms h">drag_handle</span></div>
+    </div>
+    <div class="marker"><span class="ms">military_tech</span><span class="mt">Finished from here</span><span class="sp"></span><span class="ms h">drag_indicator</span></div>
+    <div class="zone fin">
+      <div class="srow"><span class="sw" style="background:var(--violet)"></span><span class="nm">Tabletop ready</span><span class="ms h">drag_handle</span></div>
+      <div class="srow"><span class="sw" style="background:var(--done)"></span><span class="nm">Showcase</span><span class="ms h">drag_handle</span></div>
+    </div>
+    <div class="fab ext" style="bottom:12px"><span class="ms">add</span>New Stage</div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Only <code>colorScheme</code> and <code>heading()</code> tokens are used, so Fantasy (Cinzel, gold accent, forest containers) needs no extra code. Stage colours stay as the user set them.</li>
+  <li>Shows the edge cases: Owned is the first Stage (empty Wanted zone keeps its hint), and a Finished zone with two Stages (finished at or after).</li>
+</ul>
+</div>
+
+</div>
+
+<div class="widget">
+  <h2>Reusable widgets</h2>
+  <p style="margin:0">Three small widgets cover every frame. Flagged, not designed: a free colour picker (UI only), a "Duplicate Workflow" action (new Vault operation), and per-Stage counts of Units in the editor (a new read).</p>
+<pre>/// One segment per Stage in its colour, accent ticks where the Owned and
+/// Finished Stages begin. Used in Workflows list, pickers, Delete preview.
+class StageStrip extends StatelessWidget {
+  const StageStrip(this.workflow, {super.key, this.height = 10});
+  // Row of Expanded(Container(colour, radius 2)), gap 2; a 3dp accent
+  // Container before ownedStage and finishedStage; Semantics label
+  // "7 Stages, owned from Unassembled, finished from Done".
+}
+
+/// A draggable boundary row in the Stage editor's ReorderableListView.
+class ZoneMarker extends StatelessWidget {
+  const ZoneMarker.owned({super.key, required this.index});
+  const ZoneMarker.finished({super.key, required this.index});
+  // 48dp stadium, accent outline + tint, flag / military_tech icon, caps
+  // label in heading(context), trailing ReorderableDragStartListener;
+  // customSemanticsActions "Move up a Stage" / "Move down a Stage".
+}
+
+/// Name, colour, Owned/Finished switches, add above/below, delete.
+Future&lt;void&gt; showStageSheet(BuildContext, Vault, Workflow, Stage);</pre>
+</div>
