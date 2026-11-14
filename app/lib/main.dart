@@ -817,58 +817,54 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                               : recent.data) {
                             null || [] => const SizedBox.shrink(),
                             final units => Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    16,
-                                    16,
-                                    0,
-                                  ),
-                                  child: Text(
-                                    'Recently painted',
-                                    style: heading(context),
-                                  ),
-                                ),
-                                for (final r in units)
-                                  ListTile(
-                                    title: Text(r.unit.name),
-                                    subtitle: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(r.collection.name),
-                                        const SizedBox(height: 4),
-                                        StageBar(r.unit.progress),
-                                      ],
+                                const SectionHeader(title: 'Recently painted'),
+                                SizedBox(
+                                  // Fixed parts plus ~4 lines of text, which grow with the text scale.
+                                  height:
+                                      56 +
+                                      MediaQuery.textScalerOf(context)
+                                          .scale(80),
+                                  child: ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    padding: const EdgeInsets.fromLTRB(
+                                      16,
+                                      0,
+                                      16,
+                                      8,
                                     ),
-                                    onTap: () => showMoveSheet(
-                                      context,
-                                      widget.vault,
-                                      r.collection,
-                                      r.unit.name,
-                                      [for (final g in r.unit.stages) g.stage],
-                                      // shortcut: no recount from here, it needs the Unit screen; open it for that.
-                                      r.from,
-                                    ),
-                                    trailing: IconButton(
-                                      icon: const Icon(Icons.chevron_right),
-                                      tooltip: 'Open ${r.unit.name}',
-                                      onPressed: () => Navigator.push(
+                                    itemCount: units.length,
+                                    separatorBuilder: (_, _) =>
+                                        const SizedBox(width: 8),
+                                    itemBuilder: (context, i) => RecentUnitCard(
+                                      units[i],
+                                      onMove: () => showMoveSheet(
+                                        context,
+                                        widget.vault,
+                                        units[i].collection,
+                                        units[i].unit.name,
+                                        [
+                                          for (final g in units[i].unit.stages)
+                                            g.stage,
+                                        ],
+                                        // shortcut: no recount from here, it needs the Unit screen; open it for that.
+                                        units[i].from,
+                                      ),
+                                      onOpen: () => Navigator.push(
                                         context,
                                         MaterialPageRoute<void>(
                                           builder: (_) => UnitScreen(
                                             vault: widget.vault,
                                             photos: widget.photos,
-                                            collection: r.collection,
-                                            name: r.unit.name,
+                                            collection: units[i].collection,
+                                            name: units[i].unit.name,
                                           ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                const Divider(),
+                                ),
                               ],
                             ),
                           },

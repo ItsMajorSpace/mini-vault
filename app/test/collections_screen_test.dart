@@ -137,7 +137,7 @@ void main() {
     final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
     expect(tops, [...tops]..sort(), reason: 'in the order $order');
     // Models, but no move yet.
-    expect(find.text('Recently painted'), findsNothing);
+    expect(find.text('RECENTLY PAINTED'), findsNothing);
 
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(() => dir.delete(recursive: true));
@@ -260,6 +260,9 @@ void main() {
   testWidgets(
     'search filters by Collection or Game System name, opens collapsed groups and ends with back',
     (tester) async {
+      // Tall enough to build every row of the lazy list.
+      tester.view.physicalSize = const Size(2400, 4800);
+      addTearDown(tester.view.resetPhysicalSize);
       final dir = (await tester.runAsync(
         () => Directory.systemTemp.createTemp('app_test'),
       ))!;
@@ -322,7 +325,7 @@ void main() {
 
       await settle();
       expect(find.text('Orks'), findsNothing); // Warhammer is collapsed.
-      expect(find.text('Recently painted'), findsOneWidget);
+      expect(find.text('RECENTLY PAINTED'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Search'));
       await tester.pump();
@@ -339,7 +342,7 @@ void main() {
       expect(find.text('Death Guard'), findsOneWidget);
       expect(find.text('WARHAMMER'), findsNothing);
       expect(find.text('Terrain'), findsNothing);
-      expect(find.text('Recently painted'), findsNothing);
+      expect(find.text('RECENTLY PAINTED'), findsNothing);
       expect(find.byTooltip('New Collection'), findsNothing);
 
       // Otherwise only the matching Collections, collapsed groups open, no chevrons.
@@ -390,7 +393,7 @@ void main() {
         find.text('Terrain'),
         findsNWidgets(2),
       ); // Its row and under Ruins.
-      expect(find.text('Recently painted'), findsOneWidget);
+      expect(find.text('RECENTLY PAINTED'), findsOneWidget);
       expect(find.byTooltip('New Collection'), findsOneWidget);
       expect(collapsed.isCollapsed('game-system:warhammer'), isTrue);
 
@@ -1057,38 +1060,61 @@ void main() {
         ),
       );
       await settle();
-      expect(find.text('Recently painted'), findsOneWidget);
-      final order = ['Recently painted', 'Boyz', 'Captain', 'Nobz'];
-      final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
-      expect(tops, [...tops]..sort(), reason: 'in the order $order');
+      expect(find.text('RECENTLY PAINTED'), findsOneWidget);
+      // Cards side by side, newest first.
+      final order = ['Boyz', 'Captain', 'Nobz'];
+      final lefts = [for (final t in order) tester.getTopLeft(find.text(t)).dx];
+      expect(lefts, [...lefts]..sort(), reason: 'in the order $order');
       expect(find.text('Intercessors'), findsNothing);
-      // Each with its Collection and Stage bar.
-      final boyz = find.ancestor(
-        of: find.text('Boyz'),
-        matching: find.byType(ListTile),
+      // Each card with its Collection, Stage bar and the Stage a tap moves from.
+      Finder inCard(String name, Finder f) => find.descendant(
+        of: find.ancestor(
+          of: find.text(name),
+          matching: find.byType(RecentUnitCard),
+        ),
+        matching: f,
       );
-      expect(
-        find.descendant(of: boyz, matching: find.text('Orks')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: boyz, matching: find.byType(StageBar)),
-        findsOneWidget,
-      );
+      expect(inCard('Boyz', find.text('Orks')), findsOneWidget);
+      expect(inCard('Boyz', find.byType(StageBar)), findsOneWidget);
+      expect(inCard('Boyz', find.text('Move from Primed')), findsOneWidget);
+      expect(inCard('Boyz', find.byIcon(Icons.swap_vert)), findsOneWidget);
+      expect(tester.getSize(find.byType(RecentUnitCard).first).width, 164);
 
       // Primed, its latest move's from-Stage, still has 3 models: the sheet starts there.
       await tester.tap(find.text('Captain'));
       await settle();
-      expect(find.text('Move from Primed'), findsOneWidget);
+      final sheet = find.byType(BottomSheet);
+      expect(
+        find.descendant(of: sheet, matching: find.text('Move from Primed')),
+        findsOneWidget,
+      );
       expect(find.text('3 of 3'), findsOneWidget);
       expect(find.text('Move 3 models to Painted'), findsOneWidget);
 
       // Its chevron opens the Unit screen instead.
-      Navigator.pop(tester.element(find.text('Move from Primed')));
+      Navigator.pop(tester.element(find.text('3 of 3')));
       await settle();
       await tester.tap(find.byTooltip('Open Captain'));
       await settle();
       expect(find.byTooltip('Edit Unit'), findsOneWidget);
+
+      // At double text size the cards grow instead of overflowing.
+      await tester.pumpWidget(
+        MaterialApp(
+          key: const ValueKey(
+            'large text',
+          ), // A fresh app, off the Unit screen.
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: CollectionsScreen(vault: vault, db: db),
+        ),
+      );
+      await settle();
+      expect(find.byType(RecentUnitCard), findsWidgets);
+      expect(tester.takeException(), isNull);
 
       await tester.pumpWidget(const SizedBox());
     },
