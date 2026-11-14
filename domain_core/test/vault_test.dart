@@ -2925,4 +2925,139 @@ void main() {
       ]);
     });
   });
+
+  group('Categories', () {
+    late Collection collection;
+    setUp(() async {
+      await syncStarterWorkflow();
+      collection = await vault.createCollection('Necrons');
+    });
+
+    /// Each group as "Category: Units", Uncategorised as "-".
+    Future<List<String>> groups() async => [
+      for (final g in await vault.watchUnitsByCategory(collection).first)
+        '${g.category?.name ?? '-'}: ${g.units.map((u) => u.name).join(', ')}',
+    ];
+
+    test('are appended in order, trimmed, unique per Collection ignoring case, and kept across restarts', () async {
+      final heroes = await vault.addCategory(collection.id, ' Heroes ');
+      await vault.addCategory(collection.id, 'Core');
+      expect((await vault.addCategory(collection.id, 'HEROES')).id, heroes.id);
+      final other = await vault.createCollection('Orks');
+      await vault.addCategory(other.id, 'heroes');
+      expect(() => vault.addCategory(collection.id, '  '), throwsArgumentError);
+      await restart();
+
+      expect(
+        [
+          for (final c in await vault.watchCategories(collection.id).first)
+            c.name,
+        ],
+        ['Heroes', 'Core'],
+      );
+      expect(
+        [for (final c in await vault.watchCategories(other.id).first) c.name],
+        ['heroes'],
+      );
+    });
+
+    test("a new Unit goes in the given Category; adding to an existing Unit never moves it", () async {
+      final heroes = await vault.addCategory(collection.id, 'Heroes');
+      final core = await vault.addCategory(collection.id, 'Core');
+      await vault.addBatch(
+        collection,
+        name: 'Overlord',
+        modelCount: 1,
+        stageId: 's2',
+        categoryId: heroes.id,
+      );
+      await vault.addBatch(
+        collection,
+        name: 'Warriors',
+        modelCount: 10,
+        stageId: 's2',
+      );
+      await vault.addBatch(
+        collection,
+        name: 'Overlord',
+        modelCount: 1,
+        stageId: 's1',
+        categoryId: core.id,
+      );
+      await restart();
+
+      expect(await vault.categoryOf(collection.id, 'Overlord'), heroes.id);
+      expect(await vault.categoryOf(collection.id, 'Warriors'), isNull);
+      // Every Category in order, empty ones too; Uncategorised last.
+      expect(await groups(), ['Heroes: Overlord', 'Core: ', '-: Warriors']);
+
+      await vault.setUnitCategory(collection.id, 'Warriors', core.id);
+      expect(await groups(), ['Heroes: Overlord', 'Core: Warriors']);
+      await vault.setUnitCategory(collection.id, 'Overlord', null);
+      expect(await groups(), ['Heroes: ', 'Core: Warriors', '-: Overlord']);
+    });
+
+    test('without Categories every Unit is Uncategorised', () async {
+      await vault.addBatch(
+        collection,
+        name: 'Warriors',
+        modelCount: 10,
+        stageId: 's2',
+      );
+      expect(await groups(), ['-: Warriors']);
+    });
+
+    test('an Army List import puts new Units in Uncategorised and keeps existing ones in theirs', () async {
+      final heroes = await vault.addCategory(collection.id, 'Heroes');
+      await vault.addBatch(
+        collection,
+        name: 'Overlord',
+        modelCount: 1,
+        stageId: 's2',
+        categoryId: heroes.id,
+      );
+      await vault.importArmyList(collection, 's2', [
+        (name: 'Overlord', count: 1),
+        (name: 'Warriors', count: 20),
+      ]);
+      expect(await groups(), ['Heroes: Overlord', '-: Warriors']);
+    });
+
+    test("a renamed Unit keeps its Category; onto an existing Unit, that Unit's stays", () async {
+      final heroes = await vault.addCategory(collection.id, 'Heroes');
+      final core = await vault.addCategory(collection.id, 'Core');
+      Future<void> add(String name, Category c) => vault.addBatch(
+        collection,
+        name: name,
+        modelCount: 1,
+        stageId: 's2',
+        categoryId: c.id,
+      );
+      await add('Overlord', heroes);
+      await add('Warriors', core);
+      await add('Immortals', heroes);
+      Future<Unit> unit(String name) async =>
+          (await vault.watchUnits(collection).first).firstWhere(
+            (u) => u.name == name,
+          );
+
+      await vault.renameUnit(await unit('Overlord'), 'Lord');
+      await vault.renameUnit(await unit('Immortals'), 'Warriors');
+      expect(await groups(), ['Heroes: Lord', 'Core: Warriors']);
+    });
+
+    test("deleting the Collection deletes its Categories", () async {
+      final heroes = await vault.addCategory(collection.id, 'Heroes');
+      await vault.addBatch(
+        collection,
+        name: 'Overlord',
+        modelCount: 1,
+        stageId: 's2',
+        categoryId: heroes.id,
+      );
+      await vault.deleteCollection(collection.id);
+      expect(await vault.watchCategories(collection.id).first, isEmpty);
+      expect(await vault.categoryOf(collection.id, 'Overlord'), isNull);
+    });
+  });
 }

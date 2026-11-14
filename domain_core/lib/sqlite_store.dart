@@ -101,6 +101,18 @@ class SqliteVaultStore implements VaultStore {
       Column.text('paint_id'),
       Column.integer('position'),
     ]),
+    // A Collection's Categories (ADR 0011), in (position, id) order as Stages. A Unit's Category is a squad_categories
+    // row keyed like squad_notes (its id is the Unit's unitId); none, or a null category_id, is Uncategorised.
+    Table('categories', [
+      Column.text('collection_id'),
+      Column.text('name'),
+      Column.integer('position'),
+    ]),
+    Table('squad_categories', [
+      Column.text('collection_id'),
+      Column.text('squad_name'),
+      Column.text('category_id'),
+    ]),
   ]);
 
   // Stage order is (position, id): concurrent reorders on two devices can merge into equal positions, and the id
@@ -333,6 +345,8 @@ class SqliteVaultStore implements VaultStore {
       'squad_notes',
       'squad_tags',
       'squad_photos',
+      'squad_categories',
+      'categories',
     ]) {
       await tx.execute('DELETE FROM $table WHERE collection_id = ?', [id]);
     }
@@ -529,6 +543,67 @@ class SqliteVaultStore implements VaultStore {
     'DELETE FROM squad_notes WHERE id = ?',
     [unitId(collectionId, unit)],
   );
+
+  @override
+  Stream<List<Category>> watchCategories(String collectionId) => _db
+      .watch(
+        'SELECT * FROM categories WHERE collection_id = ? ORDER BY position, id',
+        parameters: [collectionId],
+      )
+      .map(
+        (rows) => [
+          for (final r in rows)
+            Category(
+              id: r['id'] as String,
+              collectionId: collectionId,
+              name: r['name'] as String,
+            ),
+        ],
+      );
+
+  @override
+  Future<void> insertCategory(Category category) => _db.execute(
+    'INSERT INTO categories (id, collection_id, name, position) '
+    'SELECT ?, ?, ?, coalesce(max(position) + 1, 0) FROM categories WHERE collection_id = ?',
+    [category.id, category.collectionId, category.name, category.collectionId],
+  );
+
+  @override
+  Stream<Map<String, String>> watchUnitCategories(String collectionId) => _db
+      .watch(
+        'SELECT squad_name, category_id FROM squad_categories WHERE collection_id = ? AND category_id IS NOT NULL',
+        parameters: [collectionId],
+      )
+      .map(
+        (rows) => {
+          for (final r in rows)
+            r['squad_name'] as String: r['category_id'] as String,
+        },
+      );
+
+  // As setNotes: an UPDATE of the one column once the row exists, so the latest change wins.
+  @override
+  Future<void> setUnitCategory(
+    String collectionId,
+    String unit,
+    String? categoryId,
+  ) => _db.writeTransaction((tx) async {
+    final id = unitId(collectionId, unit);
+    if (await tx.getOptional('SELECT 1 FROM squad_categories WHERE id = ?', [
+          id,
+        ]) !=
+        null) {
+      await tx.execute(
+        'UPDATE squad_categories SET category_id = ? WHERE id = ? AND category_id IS NOT ?',
+        [categoryId, id, categoryId],
+      );
+    } else if (categoryId != null) {
+      await tx.execute(
+        'INSERT INTO squad_categories (id, collection_id, squad_name, category_id) VALUES (?, ?, ?, ?)',
+        [id, collectionId, unit, categoryId],
+      );
+    }
+  });
 
   @override
   Stream<List<String>> watchTags(String collectionId, String unit) => _db
