@@ -128,7 +128,7 @@ jobs:
           cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
           cache-to: ${{ env.PUBLISH == 'true' && format('type=registry,ref={0}:buildcache,mode=max', env.IMAGE) || '' }}
 
-  # Sideloadable release APK against production, signed with the release key.
+  # Sideloadable release APK and Play AAB against production, signed with the release key.
   apk:
     name: apk
     needs: check
@@ -138,7 +138,7 @@ jobs:
     # The signing secrets live in the production environment.
     environment: production
     permissions:
-      contents: write  # attach the APK to the GitHub Release
+      contents: write  # attach the APK and AAB to the GitHub Release
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -173,7 +173,7 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
       # The tag is the only source of the app version (ADR 0006).
-      - name: Build release APK
+      - name: Build release APK and AAB
         working-directory: app
         env:
           TAG: ${{ github.ref_name }}
@@ -182,15 +182,17 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: >-
-          flutter build apk --release
-          --build-name="${TAG#v}"
-          --build-number="$BUILD_NUMBER"
-          --dart-define=AUTH_URL=https://auth.minivault.bingoscape.org
-          --dart-define=POWERSYNC_URL=https://sync.minivault.bingoscape.org
-          --dart-define=API_URL=https://api.minivault.bingoscape.org
+        run: |
+          for target in apk appbundle; do
+            flutter build "$target" --release \
+              --build-name="${TAG#v}" \
+              --build-number="$BUILD_NUMBER" \
+              --dart-define=AUTH_URL=https://auth.minivault.bingoscape.org \
+              --dart-define=POWERSYNC_URL=https://sync.minivault.bingoscape.org \
+              --dart-define=API_URL=https://api.minivault.bingoscape.org
+          done
 
-      - name: Check APK version and signature
+      - name: Check APK version and signature, AAB signed with the same key
         env:
           TAG: ${{ github.ref_name }}
           BUILD_NUMBER: ${{ github.run_number }}
@@ -200,18 +202,23 @@ jobs:
           grep -F "versionCode='$BUILD_NUMBER' versionName='${TAG#v}'" badging.txt
           certs=$("$(dirname "$aapt")"/apksigner verify --print-certs app/build/app/outputs/flutter-apk/app-release.apk)
           if grep -q "CN=Android Debug" <<< "$certs"; then echo "::error::APK is debug-signed."; exit 1; fi
+          apk_sha=$(grep -m1 'certificate SHA-256 digest' <<< "$certs" | awk '{print $NF}')
+          aab_sha=$(keytool -printcert -jarfile app/build/app/outputs/bundle/release/app-release.aab | awk '/SHA256:/ {print $2}' | tr -d : | tr A-F a-f)
+          [ -n "$apk_sha" ] && [ "$apk_sha" = "$aab_sha" ] || { echo "::error::AAB and APK certificates differ ($aab_sha vs $apk_sha)."; exit 1; }
 
       # Creates the Release if only a bare tag was pushed; `|| true` because it
       # usually exists already. A real failure still fails the upload below.
-      - name: Attach APK to GitHub Release
+      - name: Attach APK and AAB to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
           apk="mini-vault-$TAG.apk"
+          aab="mini-vault-$TAG.aab"
           cp app/build/app/outputs/flutter-apk/app-release.apk "$apk"
+          cp app/build/app/outputs/bundle/release/app-release.aab "$aab"
           prerelease=()
           [[ "$TAG" == *-* ]] && prerelease=(--prerelease)
           gh release create "$TAG" --verify-tag --generate-notes "${prerelease[@]}" || true
-          gh release upload "$TAG" "$apk" --clobber
+          gh release upload "$TAG" "$apk" "$aab" --clobber
