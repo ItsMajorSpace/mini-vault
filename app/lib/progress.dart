@@ -31,12 +31,7 @@ class _ProgressSummaryState extends State<ProgressSummary> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            [
-              '${p.finished} / ${p.owned} finished',
-              if (p.wanted > 0) '${p.wanted} wanted',
-            ].join(' · '),
-          ),
+          Text(progressWords(p)),
           const SizedBox(height: 4),
           StageBar(p),
         ],
@@ -44,6 +39,16 @@ class _ProgressSummaryState extends State<ProgressSummary> {
     },
   );
 }
+
+/// "86 / 140 finished · 12 wanted", leaving out wanted when there are none.
+String progressWords(Progress p) => [
+  '${p.finished} / ${p.owned} finished',
+  if (p.wanted > 0) '${p.wanted} wanted',
+].join(' · ');
+
+/// A collapsed group's line: "3 Collections · 86 / 140 finished · 12 wanted" for [count] [noun]s with [progress].
+String groupSummary(int count, String noun, Progress progress) =>
+    '$count $noun${count == 1 ? '' : 's'} · ${progressWords(progress)}';
 
 /// [progress]'s owned models as one segment per Stage, in its colour and sized by model count, the latest Stage
 /// leftmost, so the finished part fills from the left. Its wanted models follow as one outlined segment in the

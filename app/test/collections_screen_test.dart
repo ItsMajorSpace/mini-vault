@@ -11,6 +11,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
 import 'package:mini_vault/progress.dart';
+import 'package:mini_vault/section.dart';
 import 'package:mini_vault/stage_strip.dart';
 import 'package:mini_vault/theme.dart';
 import 'package:mini_vault/unit.dart';
@@ -78,7 +79,7 @@ void main() {
       expect(find.byTooltip('2 changes waiting to sync'), findsOneWidget);
       expect(find.byTooltip('New Collection'), findsOneWidget);
       expect(
-        find.text('Other'),
+        find.text('OTHER'),
         findsNothing,
       ); // No Game System yet: no headers.
 
@@ -127,10 +128,10 @@ void main() {
     final order = [
       'D&D',
       'Party',
-      'Warhammer',
+      'WARHAMMER',
       'Orks',
       'Ultramarines',
-      'Other',
+      'OTHER',
       'Terrain',
     ];
     final tops = [for (final t in order) tester.getTopLeft(find.text(t)).dy];
@@ -141,6 +142,120 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(() => dir.delete(recursive: true));
   });
+
+  testWidgets(
+    'a Game System group collapses to a summary line, remembered per device',
+    (tester) async {
+      final dir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('app_test'),
+      ))!;
+      final file = File('${dir.path}/collapsed.txt');
+      final db = (await tester.runAsync(() async {
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's', 's')",
+        );
+        await db.execute(
+          "INSERT INTO stages (id, workflow_id, name, position) VALUES ('s', 'w', 'Wishlist', 0)",
+        );
+        final vault = Vault(SqliteVaultStore(db));
+        await vault.createCollection('Terrain');
+        final ultramarines = await vault.createCollection(
+          'Ultramarines',
+          gameSystem: 'Warhammer',
+        );
+        await vault.addBatch(
+          ultramarines,
+          name: 'Intercessors',
+          modelCount: 2,
+          stageId: 's',
+        );
+        final orks = await vault.createCollection(
+          'Orks',
+          gameSystem: 'warhammer',
+        );
+        await vault.addBatch(orks, name: 'Boyz', modelCount: 3, stageId: 's');
+        return db;
+      }))!;
+
+      Future<void> open() async {
+        final collapsed = (await tester.runAsync(
+          () => CollapsedGroups.load(file),
+        ))!;
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpWidget(
+          MaterialApp(
+            home: CollectionsScreen(
+              vault: Vault(SqliteVaultStore(db)),
+              db: db,
+              collapsed: collapsed,
+            ),
+          ),
+        );
+        for (var i = 0; i < 60; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      Finder header(bool expanded) => find.byWidgetPredicate(
+        (w) => w is SectionHeader && w.expanded == expanded,
+      );
+
+      await open();
+      expect(find.text('Orks'), findsOneWidget);
+      expect(find.text('Ultramarines'), findsOneWidget);
+      expect(header(true), findsNWidgets(2)); // Warhammer and Other.
+      expect(find.text('2 Collections · 5 / 5 finished'), findsNothing);
+
+      await tester.tap(find.text('WARHAMMER'));
+      await tester.pump();
+      expect(find.text('Orks'), findsNothing);
+      expect(find.text('Ultramarines'), findsNothing);
+      expect(find.text('2 Collections · 5 / 5 finished'), findsOneWidget);
+      expect(find.byIcon(Icons.expand_more), findsOneWidget);
+      expect(header(false), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.text('WARHAMMER'),
+          matching: find.byWidgetPredicate(
+            (w) => w is Semantics && w.properties.expanded == false,
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Terrain'), findsOneWidget); // Other stays open.
+
+      await open(); // The screen again, from the same file.
+      expect(find.text('Orks'), findsNothing);
+      expect(find.text('2 Collections · 5 / 5 finished'), findsOneWidget);
+
+      await tester.tap(find.text('WARHAMMER'));
+      await tester.pump();
+      expect(find.text('Orks'), findsOneWidget);
+      expect(find.text('Ultramarines'), findsOneWidget);
+      expect(find.text('2 Collections · 5 / 5 finished'), findsNothing);
+
+      await tester.tap(find.text('OTHER'));
+      await tester.pump();
+      expect(find.text('Terrain'), findsNothing);
+      expect(find.text('1 Collection · 0 / 0 finished'), findsOneWidget);
+
+      await tester.runAsync(() => file.delete()); // A fresh file: all open.
+      await open();
+      expect(find.text('Terrain'), findsOneWidget);
+      expect(find.text('Orks'), findsOneWidget);
+      expect(header(false), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => dir.delete(recursive: true));
+    },
+  );
 
   testWidgets(
     'the Collection dialog suggests Game Systems in use and returns the fields',
