@@ -410,6 +410,129 @@ void main() {
   );
 
   testWidgets(
+    'Collection rows show a Progress ring and line in one card per group, open the Collection, and stay in search',
+    (tester) async {
+      final db = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's1', 's2')",
+        );
+        for (final (i, name) in ['Wishlist', 'Built', 'Painted'].indexed) {
+          await db.execute(
+            'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
+            ['s$i', 'w', name, i],
+          );
+        }
+        final vault = Vault(SqliteVaultStore(db));
+        final marines = await vault.createCollection(
+          'Space Marines',
+          gameSystem: 'Warhammer',
+        );
+        for (final (name, count, stage) in [
+          ('Intercessors', 2, 's2'),
+          ('Scouts', 1, 's1'),
+          ('Terminators', 4, 's0'),
+        ]) {
+          await vault.addBatch(
+            marines,
+            name: name,
+            modelCount: count,
+            stageId: stage,
+          );
+        }
+        await vault.createCollection('Orks', gameSystem: 'Warhammer');
+        return db;
+      }))!;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CollectionsScreen(vault: Vault(SqliteVaultStore(db)), db: db),
+        ),
+      );
+      Future<void> settle() async {
+        for (var i = 0; i < 60; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      Finder row(String name) =>
+          find.ancestor(of: find.text(name), matching: find.byType(InkWell));
+      void expectRow(String name, String percent, String words) {
+        final r = row(name);
+        expect(
+          find.descendant(of: r, matching: find.byType(ProgressRing)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: r, matching: find.text(percent)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: r,
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w is Semantics && w.properties.label == '$percent finished',
+            ),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: r, matching: find.text(words)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: r, matching: find.byIcon(Icons.chevron_right)),
+          findsOneWidget,
+        );
+        expect(tester.getSize(r).height, greaterThanOrEqualTo(76));
+      }
+
+      await settle();
+      // Owned from Built: 2 of 3 painted, Terminators still wanted.
+      expectRow('Space Marines', '67%', '2 / 3 finished · 4 wanted');
+      expectRow('Orks', '0%', '0 / 0 finished');
+      // Both rows in the group's one card.
+      final card = find.ancestor(
+        of: find.text('Orks'),
+        matching: find.byType(Card),
+      );
+      expect(
+        find.descendant(of: card, matching: find.text('Space Marines')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byTooltip('Search'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), 'mar');
+      await settle();
+      expect(find.text('Orks'), findsNothing);
+      expectRow('Space Marines', '67%', '2 / 3 finished · 4 wanted');
+      final bold = <String>[];
+      tester.widget<Text>(find.text('Space Marines')).textSpan!.visitChildren((
+        span,
+      ) {
+        if (span is TextSpan && span.style?.fontWeight == FontWeight.bold) {
+          bold.add(span.text!);
+        }
+        return true;
+      });
+      expect(bold, ['Mar']);
+
+      await tester.tap(find.text('Space Marines'));
+      await settle();
+      expect(find.byType(CollectionScreen), findsOneWidget);
+      expect(find.text('Intercessors'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'the Collection dialog suggests Game Systems in use and returns the fields',
     (tester) async {
       (String, String?, String, String)? result;
@@ -1031,7 +1154,7 @@ void main() {
       // The row shows only its name and Progress.
       final row = find.ancestor(
         of: find.text('Space Marines'),
-        matching: find.byType(ListTile),
+        matching: find.byType(CollectionRow),
       );
       expect(
         find.descendant(of: row, matching: find.byType(IconButton)),

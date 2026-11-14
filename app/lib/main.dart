@@ -902,32 +902,39 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                               },
                             ),
                           if (open(g.gameSystem))
-                            for (final c in g.collections)
-                              ListTile(
-                                key: ValueKey(c.id),
-                                title: Text.rich(
-                                  highlight(context, c.name, query),
-                                ),
-                                // Keyed by Workflow, so switching it restarts the watch on the new one.
-                                subtitle: ProgressSummary(
-                                  key: ValueKey(c.workflowId),
-                                  vault: widget.vault,
-                                  collection: c,
-                                ),
-                                onTap: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => CollectionScreen(
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: Card.filled(
+                                margin: EdgeInsets.zero,
+                                clipBehavior: Clip.antiAlias,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerLow,
+                                child: sectionRows(context, [
+                                  for (final c in g.collections)
+                                    // Keyed by Workflow too, so switching it restarts the watch on the new one.
+                                    CollectionRow(
+                                      key: ValueKey('${c.id}/${c.workflowId}'),
                                       vault: widget.vault,
-                                      db: widget.db,
-                                      photos: widget.photos,
                                       collection: c,
-                                      onSyncNow: widget.onSyncNow,
-                                      collapsed: widget.collapsed,
+                                      match: query,
+                                      onTap: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute<void>(
+                                          builder: (_) => CollectionScreen(
+                                            vault: widget.vault,
+                                            db: widget.db,
+                                            photos: widget.photos,
+                                            collection: c,
+                                            onSyncNow: widget.onSyncNow,
+                                            collapsed: widget.collapsed,
+                                          ),
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
+                                ]),
                               ),
+                            ),
                         ],
                       ],
                     );
