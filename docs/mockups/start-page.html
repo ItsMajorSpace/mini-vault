@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Start Page Mockups</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
+<style>
+:root {
+  color-scheme: dark;
+  /* Grimdark dark (default Theme), app/lib/theme.dart */
+  --bg: #1C1F22; --accent: #FFA000; --err: #F6937A; --text: #E4E6E8; --muted: #B0B7BD;
+  --c0: #16191B; --c1: #23272B; --c2: #2B3035; --c3: #31373C; --c4: #3A4046; --outline: #6B737A;
+  --tint: rgba(255,160,0,.16); --errtint: rgba(246,147,122,.12); --hfont: 'Black Ops One';
+  --shadow: rgba(0,0,0,.5); --scrim: rgba(0,0,0,.55);
+  /* Starter Workflow Stage colours, Vault.stageColours by position */
+  --s0: #FF7B7B; --s1: #FF9E5E; --s2: #FFC24D; --s3: #F2E05C; --s4: #B5E061; --s5: #6FD98A; --s6: #4FD1C0;
+  /* page chrome */
+  --page: #0E1012; --note-bg: #15181A; --note-ink: #C9CED2; --page-accent: #FFA000; --page-muted: #B0B7BD;
+  --bad: #F6937A; --flag: #7FB2FF;
+}
+/* Grimdark light */
+.light {
+  color-scheme: light;
+  --bg: #E3E6E8; --accent: #7F3D00; --err: #922610; --text: #1C1F22; --muted: #3E454B;
+  --c0: #F2F4F5; --c1: #DCE0E3; --c2: #D4D9DD; --c3: #CCD2D6; --c4: #C8CDD1; --outline: #6B737A;
+  --tint: rgba(127,61,0,.13); --errtint: rgba(146,38,16,.09); --shadow: rgba(0,0,0,.18); --scrim: rgba(0,0,0,.32);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--note-ink); font: 14px/1.4 Roboto, system-ui, sans-serif; padding: 24px 16px 48px; overflow-x: hidden; }
+h1 { font: 28px 'Black Ops One', sans-serif; color: var(--page-accent); margin: 0 0 4px; }
+h2.grp { font: 18px 'Black Ops One', sans-serif; color: var(--page-accent); margin: 44px 0 16px; font-weight: 400; }
+.lede { color: var(--page-muted); max-width: 820px; margin: 0 0 8px; }
+.rec { max-width: 820px; background: var(--note-bg); border-left: 3px solid var(--page-accent); border-radius: 4px; padding: 10px 12px; margin: 0 0 20px; }
+.board { display: flex; flex-wrap: wrap; gap: 32px 28px; align-items: flex-start; }
+.col { width: 360px; max-width: 100%; }
+.cap { font: 13px 'Black Ops One', sans-serif; color: var(--page-muted); letter-spacing: 1px; margin: 0 0 8px; text-transform: uppercase; }
+.cap b { color: var(--page-accent); font-weight: 400; }
+.notes { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.notes li { background: var(--note-bg); border-left: 3px solid var(--page-accent); border-radius: 4px; padding: 8px 10px; font-size: 13px; }
+.notes li.bad { border-left-color: var(--bad); }
+.notes li.flag { border-left-color: var(--flag); }
+code { font: 12px ui-monospace, Menlo, monospace; color: var(--page-accent); }
+
+/* phone + Material pieces */
+.phone { position: relative; width: 100%; height: 760px; background: var(--bg); color: var(--text); border: 1px solid #2E3338; border-radius: 22px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+.status { height: 24px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; font-size: 12px; color: var(--muted); }
+.appbar { height: 64px; flex: none; display: flex; align-items: center; padding: 0 4px; }
+.appbar .t { flex: 1; min-width: 0; font: 22px var(--hfont), sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 12px; }
+.appbar .ib + .t { padding-left: 4px; }
+.sfield { flex: 1; height: 48px; display: flex; align-items: center; font-size: 18px; }
+.body { flex: 1; overflow: hidden; position: relative; }
+.ms { font-family: 'Material Symbols Outlined'; font-size: 24px; line-height: 1; font-weight: 400; font-style: normal; display: inline-block; font-feature-settings: 'liga'; }
+.ib { width: 48px; height: 48px; flex: none; display: inline-grid; place-items: center; color: var(--muted); }
+.ib.ac { color: var(--accent); }
+.sub { color: var(--muted); font-size: 13px; }
+mark { background: none; color: var(--accent); font-weight: 700; }
+.fab { position: absolute; right: 16px; bottom: 16px; height: 56px; width: 56px; border-radius: 16px; background: var(--accent); color: var(--bg); display: grid; place-items: center; box-shadow: 0 4px 10px var(--shadow); z-index: 2; }
+.nav { height: 80px; flex: none; background: var(--c1); display: flex; }
+.nav div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.nav .pill { width: 64px; height: 32px; border-radius: 16px; display: grid; place-items: center; }
+.nav .on .pill { background: var(--tint); color: var(--accent); }
+.nav .on { color: var(--text); }
+.tile { min-height: 56px; display: flex; align-items: center; gap: 16px; padding: 8px 16px; }
+.tile .main { flex: 1; min-width: 0; }
+.nm { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plain-h { font: 14px var(--hfont), sans-serif; padding: 16px 16px 0; }
+.hr { height: 1px; background: var(--c4); margin: 4px 0; }
+/* StageBar: latest Stage leftmost, wanted as outlined Wishlist segment; --h for the proposed height param */
+.sbar { display: flex; height: var(--h, 4px); margin-top: 6px; background: var(--c4); outline: .5px solid var(--outline); }
+.sbar i { display: block; }
+.sbar i.w { box-shadow: inset 0 0 0 1px var(--s0); }
+.sw { width: 12px; height: 12px; flex: none; outline: .5px solid var(--outline); display: inline-block; }
+/* SectionHeader (section.dart) */
+.sh { display: flex; align-items: center; min-height: 48px; padding-left: 16px; }
+.sh .bar { width: 4px; height: 18px; background: var(--accent); border-radius: 2px; margin-right: 10px; flex: none; }
+.sh .st { font: 15px var(--hfont), sans-serif; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh .count { margin-left: 8px; color: var(--muted); font-size: 12px; }
+.sp { flex: 1; }
+.sh.col { background: var(--c0); margin-bottom: 2px; }
+.sh.col .bar { background: var(--outline); }
+.sh.col .gs { color: var(--muted); font-size: 13px; }
+
+/* sign in */
+.si { padding: 0 24px; display: flex; flex-direction: column; }
+.wm { text-align: center; margin-top: 64px; font: 40px/1 var(--hfont), sans-serif; letter-spacing: 1px; }
+.wm span { color: var(--accent); }
+.wmbar { width: 48px; height: 4px; border-radius: 2px; background: var(--accent); margin: 14px auto 12px; }
+.tag { text-align: center; color: var(--muted); font-size: 16px; margin-bottom: 36px; }
+.seg { display: flex; height: 40px; border: 1px solid var(--outline); border-radius: 20px; overflow: hidden; margin-bottom: 24px; }
+.seg div { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; font-weight: 500; font-size: 14px; }
+.seg div + div { border-left: 1px solid var(--outline); }
+.seg .on { background: var(--tint); color: var(--text); }
+.seg .ms { font-size: 18px; }
+.field { border: 1px solid var(--outline); border-radius: 4px; padding: 0 4px 0 16px; height: 56px; display: flex; align-items: center; position: relative; font-size: 16px; margin-bottom: 20px; }
+.field.focus { border: 2px solid var(--accent); }
+.field.bad { border: 2px solid var(--err); }
+.field .fl { position: absolute; top: -9px; left: 12px; background: var(--bg); padding: 0 4px; font-size: 12px; color: var(--muted); }
+.field.focus .fl { color: var(--accent); }
+.field .grow { flex: 1; }
+.dis { opacity: .5; }
+.help { font-size: 12px; color: var(--muted); margin: -16px 0 18px 16px; }
+.fbtn { height: 48px; border-radius: 24px; background: var(--accent); color: var(--bg); display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 500; font-size: 15px; }
+.fbtn.busy { background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--text); }
+.spin { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid var(--accent); border-right-color: transparent; }
+.tbtn { height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 500; color: var(--accent); }
+.notice { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; margin: -4px 0 20px; background: var(--errtint); border: 1px solid var(--err); }
+.notice .ms { color: var(--err); font-size: 22px; }
+.notice b { display: block; font-weight: 500; }
+.done { text-align: center; padding-top: 8px; }
+.done .ic { width: 72px; height: 72px; border-radius: 50%; background: var(--tint); color: var(--accent); display: grid; place-items: center; margin: 0 auto 16px; }
+.done .ic .ms { font-size: 36px; }
+.done h3 { font: 22px var(--hfont), sans-serif; font-weight: 400; margin: 0 0 8px; }
+.done p { color: var(--muted); margin: 0 0 24px; font-size: 15px; }
+.obtn { height: 48px; border: 1px solid var(--outline); border-radius: 24px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--accent); font-weight: 500; }
+
+/* ProgressRing: CircularProgressIndicator(value: finishedShare) over a % label */
+.ring { --p: 0; --sz: 48px; width: var(--sz); height: var(--sz); flex: none; border-radius: 50%; background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--c4) 0); display: grid; place-items: center; }
+.ring b { width: calc(var(--sz) - 8px); height: calc(var(--sz) - 8px); border-radius: 50%; background: var(--rbg, var(--c1)); display: grid; place-items: center; font-size: 13px; font-weight: 700; }
+.ring.lg { --sz: 72px; }
+.ring.lg b { font: 18px var(--hfont), sans-serif; width: 64px; height: 64px; }
+/* Overview (Option A) */
+.ov { margin: 8px 16px 4px; background: var(--c1); border-radius: 12px; padding: 16px 16px 4px; }
+.ov .top { display: flex; gap: 16px; align-items: center; }
+.ov .big { font: 20px var(--hfont), sans-serif; }
+.figs { display: flex; margin-top: 12px; }
+.figs div { flex: 1; text-align: center; }
+.figs div + div { border-left: 1px solid var(--c4); }
+.figs b { display: block; font: 20px var(--hfont), sans-serif; font-weight: 400; }
+.figs span { font-size: 12px; color: var(--muted); }
+.ov .tog { display: flex; justify-content: center; }
+.ov .tog .tbtn { font-size: 14px; }
+/* Recently painted cards */
+.rcs { display: flex; gap: 8px; padding: 0 16px 8px; overflow: hidden; }
+.rc { flex: none; width: 164px; background: var(--c1); border-radius: 12px; padding: 4px 0 12px 12px; }
+.rc .hd { display: flex; align-items: flex-start; }
+.rc .hd .nm { flex: 1; font-size: 15px; font-weight: 500; white-space: normal; padding-top: 10px; line-height: 1.25; height: 48px; overflow: hidden; }
+.rc .ib { margin-right: -4px; }
+.rc .sbar { margin-right: 12px; }
+.rc .mv { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13px; color: var(--accent); font-weight: 500; }
+.rc .mv .ms { font-size: 18px; }
+.rc.lg { width: 236px; }
+/* Collection rows inside a group card */
+.card { margin: 0 16px 12px; background: var(--c1); border-radius: 12px; overflow: hidden; }
+.cr { display: flex; align-items: center; gap: 14px; min-height: 76px; padding: 10px 4px 10px 14px; }
+.cr + .cr { border-top: 1px solid var(--c4); }
+.cr .main { flex: 1; min-width: 0; }
+.cr .sbar { --h: 6px; }
+.cr .chev { color: var(--outline); }
+.inprog { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 0 16px 12px; font-size: 13px; color: var(--muted); }
+.inprog span { display: inline-flex; align-items: center; gap: 6px; }
+.inprog b { color: var(--text); font-weight: 500; }
+.empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 96px 32px 0; gap: 12px; }
+.empty .ms { font-size: 48px; color: var(--outline); }
+.empty h3 { font: 20px var(--hfont), sans-serif; font-weight: 400; margin: 0; }
+.empty p { color: var(--muted); margin: 0 0 12px; }
+.empty .fbtn { height: 56px; border-radius: 28px; padding: 0 28px; }
+
+/* ProgressDrawer */
+.drawer { flex: none; background: var(--c2); padding: 0 16px 12px; font-size: 14px; position: relative; z-index: 3; }
+.drawer .hdl { display: block; text-align: center; height: 40px; line-height: 40px; color: var(--muted); }
+.drawer .tot { text-align: center; }
+.drawer.open { box-shadow: 0 -8px 20px var(--shadow); }
+.drawer .lst { margin-top: 4px; }
+.drawer .old { display: flex; align-items: center; gap: 16px; height: 40px; }
+.drawer .old .sw { width: 16px; height: 16px; }
+.drawer .wh { font: 14px var(--hfont), sans-serif; padding-top: 14px; }
+/* StageBreakdown */
+.wf { padding-top: 14px; }
+.wf + .wf { border-top: 1px solid var(--c4); margin-top: 10px; }
+.wf .wt { display: flex; align-items: baseline; gap: 8px; }
+.wf .wt b { font: 15px var(--hfont), sans-serif; font-weight: 400; letter-spacing: 1px; text-transform: uppercase; }
+.wf .wt span { color: var(--muted); font-size: 13px; }
+.band { font-size: 11px; font-weight: 500; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin: 10px 0 2px; }
+.bd { display: grid; grid-template-columns: 12px 88px 1fr 30px 34px; align-items: center; gap: 8px; height: 26px; font-size: 13px; }
+.bd .nmm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd .tr { height: 10px; background: var(--c0); border-radius: 2px; position: relative; }
+.bd .tr i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; outline: .5px solid var(--outline); }
+.bd .tr i.w { background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--s0); outline: 0; }
+.bd .n { text-align: right; font-weight: 500; }
+.bd .pc { text-align: right; color: var(--muted); font-size: 12px; }
+.bd.zero { color: var(--muted); }
+.urow { display: flex; align-items: center; min-height: 64px; padding: 0 16px; gap: 12px; }
+.urow .main { flex: 1; min-width: 0; }
+.scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 1; }
+@media (max-width: 400px) { .bd { grid-template-columns: 12px 80px 1fr 28px 32px; } }
+</style>
+</head>
+<body>
+
+<h1>Start Page Mockups</h1>
+<p class="lede">Sign in, the Collections tab and the expanded Progress drawer. Grimdark (the default Theme) dark throughout, with light pairs for sign in, Option A and the drawer. 360dp frames. Sample: five Collections over two Workflows: "Standard" (Wishlist → Done, Stage colours as the starter Workflow) and "Speed paint" (Wishlist, On sprue, Built, Contrast, Done). UI only: every figure is wanted / owned / finished, models per Stage, a Workflow's name or a count of Collections or Units; percentages are computed from those.</p>
+<p class="lede">Legend: amber note = decision, rust = problem in the current app, blue = open question or alternative.</p>
+<p class="rec"><b>Recommendation: Option A</b> (frames 9–10). On the start page "how far along am I?" is the first question, so the totals belong at the top, readable without a gesture, and they scroll away instead of permanently costing ~76dp above the NavigationBar. The ProgressDrawer stays on the Collection screen, where the Units list is the point. Both show the same <code>StageBreakdown</code>, so the two screens still read as one system.</p>
+
+<!-- ============================== SIGN IN ============================== -->
+<h2 class="grp">1 · Sign in</h2>
+<div class="board">
+
+<div class="col">
+<p class="cap">1 · Sign in <b>before</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Mini Vault</span></div>
+  <div class="body" style="padding:16px">
+    <div style="border-bottom:1px solid var(--outline);padding:20px 0 8px;color:var(--muted);font-size:16px">Email</div>
+    <div style="border-bottom:1px solid var(--outline);padding:20px 0 8px;color:var(--muted);font-size:16px;display:flex">Password<span class="sp"></span><span class="ms">visibility</span></div>
+    <div style="height:16px"></div><div style="color:var(--err)">Invalid login credentials</div><div style="height:16px"></div>
+    <div class="fbtn" style="height:40px;border-radius:20px">Sign in</div>
+    <div class="tbtn" style="display:flex;height:40px">Create account</div>
+    <div class="tbtn" style="display:flex;height:40px">Forgot password?</div>
+  </div>
+</div>
+<ul class="notes">
+  <li class="bad">No identity: a generic AppBar title is the only branding on the first screen anyone sees.</li>
+  <li class="bad">"Create account" sits under "Sign in" as a peer, both act on the same fields; nothing says which one a new person needs.</li>
+  <li class="bad">Errors, "Check your email" and the offline message all share one red line, so a success reads like a failure; while busy the buttons just grey out.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">2 · Sign in <b>after</b>, dark</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="body si">
+    <div class="wm">MINI <span>VAULT</span></div><div class="wmbar"></div>
+    <div class="tag">Every model, from wishlist to finished.</div>
+    <div class="seg"><div class="on"><span class="ms">check</span>Sign in</div><div>Create account</div></div>
+    <div class="field focus"><span class="fl">Email</span><span class="grow">mara.voss@example.com</span></div>
+    <div class="field"><span class="fl">Password</span><span class="grow">••••••••••</span><span class="ib"><span class="ms">visibility</span></span></div>
+    <div class="fbtn">Sign in</div>
+    <div class="tbtn" style="display:flex;margin-top:4px">Forgot password?</div>
+  </div>
+</div>
+<ul class="notes">
+  <li>No AppBar. Wordmark: <code>Text.rich</code> "MINI" in <code>onSurface</code> + "VAULT" in <code>primary</code>, <code>displaySmall</code> (heading font), a 48×4 accent rule (the <code>SectionHeader</code> bar, laid flat), tagline from the GLOSSARY's one-line description in <code>bodyLarge</code> / <code>onSurfaceVariant</code>.</li>
+  <li><code>SegmentedButton&lt;_Mode&gt;</code> (Sign in | Create account) above the fields; the full-width <code>FilledButton</code> (48dp) always names the current mode. "Forgot password?" is a <code>TextButton</code> shown in Sign in mode only.</li>
+  <li>Body: <code>Center</code> → <code>SingleChildScrollView</code> → <code>ConstrainedBox(maxWidth: 400)</code>, wrapped in <code>AutofillGroup</code> so it scrolls above the keyboard.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">3 · Sign in <b>after</b>, light</p>
+<div class="phone light">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="body si">
+    <div class="wm">MINI <span>VAULT</span></div><div class="wmbar"></div>
+    <div class="tag">Every model, from wishlist to finished.</div>
+    <div class="seg"><div class="on"><span class="ms">check</span>Sign in</div><div>Create account</div></div>
+    <div class="field"><span class="fl">Email</span><span class="grow">mara.voss@example.com</span></div>
+    <div class="field focus"><span class="fl">Password</span><span class="grow">••••••••••</span><span class="ib"><span class="ms">visibility</span></span></div>
+    <div class="fbtn">Sign in</div>
+    <div class="tbtn" style="display:flex;margin-top:4px">Forgot password?</div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Light: burnt-orange accent #7F3D00 on pale concrete is 6.4:1; the filled button's label (<code>onPrimary</code> = background) on it the same.</li>
+  <li>Selected segment uses the M3 default (<code>secondaryContainer</code> + check icon); nothing Theme-specific to add.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">4 · <b>Create account</b> mode</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="body si">
+    <div class="wm">MINI <span>VAULT</span></div><div class="wmbar"></div>
+    <div class="tag">Every model, from wishlist to finished.</div>
+    <div class="seg"><div>Sign in</div><div class="on"><span class="ms">check</span>Create account</div></div>
+    <div class="field"><span class="fl">Email</span><span class="grow">ash.reyes@example.com</span></div>
+    <div class="field focus"><span class="fl">Password</span><span class="grow">••••••••</span><span class="ib"><span class="ms">visibility_off</span></span></div>
+    <div class="fbtn">Create account</div>
+    <p class="sub" style="text-align:center;margin:16px 8px 0">You'll get an email to confirm your account before you can sign in.</p>
+  </div>
+</div>
+<ul class="notes">
+  <li>Same fields, so switching modes keeps what was typed. The button reads "Create account"; "Forgot password?" hides (it can't help someone without an account).</li>
+  <li>One muted line under the button sets up the confirm-email step before it happens. Password autofill hint becomes <code>AutofillHints.newPassword</code>.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">5 · <b>Busy</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="body si">
+    <div class="wm">MINI <span>VAULT</span></div><div class="wmbar"></div>
+    <div class="tag">Every model, from wishlist to finished.</div>
+    <div class="seg dis"><div class="on"><span class="ms">check</span>Sign in</div><div>Create account</div></div>
+    <div class="field dis"><span class="fl">Email</span><span class="grow">mara.voss@example.com</span></div>
+    <div class="field dis"><span class="fl">Password</span><span class="grow">••••••••••</span><span class="ib"><span class="ms">visibility</span></span></div>
+    <div class="fbtn busy"><span class="spin"></span>Signing in…</div>
+    <div class="tbtn dis" style="display:flex;margin-top:4px">Forgot password?</div>
+  </div>
+</div>
+<ul class="notes">
+  <li>While <code>_busy</code>: the button stays the same size and shows a 18dp <code>CircularProgressIndicator(strokeWidth: 2.5)</code> + "Signing in…" / "Creating account…" (<code>FilledButton.icon</code> with the indicator as icon, <code>onPressed: null</code>).</li>
+  <li>Fields, segments and link get <code>enabled: false</code>, so nothing can be changed mid-request; <code>Semantics(liveRegion: true)</code> on the label announces it.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">6 · <b>Error</b>: offline, and wrong password</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>✈ 82%</span></div>
+  <div class="body si">
+    <div class="wm">MINI <span>VAULT</span></div><div class="wmbar"></div>
+    <div class="tag">Every model, from wishlist to finished.</div>
+    <div class="seg"><div class="on"><span class="ms">check</span>Sign in</div><div>Create account</div></div>
+    <div class="field"><span class="fl">Email</span><span class="grow">mara.voss@example.com</span></div>
+    <div class="field"><span class="fl">Password</span><span class="grow">••••••••••</span><span class="ib"><span class="ms">visibility</span></span></div>
+    <div class="notice"><span class="ms">cloud_off</span><div><b>Could not reach the server.</b><span class="sub">Are you online?</span></div></div>
+    <div class="fbtn">Try again</div>
+    <div class="notice" style="margin:20px 0 0"><span class="ms">error</span><div><b>Invalid login credentials</b><span class="sub">Check your email and password.</span></div></div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Errors become an <code>AuthNotice</code> (proposed, below) between the fields and the button: rounded 12dp, <code>error</code> outline over a 12% error tint, icon + message. Offline gets <code>Icons.cloud_off</code> and the button reads "Try again"; an <code>AuthException</code> gets <code>Icons.error</code> with its message as the title (second notice shown for comparison, one appears at a time).</li>
+  <li>The notice clears as soon as a field or the mode changes; <code>Semantics(liveRegion: true)</code> so screen readers announce it.</li>
+  <li class="flag">"Check your email and password." is a fixed hint for every <code>AuthException</code>; if that reads wrong for e.g. rate limits, drop the second line.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">7 · <b>Check your email</b> (account created)</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="body si">
+    <div class="wm">MINI <span>VAULT</span></div><div class="wmbar"></div>
+    <div class="tag">Every model, from wishlist to finished.</div>
+    <div class="done">
+      <div class="ic"><span class="ms">mark_email_unread</span></div>
+      <h3>Check your email</h3>
+      <p>Check your email to confirm your account.<br>We sent a link to <b style="color:var(--text);font-weight:500">ash.reyes@example.com</b>.</p>
+      <div class="fbtn">Back to sign in</div>
+    </div>
+  </div>
+</div>
+<ul class="notes">
+  <li>Success is not a notice: an <code>AnimatedSwitcher</code> swaps the segments, fields and button for this panel (tinted 72dp circle + <code>Icons.mark_email_unread</code>, title in the heading font, the existing sentence plus the address).</li>
+  <li>"Back to sign in" returns to Sign in mode with the email kept, ready for the password once confirmed.</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================== COLLECTIONS ============================== -->
+<h2 class="grp">2 · Collections tab</h2>
+<div class="board">
+
+<div class="col">
+<p class="cap">8 · Collections <b>before</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">search</span></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="plain-h">Recently painted</div>
+    <div class="tile"><div class="main"><div class="nm">Plague Marines</div><div class="sub">Death Guard</div><div class="sbar"><i style="flex:5;background:var(--s4)"></i><i style="flex:2;background:var(--s3)"></i></div></div><span class="ib"><span class="ms">chevron_right</span></span></div>
+    <div class="tile"><div class="main"><div class="nm">Skorpekh Destroyers</div><div class="sub">Necrons</div><div class="sbar"><i style="flex:3;background:var(--s3)"></i></div></div><span class="ib"><span class="ms">chevron_right</span></span></div>
+    <div class="tile"><div class="main"><div class="nm">Intercessors</div><div class="sub">Space Marines</div><div class="sbar"><i style="flex:5;background:var(--s6)"></i><i style="flex:10;background:var(--s5)"></i></div></div><span class="ib"><span class="ms">chevron_right</span></span></div>
+    <div class="hr"></div>
+    <div class="sh"><span class="bar"></span><span class="st">Warhammer 40,000</span><span class="count">3</span><span class="sp"></span><span class="ib"><span class="ms">expand_less</span></span></div>
+    <div class="tile"><div class="main"><div class="nm">Death Guard</div><div class="sub">24 / 61 finished · 10 wanted</div><div class="sbar"><i style="flex:24;background:var(--s6)"></i><i style="flex:37;background:var(--s2)"></i><i class="w" style="flex:10"></i></div></div></div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="drawer"><span class="ms hdl">expand_less</span><div class="tot">5 Collections · 207 owned · 91 finished · 24 wanted</div><div class="sbar"><i style="flex:91;background:var(--s6)"></i><i style="flex:12;background:var(--s5)"></i><i style="flex:21;background:var(--s4)"></i><i style="flex:22;background:var(--s3)"></i><i style="flex:27;background:var(--s2)"></i><i style="flex:34;background:var(--s1)"></i><i class="w" style="flex:24"></i></div></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li class="bad">Three 80dp "Recently painted" tiles push the first Collection to ~y 420; only one Collection is visible above the drawer.</li>
+  <li class="bad">Overall Progress is one dense sentence in the drawer; the per-Stage view needs a drag. Collection rows are bare text + a 4dp bar.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">9 · <b>Option A</b>: Progress overview, drawer gone ★</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">search</span></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="ov">
+      <div class="top"><span class="ring lg" style="--p:44"><b>44%</b></span><div><div class="big">91 / 207 finished</div><div class="sub">5 Collections · 2 Workflows</div></div></div>
+      <div class="sbar" style="--h:8px;margin-top:14px"><i style="flex:91;background:var(--s6)"></i><i style="flex:12;background:var(--s5)"></i><i style="flex:21;background:var(--s4)"></i><i style="flex:22;background:var(--s3)"></i><i style="flex:27;background:var(--s2)"></i><i style="flex:34;background:var(--s1)"></i><i class="w" style="flex:24"></i></div>
+      <div class="figs"><div><b>207</b><span>owned</span></div><div><b>91</b><span>finished</span></div><div><b>24</b><span>wanted</span></div></div>
+      <div class="tog"><span class="tbtn">Show Stages<span class="ms">expand_more</span></span></div>
+    </div>
+    <div class="sh"><span class="bar"></span><span class="st">Recently painted</span></div>
+    <div class="rcs">
+      <div class="rc"><div class="hd"><span class="nm">Plague Marines</span><span class="ib"><span class="ms">chevron_right</span></span></div><div class="sub">Death Guard</div><div class="sbar"><i style="flex:5;background:var(--s4)"></i><i style="flex:2;background:var(--s3)"></i></div><div class="mv"><span class="ms">swap_vert</span>Move from Painted</div></div>
+      <div class="rc"><div class="hd"><span class="nm">Skorpekh Destroyers</span><span class="ib"><span class="ms">chevron_right</span></span></div><div class="sub">Necrons</div><div class="sbar"><i style="flex:3;background:var(--s3)"></i></div><div class="mv"><span class="ms">swap_vert</span>Move from Primed</div></div>
+      <div class="rc"><div class="hd"><span class="nm">Intercessors</span><span class="ib"><span class="ms">chevron_right</span></span></div><div class="sub">Space Marines</div></div>
+    </div>
+    <div class="sh"><span class="bar"></span><span class="st">Warhammer 40,000</span><span class="count">3</span><span class="sp"></span><span class="ib"><span class="ms">expand_less</span></span></div>
+    <div class="card">
+      <div class="cr"><span class="ring" style="--p:39"><b>39%</b></span><div class="main"><div class="nm">Death Guard</div><div class="sub">24 / 61 finished · 10 wanted</div><div class="sbar"><i style="flex:24;background:var(--s6)"></i><i style="flex:9;background:var(--s4)"></i><i style="flex:12;background:var(--s3)"></i><i style="flex:16;background:var(--s1)"></i><i class="w" style="flex:10"></i></div></div><span class="ib chev"><span class="ms">chevron_right</span></span></div>
+      <div class="cr"><span class="ring" style="--p:38"><b>38%</b></span><div class="main"><div class="nm">Necrons</div><div class="sub">18 / 47 finished · 6 wanted</div><div class="sbar"><i style="flex:18;background:var(--s6)"></i><i style="flex:11;background:var(--s3)"></i><i style="flex:9;background:var(--s2)"></i><i style="flex:9;background:var(--s1)"></i><i class="w" style="flex:6"></i></div></div><span class="ib chev"><span class="ms">chevron_right</span></span></div>
+    </div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>Overview = first child of the <code>ListView</code> (scrolls away): <code>Card.filled(surfaceContainerLow)</code> with <code>ProgressRing(size: 72)</code>, "91 / 207 finished" in <code>titleLarge</code>, "<i>n</i> Collections · <i>n</i> Workflows", <code>StageBar(height: 8)</code>, <code>ProgressFigures</code>, and a <code>TextButton</code> "Show Stages" toggling a <code>StageBreakdown</code>. Fed by the same <code>watchProgressByWorkflow</code> the drawer uses; no <code>bottomNavigationBar</code> here.</li>
+  <li>Recently painted: <code>SectionHeader</code> + horizontal <code>ListView</code> (height ~136) of <code>RecentUnitCard</code>s, 164dp wide so the third peeks. Card <code>InkWell</code> = move sheet (labelled "Move from <i>from-Stage</i>" so the tap is no longer hidden), its <code>IconButton(chevron_right)</code> = open the Unit. Saves ~130dp vs. today.</li>
+  <li>Collections under each Game System sit in one <code>Card.filled</code> (the <code>Section</code> look), rows divided: <code>ProgressRing(size: 48)</code> leading, name, <code>progressWords</code>, <code>StageBar(height: 6)</code>, chevron. Row ≥ 76dp.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">10 · Option A, <b>Show Stages</b> open, light</p>
+<div class="phone light">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">search</span></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="ov">
+      <div class="top"><span class="ring lg" style="--p:44"><b>44%</b></span><div><div class="big">91 / 207 finished</div><div class="sub">5 Collections · 2 Workflows</div></div></div>
+      <div class="sbar" style="--h:8px;margin-top:14px"><i style="flex:91;background:var(--s6)"></i><i style="flex:12;background:var(--s5)"></i><i style="flex:21;background:var(--s4)"></i><i style="flex:22;background:var(--s3)"></i><i style="flex:27;background:var(--s2)"></i><i style="flex:34;background:var(--s1)"></i><i class="w" style="flex:24"></i></div>
+      <div class="figs"><div><b>207</b><span>owned</span></div><div><b>91</b><span>finished</span></div><div><b>24</b><span>wanted</span></div></div>
+      <div class="wf"><div class="wt"><b>Standard</b><span>88 / 195 finished · 45%</span></div>
+        <div class="band">Wanted</div>
+        <div class="bd"><span class="sw" style="background:var(--s0)"></span><span class="nmm">Wishlist</span><span class="tr"><i class="w" style="width:27%"></i></span><span class="n">24</span><span class="pc"></span></div>
+        <div class="band">Owned</div>
+        <div class="bd"><span class="sw" style="background:var(--s1)"></span><span class="nmm">Unassembled</span><span class="tr"><i style="width:39%;background:var(--s1)"></i></span><span class="n">34</span><span class="pc">17%</span></div>
+        <div class="bd"><span class="sw" style="background:var(--s2)"></span><span class="nmm">Assembled</span><span class="tr"><i style="width:25%;background:var(--s2)"></i></span><span class="n">22</span><span class="pc">11%</span></div>
+        <div class="bd"><span class="sw" style="background:var(--s3)"></span><span class="nmm">Primed</span><span class="tr"><i style="width:20%;background:var(--s3)"></i></span><span class="n">18</span><span class="pc">9%</span></div>
+        <div class="bd"><span class="sw" style="background:var(--s4)"></span><span class="nmm">Painted</span><span class="tr"><i style="width:24%;background:var(--s4)"></i></span><span class="n">21</span><span class="pc">11%</span></div>
+        <div class="bd"><span class="sw" style="background:var(--s5)"></span><span class="nmm">Based</span><span class="tr"><i style="width:14%;background:var(--s5)"></i></span><span class="n">12</span><span class="pc">6%</span></div>
+        <div class="band">Finished</div>
+        <div class="bd"><span class="sw" style="background:var(--s6)"></span><span class="nmm">Done</span><span class="tr"><i style="width:100%;background:var(--s6)"></i></span><span class="n">88</span><span class="pc">45%</span></div>
+      </div>
+      <div class="tog"><span class="tbtn">Hide Stages<span class="ms">expand_less</span></span></div>
+    </div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>Expanded, the card grows in place (<code>AnimatedSize</code>) and lists one <code>StageBreakdown</code> per Workflow ("Speed paint" follows below the fold); the list scrolls as usual, nothing is capped at half the screen.</li>
+  <li>Light: Stage colours stay the person's; every swatch and bar carries <code>stageOutline</code>, so pale yellow (Primed) still reads on concrete. The ring's accent arc is 6.4:1 on <code>surfaceContainerLow</code>.</li>
+  <li>Open/closed is not saved; it starts closed each visit (the summary above already answers the main question).</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">11 · <b>Option B</b>: in progress on top, drawer kept</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">search</span></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="sh"><span class="bar"></span><span class="st">On the table</span><span class="count">116 models</span></div>
+    <div class="inprog"><span><i class="sw" style="background:var(--s1)"></i><b>34</b> Unassembled</span><span><i class="sw" style="background:var(--s2)"></i><b>22</b> Assembled</span><span><i class="sw" style="background:var(--s3)"></i><b>18</b> Primed</span><span><i class="sw" style="background:var(--s4)"></i><b>21</b> Painted</span><span><i class="sw" style="background:var(--s5)"></i><b>12</b> Based</span><span><i class="sw" style="background:var(--s2)"></i><b>5</b> Built</span><span><i class="sw" style="background:var(--s3)"></i><b>4</b> Contrast</span></div>
+    <div class="sh"><span class="bar"></span><span class="st">Recently painted</span></div>
+    <div class="rcs">
+      <div class="rc lg"><div class="hd"><span class="nm">Plague Marines</span><span class="ib"><span class="ms">chevron_right</span></span></div><div class="sub">Death Guard</div><div class="sbar" style="--h:6px"><i style="flex:5;background:var(--s4)"></i><i style="flex:2;background:var(--s3)"></i></div><div class="mv"><span class="ms">swap_vert</span>Move from Painted</div></div>
+      <div class="rc lg"><div class="hd"><span class="nm">Skorpekh Destroyers</span><span class="ib"><span class="ms">chevron_right</span></span></div><div class="sub">Necrons</div></div>
+    </div>
+    <div class="sh"><span class="bar"></span><span class="st">Warhammer 40,000</span><span class="count">3</span><span class="sp"></span><span class="ib"><span class="ms">expand_less</span></span></div>
+    <div class="card">
+      <div class="cr"><span class="ring" style="--p:39"><b>39%</b></span><div class="main"><div class="nm">Death Guard</div><div class="sub">24 / 61 finished · 10 wanted</div><div class="sbar"><i style="flex:24;background:var(--s6)"></i><i style="flex:9;background:var(--s4)"></i><i style="flex:12;background:var(--s3)"></i><i style="flex:16;background:var(--s1)"></i><i class="w" style="flex:10"></i></div></div><span class="ib chev"><span class="ms">chevron_right</span></span></div>
+    </div>
+    <div class="fab"><span class="ms">add</span></div>
+  </div>
+  <div class="drawer"><span class="ms hdl">expand_less</span><div class="tot">5 Collections · 207 owned · 91 finished · 24 wanted</div><div class="sbar"><i style="flex:91;background:var(--s6)"></i><i style="flex:12;background:var(--s5)"></i><i style="flex:21;background:var(--s4)"></i><i style="flex:22;background:var(--s3)"></i><i style="flex:27;background:var(--s2)"></i><i style="flex:34;background:var(--s1)"></i><i class="w" style="flex:24"></i></div></div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>"On the table": owned-but-not-finished models (owned − finished) and each Stage from the Owned Stage up to the Finished Stage with models, Workflow by Workflow (concatenated as <code>Progress.combined</code> does), as a <code>Wrap</code> of swatch + count + name. Plain text, not chips: nothing to tap.</li>
+  <li>Recently painted cards wider (236dp) since they are the hero; totals stay in the unchanged collapsed <code>ProgressDrawer</code> (frame 14 for its expanded view).</li>
+  <li class="flag">Weaker: the drawer still costs ~76dp on every visit, "On the table" repeats the drawer's numbers in another shape, and with several Workflows the list grows long. Hence A.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">12 · <b>Empty</b> (Option A)</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">search</span></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="empty"><span class="ms">collections_bookmark</span><h3>No Collections yet</h3><p>A Collection is a named set of Units that progress through the same Workflow.</p><div class="fbtn"><span class="ms">add</span>New Collection</div><span class="tbtn">Import army list</span></div>
+  </div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>No overview, no Recently painted, no FAB (the big button is the one way in); <code>EmptyState</code> gains optional <code>icon</code> and <code>title</code> parameters (48dp <code>outline</code> icon, <code>headlineSmall</code> in the heading font) so the empty screen matches <code>NoMatches</code> and the sign-in panel.</li>
+  <li>Same widget, same new parameters, on the Paints and Workflows tabs.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">13 · <b>Search</b> results (Option A)</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><div class="sfield">ma</div><span class="ib"><span class="ms">close</span></span></div>
+  <div class="body">
+    <div class="sh"><span class="bar"></span><span class="st">Warhammer 40,000</span><span class="count">1</span></div>
+    <div class="card">
+      <div class="cr"><span class="ring" style="--p:77"><b>77%</b></span><div class="main"><div class="nm">Space <mark>Ma</mark>rines</div><div class="sub">40 / 52 finished</div><div class="sbar"><i style="flex:40;background:var(--s6)"></i><i style="flex:12;background:var(--s5)"></i></div></div><span class="ib chev"><span class="ms">chevron_right</span></span></div>
+    </div>
+    <div class="sh"><span class="bar"></span><span class="st">Kill Tea<mark>m</mark></span><span class="count">1</span></div>
+    <div class="card">
+      <div class="cr"><span class="ring" style="--p:25"><b>25%</b></span><div class="main"><div class="nm">Kommandos</div><div class="sub">3 / 12 finished</div><div class="sbar"><i style="flex:3;background:var(--s4)"></i><i style="flex:4;background:var(--s3)"></i><i style="flex:5;background:var(--s2)"></i></div></div><span class="ib chev"><span class="ms">chevron_right</span></span></div>
+    </div>
+    <div class="sh"><span class="bar"></span><span class="st">Age of Sig<mark>ma</mark>r</span><span class="count">1</span></div>
+    <div class="card">
+      <div class="cr"><span class="ring" style="--p:17"><b>17%</b></span><div class="main"><div class="nm">Stormcast Eternals</div><div class="sub">6 / 35 finished · 8 wanted</div><div class="sbar"><i style="flex:6;background:var(--s6)"></i><i style="flex:29;background:var(--s1)"></i><i class="w" style="flex:8"></i></div></div><span class="ib chev"><span class="ms">chevron_right</span></span></div>
+    </div>
+  </div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>While a query is active the overview hides along with Recently painted and the FAB (totals of all Collections would misread as totals of the matches). Search rules and <code>NoMatches</code> unchanged.</li>
+  <li>Results use the same card rows, so a match looks like the Collection it opens.</li>
+</ul>
+</div>
+</div>
+
+<!-- ============================== DRAWER ============================== -->
+<h2 class="grp">3 · Progress drawer, expanded</h2>
+<div class="board">
+
+<div class="col">
+<p class="cap">14 · Drawer on Collections <b>before</b></p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">search</span></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body"><div class="plain-h">Recently painted</div><div class="tile"><div class="main"><div class="nm">Plague Marines</div><div class="sub">Death Guard</div></div></div></div>
+  <div class="drawer open"><span class="ms hdl">expand_more</span><div class="tot">5 Collections · 207 owned · 91 finished · 24 wanted</div><div class="sbar"><i style="flex:91;background:var(--s6)"></i><i style="flex:12;background:var(--s5)"></i><i style="flex:21;background:var(--s4)"></i><i style="flex:22;background:var(--s3)"></i><i style="flex:27;background:var(--s2)"></i><i style="flex:34;background:var(--s1)"></i><i class="w" style="flex:24"></i></div>
+    <div class="lst"><div class="wh">Standard</div>
+      <div class="old"><span class="sw" style="background:var(--s0)"></span><span class="sp">Wishlist</span>24</div>
+      <div class="old"><span class="sw" style="background:var(--s1)"></span><span class="sp">Unassembled</span>34</div>
+      <div class="old"><span class="sw" style="background:var(--s2)"></span><span class="sp">Assembled</span>22</div>
+      <div class="old"><span class="sw" style="background:var(--s3)"></span><span class="sp">Primed</span>18</div>
+      <div class="old"><span class="sw" style="background:var(--s4)"></span><span class="sp">Painted</span>21</div>
+      <div class="old"><span class="sw" style="background:var(--s5)"></span><span class="sp">Based</span>12</div>
+      <div class="old"><span class="sw" style="background:var(--s6)"></span><span class="sp">Done</span>88</div>
+      <div class="wh">Speed paint</div>
+    </div>
+  </div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li class="bad">A column of identical rows: 24 wanted and 88 finished look the same weight, nothing shows which Stages count as owned or finished, and the Workflow's own totals are missing.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">15 · Drawer on Collections <b>after</b>, dark</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">search</span></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body"><div class="plain-h">Recently painted</div></div>
+  <div class="drawer open"><span class="ms hdl">expand_more</span><div class="tot">5 Collections · 207 owned · 91 finished · 24 wanted</div><div class="sbar"><i style="flex:91;background:var(--s6)"></i><i style="flex:12;background:var(--s5)"></i><i style="flex:21;background:var(--s4)"></i><i style="flex:22;background:var(--s3)"></i><i style="flex:27;background:var(--s2)"></i><i style="flex:34;background:var(--s1)"></i><i class="w" style="flex:24"></i></div>
+    <div class="wf"><div class="wt"><b>Standard</b><span>88 / 195 finished · 45%</span></div>
+      <div class="band">Wanted</div>
+      <div class="bd"><span class="sw" style="background:var(--s0)"></span><span class="nmm">Wishlist</span><span class="tr"><i class="w" style="width:27%"></i></span><span class="n">24</span><span class="pc"></span></div>
+      <div class="band">Owned</div>
+      <div class="bd"><span class="sw" style="background:var(--s1)"></span><span class="nmm">Unassembled</span><span class="tr"><i style="width:39%;background:var(--s1)"></i></span><span class="n">34</span><span class="pc">17%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s2)"></span><span class="nmm">Assembled</span><span class="tr"><i style="width:25%;background:var(--s2)"></i></span><span class="n">22</span><span class="pc">11%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s3)"></span><span class="nmm">Primed</span><span class="tr"><i style="width:20%;background:var(--s3)"></i></span><span class="n">18</span><span class="pc">9%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s4)"></span><span class="nmm">Painted</span><span class="tr"><i style="width:24%;background:var(--s4)"></i></span><span class="n">21</span><span class="pc">11%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s5)"></span><span class="nmm">Based</span><span class="tr"><i style="width:14%;background:var(--s5)"></i></span><span class="n">12</span><span class="pc">6%</span></div>
+      <div class="band">Finished</div>
+      <div class="bd"><span class="sw" style="background:var(--s6)"></span><span class="nmm">Done</span><span class="tr"><i style="width:100%;background:var(--s6)"></i></span><span class="n">88</span><span class="pc">45%</span></div>
+    </div>
+    <div class="wf"><div class="wt"><b>Speed paint</b><span>3 / 12 finished · 25%</span></div>
+      <div class="band">Owned</div>
+      <div class="bd zero"><span class="sw" style="background:var(--s1)"></span><span class="nmm">On sprue</span><span class="tr"></span><span class="n">0</span><span class="pc"></span></div>
+      <div class="bd"><span class="sw" style="background:var(--s2)"></span><span class="nmm">Built</span><span class="tr"><i style="width:100%;background:var(--s2)"></i></span><span class="n">5</span><span class="pc">42%</span></div>
+    </div>
+  </div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>Collapsed part unchanged. Expanded: one <code>StageBreakdown</code> per Workflow: title in the heading font with that Workflow's "finished / owned finished · %" (from its <code>Progress</code>), then Stages in three captioned bands, <b>Wanted</b> (before the Owned Stage), <b>Owned</b>, <b>Finished</b> (from the Finished Stage), which makes the Owned/Finished Stages visible without new data.</li>
+  <li>Each row (26dp, display only, not tappable): swatch, name, a 10dp bar sized against that Workflow's largest Stage (a <code>FractionallySizedBox</code> in a track), model count, and share of owned. Wanted bars are outlined like <code>StageBar</code>'s wanted segment and carry no %. Stages without models stay, muted, with an empty track.</li>
+  <li>Still inside <code>ConstrainedBox(maxHeight: height / 2)</code> + <code>ListView</code>; Workflows separated by a <code>Divider</code>.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">16 · Drawer on Collections <b>after</b>, light</p>
+<div class="phone light">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="t">Collections</span><span class="ib"><span class="ms">search</span></span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body"><div class="plain-h">Recently painted</div></div>
+  <div class="drawer open"><span class="ms hdl">expand_more</span><div class="tot">5 Collections · 207 owned · 91 finished · 24 wanted</div><div class="sbar"><i style="flex:91;background:var(--s6)"></i><i style="flex:12;background:var(--s5)"></i><i style="flex:21;background:var(--s4)"></i><i style="flex:22;background:var(--s3)"></i><i style="flex:27;background:var(--s2)"></i><i style="flex:34;background:var(--s1)"></i><i class="w" style="flex:24"></i></div>
+    <div class="wf"><div class="wt"><b>Standard</b><span>88 / 195 finished · 45%</span></div>
+      <div class="band">Wanted</div>
+      <div class="bd"><span class="sw" style="background:var(--s0)"></span><span class="nmm">Wishlist</span><span class="tr"><i class="w" style="width:27%"></i></span><span class="n">24</span><span class="pc"></span></div>
+      <div class="band">Owned</div>
+      <div class="bd"><span class="sw" style="background:var(--s1)"></span><span class="nmm">Unassembled</span><span class="tr"><i style="width:39%;background:var(--s1)"></i></span><span class="n">34</span><span class="pc">17%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s2)"></span><span class="nmm">Assembled</span><span class="tr"><i style="width:25%;background:var(--s2)"></i></span><span class="n">22</span><span class="pc">11%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s3)"></span><span class="nmm">Primed</span><span class="tr"><i style="width:20%;background:var(--s3)"></i></span><span class="n">18</span><span class="pc">9%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s4)"></span><span class="nmm">Painted</span><span class="tr"><i style="width:24%;background:var(--s4)"></i></span><span class="n">21</span><span class="pc">11%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s5)"></span><span class="nmm">Based</span><span class="tr"><i style="width:14%;background:var(--s5)"></i></span><span class="n">12</span><span class="pc">6%</span></div>
+      <div class="band">Finished</div>
+      <div class="bd"><span class="sw" style="background:var(--s6)"></span><span class="nmm">Done</span><span class="tr"><i style="width:100%;background:var(--s6)"></i></span><span class="n">88</span><span class="pc">45%</span></div>
+    </div>
+    <div class="wf"><div class="wt"><b>Speed paint</b><span>3 / 12 finished · 25%</span></div>
+      <div class="band">Owned</div>
+      <div class="bd zero"><span class="sw" style="background:var(--s1)"></span><span class="nmm">On sprue</span><span class="tr"></span><span class="n">0</span><span class="pc"></span></div>
+      <div class="bd"><span class="sw" style="background:var(--s2)"></span><span class="nmm">Built</span><span class="tr"><i style="width:100%;background:var(--s2)"></i></span><span class="n">5</span><span class="pc">42%</span></div>
+    </div>
+  </div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>Track is <code>surfaceContainerLowest</code>, so it reads in both Brightnesses; bars and swatches keep <code>stageOutline</code>. Counts in <code>onSurface</code>, % and band captions in <code>onSurfaceVariant</code> (#3E454B on #D4D9DD, 7.5:1).</li>
+  <li class="flag">Bars are relative to the Workflow's largest Stage so short Stages stay visible; the % column carries the true share of owned. If that mix confuses, size bars by share of owned + wanted instead.</li>
+</ul>
+</div>
+
+<div class="col">
+<p class="cap">17 · Drawer on a <b>Collection</b> screen, one Workflow</p>
+<div class="phone">
+  <div class="status"><span>9:41</span><span>▮▮▮ 82%</span></div>
+  <div class="appbar"><span class="ib"><span class="ms">arrow_back</span></span><span class="t">Necrons</span><span class="ib"><span class="ms">cloud_done</span></span><span class="ib"><span class="ms">more_vert</span></span></div>
+  <div class="body">
+    <div class="sh"><span class="bar"></span><span class="st">Heroes</span><span class="count">3</span></div>
+    <div class="urow"><div class="main"><div class="nm">Overlord</div><div class="sbar"><i style="flex:1;background:var(--s6)"></i></div></div><span class="sub">1</span></div>
+  </div>
+  <div class="drawer open"><span class="ms hdl">expand_more</span><div class="tot">14 Units · 47 owned · 18 finished · 6 wanted</div><div class="sbar"><i style="flex:18;background:var(--s6)"></i><i style="flex:11;background:var(--s3)"></i><i style="flex:9;background:var(--s2)"></i><i style="flex:9;background:var(--s1)"></i><i class="w" style="flex:6"></i></div>
+    <div class="wf"><div class="wt"><b>Standard</b><span>18 / 47 finished · 38%</span></div>
+      <div class="band">Wanted</div>
+      <div class="bd"><span class="sw" style="background:var(--s0)"></span><span class="nmm">Wishlist</span><span class="tr"><i class="w" style="width:33%"></i></span><span class="n">6</span><span class="pc"></span></div>
+      <div class="band">Owned</div>
+      <div class="bd"><span class="sw" style="background:var(--s1)"></span><span class="nmm">Unassembled</span><span class="tr"><i style="width:50%;background:var(--s1)"></i></span><span class="n">9</span><span class="pc">19%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s2)"></span><span class="nmm">Assembled</span><span class="tr"><i style="width:50%;background:var(--s2)"></i></span><span class="n">9</span><span class="pc">19%</span></div>
+      <div class="bd"><span class="sw" style="background:var(--s3)"></span><span class="nmm">Primed</span><span class="tr"><i style="width:61%;background:var(--s3)"></i></span><span class="n">11</span><span class="pc">23%</span></div>
+      <div class="bd zero"><span class="sw" style="background:var(--s4)"></span><span class="nmm">Painted</span><span class="tr"></span><span class="n">0</span><span class="pc"></span></div>
+      <div class="bd zero"><span class="sw" style="background:var(--s5)"></span><span class="nmm">Based</span><span class="tr"></span><span class="n">0</span><span class="pc"></span></div>
+      <div class="band">Finished</div>
+      <div class="bd"><span class="sw" style="background:var(--s6)"></span><span class="nmm">Done</span><span class="tr"><i style="width:100%;background:var(--s6)"></i></span><span class="n">18</span><span class="pc">38%</span></div>
+    </div>
+  </div>
+  <div class="nav"><div class="on"><span class="pill"><span class="ms">collections_bookmark</span></span>Collections</div><div><span class="pill"><span class="ms">palette</span></span>Paints</div><div><span class="pill"><span class="ms">account_tree</span></span>Workflows</div></div>
+</div>
+<ul class="notes">
+  <li>One Workflow: the same <code>StageBreakdown</code>, fits without scrolling (~330dp). The Workflow title stays so the person sees which Workflow the Stages come from.</li>
+  <li>Empty Stages (Painted, Based) are kept and muted: a gap in the middle of the Workflow is itself Progress information.</li>
+</ul>
+</div>
+</div>
+
+<h2 class="grp">Proposed reusable widgets</h2>
+<ul class="notes" style="max-width:820px">
+  <li><code>ProgressRing(Progress progress, {double size = 48})</code>: <code>Stack</code> of <code>CircularProgressIndicator(value: progress.finishedShare, strokeWidth: 4, backgroundColor: surfaceContainerHighest)</code> and the rounded % in the centre (heading font at size ≥ 64). <code>Semantics(label: '44% finished')</code>.</li>
+  <li><code>ProgressFigures(Progress progress)</code>: <code>Row</code> of three equal <code>Expanded</code> columns, owned / finished / wanted, figure in <code>titleLarge</code>, word in <code>labelMedium</code> <code>onSurfaceVariant</code>, <code>VerticalDivider</code>s between.</li>
+  <li><code>StageBreakdown(WorkflowProgress workflow)</code>: the Workflow title + totals line and banded per-Stage rows as in frame 15. Used by <code>ProgressDrawer</code> (expanded) and the Option A overview.</li>
+  <li><code>StageBar(progress, {double height = 4})</code>: new optional <code>height</code>, as <code>StageStrip</code> already has; 8 in the overview, 6 on Collection and Recently painted rows.</li>
+  <li><code>RecentUnitCard(RecentUnit recent, {required VoidCallback onMove, required VoidCallback onOpen})</code>: 164dp <code>Card.filled</code> + <code>InkWell(onTap: onMove)</code>, chevron <code>IconButton(onPressed: onOpen, tooltip: 'Open …')</code>, footer "Move from <i>recent.from.stage.name</i>".</li>
+  <li><code>AuthNotice({required IconData icon, required String title, String? detail})</code>: the sign-in error box, <code>DecoratedBox</code> with <code>error</code> border and 12% tint, <code>Semantics(liveRegion: true)</code>.</li>
+</ul>
+
+</body>
+</html>
