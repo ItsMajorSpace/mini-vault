@@ -907,7 +907,8 @@ class EmptyState extends StatelessWidget {
   );
 }
 
-/// A Collection's Units under their Categories (ADR 0011), by name inside each, each with its model count and progress.
+/// A Collection's Units under their Categories (ADR 0011), in the person's order inside each, each with its model
+/// count and progress; Reorder Units mode drags them into another order or Category.
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({
     super.key,
@@ -940,6 +941,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
   late var _groups = widget.vault.watchUnitsByCategory(_collection);
   late var _progress = widget.vault.watchProgressByWorkflow(_collection);
   late final StreamSubscription<List<Collection>> _subscription;
+
+  /// Reorder Units mode: one draggable list of every Category and its Units.
+  var _reordering = false;
 
   void _rebuild() => setState(() {});
 
@@ -1098,158 +1102,210 @@ class _CollectionScreenState extends State<CollectionScreen> {
             ),
           ),
         );
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(_collection.name),
-            actions: [
-              SyncIcon(db: widget.db, onSyncNow: widget.onSyncNow),
-              PopupMenuButton<VoidCallback>(
-                tooltip: 'Collection',
-                onSelected: (action) => action(),
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: () => _edit(_collection),
-                    child: const Text('Edit Collection'),
+        void reorder(bool on) => setState(() => _reordering = on);
+        void categoriesAction() =>
+            showCategoriesSheet(context, widget.vault, _collection);
+        final reordering = _reordering && groups != null;
+        return PopScope(
+          canPop: !reordering,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) reorder(false);
+          },
+          child: Scaffold(
+            appBar: reordering
+                ? AppBar(
+                    backgroundColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainer,
+                    leading: IconButton(
+                      icon: const Icon(Icons.check),
+                      tooltip: 'Done',
+                      onPressed: () => reorder(false),
+                    ),
+                    title: const Text('Reorder Units'),
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.category),
+                        tooltip: 'Categories',
+                        onPressed: categoriesAction,
+                      ),
+                    ],
+                  )
+                : AppBar(
+                    title: Text(_collection.name),
+                    actions: [
+                      SyncIcon(db: widget.db, onSyncNow: widget.onSyncNow),
+                      PopupMenuButton<VoidCallback>(
+                        tooltip: 'Collection',
+                        onSelected: (action) => action(),
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            value: () => _edit(_collection),
+                            child: const Text('Edit Collection'),
+                          ),
+                          PopupMenuItem(
+                            value: () => switchWorkflow(
+                              context,
+                              widget.vault,
+                              _collection,
+                            ),
+                            child: const Text('Switch Workflow'),
+                          ),
+                          PopupMenuItem(
+                            value: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) => ArmyListScreen(
+                                  vault: widget.vault,
+                                  collection: _collection,
+                                ),
+                              ),
+                            ),
+                            child: const Text('Import army list'),
+                          ),
+                          if ((units?.length ?? 0) >= 2)
+                            PopupMenuItem(
+                              value: () => reorder(true),
+                              child: const Row(
+                                spacing: 12,
+                                children: [
+                                  Icon(Icons.swap_vert),
+                                  Text('Reorder Units'),
+                                ],
+                              ),
+                            ),
+                          PopupMenuItem(
+                            value: categoriesAction,
+                            child: const Row(
+                              spacing: 12,
+                              children: [
+                                Icon(Icons.category),
+                                Text('Categories'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuDivider(),
+                          PopupMenuItem(
+                            value: () => _delete(_collection),
+                            child: Text(
+                              'Delete Collection',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  PopupMenuItem(
-                    value: () =>
-                        switchWorkflow(context, widget.vault, _collection),
-                    child: const Text('Switch Workflow'),
-                  ),
-                  PopupMenuItem(
-                    value: () => Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => ArmyListScreen(
+            body: Column(
+              children: [
+                SyncBanner(db: widget.db),
+                // One scrolling list: the description and Paint Schemes scroll away above the Units. They stay at the
+                // same place in the tree while the Units load, so their watches are not restarted.
+                Expanded(
+                  child: reordering
+                      ? ReorderUnitsList(
                           vault: widget.vault,
+                          photos: widget.photos,
                           collection: _collection,
-                        ),
-                      ),
-                    ),
-                    child: const Text('Import army list'),
-                  ),
-                  PopupMenuItem(
-                    value: () =>
-                        showCategoriesSheet(context, widget.vault, _collection),
-                    child: const Row(
-                      spacing: 12,
-                      children: [Icon(Icons.category), Text('Categories')],
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  PopupMenuItem(
-                    value: () => _delete(_collection),
-                    child: Text(
-                      'Delete Collection',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          body: Column(
-            children: [
-              SyncBanner(db: widget.db),
-              // One scrolling list: the description and Paint Schemes scroll away above the Units. They stay at the
-              // same place in the tree while the Units load, so their watches are not restarted.
-              Expanded(
-                child: CustomScrollView(
-                  slivers: [
-                    SliverList.list(children: above),
-                    if (listed)
-                      SliverList.list(
-                        children: [
-                          for (final g in groups!) ...[
-                            if (headed)
-                              SectionHeader(
-                                title: g.category?.name ?? 'Uncategorised',
-                                count: g.units.length,
-                                muted: g.category == null,
-                                actions: [
-                                  IconButton(
-                                    icon: const Icon(Icons.add),
-                                    tooltip:
-                                        'Add models to ${g.category?.name ?? 'Uncategorised'}',
+                          groups: groups,
+                        )
+                      : CustomScrollView(
+                          slivers: [
+                            SliverList.list(children: above),
+                            if (listed)
+                              SliverList.list(
+                                children: [
+                                  for (final g in groups!) ...[
+                                    if (headed)
+                                      SectionHeader(
+                                        title:
+                                            g.category?.name ?? 'Uncategorised',
+                                        count: g.units.length,
+                                        muted: g.category == null,
+                                        actions: [
+                                          IconButton(
+                                            icon: const Icon(Icons.add),
+                                            tooltip:
+                                                'Add models to ${g.category?.name ?? 'Uncategorised'}',
+                                            onPressed: () => addModels(
+                                              context,
+                                              widget.vault,
+                                              _collection,
+                                              names,
+                                              categoryId: g.category?.id,
+                                            ),
+                                          ),
+                                        ],
+                                        expanded: widget.collapsed == null
+                                            ? null
+                                            : open(g.category),
+                                        onToggle: () => widget.collapsed
+                                            ?.toggle(groupKey(g.category)),
+                                        summary: groupSummary(
+                                          g.units.length,
+                                          'Unit',
+                                          Progress.combined([
+                                            for (final u in g.units) u.progress,
+                                          ]),
+                                        ),
+                                      ),
+                                    if (open(g.category))
+                                      for (final unit in g.units)
+                                        unitTile(unit),
+                                  ],
+                                ],
+                              )
+                            else
+                              SliverFillRemaining(
+                                hasScrollBody: false,
+                                child: switch (snapshot) {
+                                  AsyncSnapshot(:final error?) => LoadError(
+                                    what: 'the Units',
+                                    error: error,
+                                    onRetry: () => setState(
+                                      () => _groups = widget.vault
+                                          .watchUnitsByCategory(_collection),
+                                    ),
+                                  ),
+                                  _ when units == null => const Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                  _ => EmptyState(
+                                    explanation: 'A Unit is all the models you track under one name, like "Intercessors", wherever they are in your Workflow.',
+                                    label: 'Add models',
                                     onPressed: () => addModels(
                                       context,
                                       widget.vault,
                                       _collection,
-                                      names,
-                                      categoryId: g.category?.id,
+                                      const [],
                                     ),
                                   ),
-                                ],
-                                expanded: widget.collapsed == null
-                                    ? null
-                                    : open(g.category),
-                                onToggle: () => widget.collapsed?.toggle(
-                                  groupKey(g.category),
-                                ),
-                                summary: groupSummary(
-                                  g.units.length,
-                                  'Unit',
-                                  Progress.combined([
-                                    for (final u in g.units) u.progress,
-                                  ]),
-                                ),
+                                },
                               ),
-                            if (open(g.category))
-                              for (final unit in g.units) unitTile(unit),
                           ],
-                        ],
-                      )
-                    else
-                      SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: switch (snapshot) {
-                          AsyncSnapshot(:final error?) => LoadError(
-                            what: 'the Units',
-                            error: error,
-                            onRetry: () => setState(
-                              () => _groups = widget.vault.watchUnitsByCategory(
-                                _collection,
-                              ),
-                            ),
-                          ),
-                          _ when units == null => const Center(
-                            child: CircularProgressIndicator(),
-                          ),
-                          _ => EmptyState(
-                            explanation: 'A Unit is all the models you track under one name, like "Intercessors", wherever they are in your Workflow.',
-                            label: 'Add models',
-                            onPressed: () => addModels(
-                              context,
-                              widget.vault,
-                              _collection,
-                              const [],
-                            ),
-                          ),
-                        },
-                      ),
-                  ],
+                        ),
                 ),
-              ),
-            ],
-          ),
-          bottomNavigationBar: StreamBuilder(
-            stream: _progress,
-            builder: (context, progress) => ProgressDrawer(
-              count: progress.hasData ? units?.length ?? 0 : 0,
-              noun: 'Unit',
-              workflows: progress.data ?? const [],
+              ],
             ),
+            bottomNavigationBar: StreamBuilder(
+              stream: _progress,
+              builder: (context, progress) => ProgressDrawer(
+                count: progress.hasData ? units?.length ?? 0 : 0,
+                noun: 'Unit',
+                workflows: progress.data ?? const [],
+              ),
+            ),
+            floatingActionButton: units == null || reordering
+                ? null
+                : FloatingActionButton(
+                    onPressed: () =>
+                        addModels(context, widget.vault, _collection, names),
+                    tooltip: 'Add models',
+                    child: const Icon(Icons.add),
+                  ),
           ),
-          floatingActionButton: units == null
-              ? null
-              : FloatingActionButton(
-                  onPressed: () =>
-                      addModels(context, widget.vault, _collection, names),
-                  tooltip: 'Add models',
-                  child: const Icon(Icons.add),
-                ),
         );
       },
     );

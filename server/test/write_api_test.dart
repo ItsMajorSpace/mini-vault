@@ -3393,6 +3393,51 @@ void main() {
       expect(await categoriesOf(user.id), [<String>[], <String>[]]);
     });
 
+    test("keep a Unit's position, which a PUT from an app version before Unit order leaves as it is", () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final heroes = await newId();
+      Future<List<String>> positions() async => [
+        for (final [unit, position] in await db.execute(
+          r'''SELECT squad_name, coalesce(position::text, '-') FROM squad_categories
+            WHERE owner_id = $1::uuid ORDER BY position NULLS FIRST, squad_name''',
+          parameters: [user.id],
+        ))
+          '$unit $position',
+      ];
+      final created = await upload(user.token, [
+        op('PUT', 'categories', heroes, {
+          'collection_id': collectionId,
+          'name': 'Heroes',
+          'position': 0,
+        }),
+        putUnitCategory(collectionId, 'Overlord', heroes),
+        op('PUT', 'squad_categories', unitId(collectionId, 'Lord'), {
+          'collection_id': collectionId,
+          'squad_name': 'Lord',
+          'category_id': heroes,
+          'position': 0,
+        }),
+        op('PUT', 'squad_categories', unitId(collectionId, 'Cryptek'), {
+          'collection_id': collectionId,
+          'squad_name': 'Cryptek',
+          'category_id': null,
+          'position': 1,
+        }),
+      ]);
+      expect(created.statusCode, 204, reason: created.body);
+      expect(await positions(), ['Overlord -', 'Lord 0', 'Cryptek 1']);
+
+      final moved = await upload(user.token, [
+        op('PATCH', 'squad_categories', unitId(collectionId, 'Lord'), {
+          'position': 2,
+        }),
+        putUnitCategory(collectionId, 'Cryptek', heroes),
+      ]);
+      expect(moved.statusCode, 204, reason: moved.body);
+      expect(await positions(), ['Overlord -', 'Cryptek 1', 'Lord 2']);
+    });
+
     test("cannot point at another user's Collection or Category, nor touch their rows", () async {
       final alice = await signUp();
       final bob = await signUp();

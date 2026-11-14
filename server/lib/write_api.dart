@@ -87,6 +87,7 @@ const _writable = {
     'collection_id': 'uuid',
     'squad_name': 'text',
     'category_id': 'uuid',
+    'position': 'int',
   },
 };
 
@@ -367,6 +368,8 @@ CREATE TABLE IF NOT EXISTS squad_categories (
   category_id uuid REFERENCES categories ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS squad_categories_category_id ON squad_categories (category_id);
+-- The Unit's place in its Category (#158); null for Units placed by app versions before Unit order, which sort first.
+ALTER TABLE squad_categories ADD COLUMN IF NOT EXISTS position integer;
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger

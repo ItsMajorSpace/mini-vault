@@ -546,6 +546,7 @@ void main() {
             'squad_notes',
             'squad_tags',
             'squad_photos',
+            'squad_categories',
           ]) ...[(UpdateType.delete, table), (UpdateType.delete, table)],
           (UpdateType.delete, 'collections'),
         ],
@@ -3078,6 +3079,86 @@ void main() {
       await vault.deleteCategory(core.id);
       expect(await groups(), ['Heroes: ', '-: Warriors']);
       expect(await vault.categoryOf(collection.id, 'Warriors'), isNull);
+    });
+
+    Future<void> add(String name, [Category? category]) => vault.addBatch(
+      collection,
+      name: name,
+      modelCount: 1,
+      stageId: 's2',
+      categoryId: category?.id,
+    );
+
+    test('Units without a position (from before Unit order) come first, alphabetical; a new Unit goes last in its Category', () async {
+      final heroes = await vault.addCategory(collection.id, 'Heroes');
+      for (final name in ['Zealots', 'Overlord']) {
+        await add(name, heroes);
+      }
+      await add('warriors');
+      await add('Immortals');
+      await db.execute('UPDATE squad_categories SET position = NULL');
+      await add('Lord', heroes);
+      await add('Annihilator', heroes);
+      await add('Destroyers');
+      await restart();
+
+      expect(await groups(), [
+        'Heroes: Overlord, Zealots, Lord, Annihilator',
+        '-: Immortals, warriors, Destroyers',
+      ]);
+    });
+
+    test('moving a Unit puts it at the index in the Category, empty and Uncategorised ones too, across restarts', () async {
+      final heroes = await vault.addCategory(collection.id, 'Heroes');
+      final core = await vault.addCategory(collection.id, 'Core');
+      final support = await vault.addCategory(collection.id, 'Support');
+      for (final name in ['Overlord', 'Lord', 'Cryptek']) {
+        await add(name, heroes);
+      }
+      await add('Warriors', core);
+      await add('Scarabs');
+
+      await vault.moveUnit(collection, 'Cryptek', heroes.id, 0);
+      expect(await groups(), [
+        'Heroes: Cryptek, Overlord, Lord',
+        'Core: Warriors',
+        'Support: ',
+        '-: Scarabs',
+      ]);
+      await vault.moveUnit(collection, 'Overlord', core.id, 1);
+      await vault.moveUnit(collection, 'Lord', support.id, 0);
+      await vault.moveUnit(collection, 'Warriors', null, 0);
+      await restart();
+
+      expect(await groups(), [
+        'Heroes: Cryptek',
+        'Core: Overlord',
+        'Support: Lord',
+        '-: Warriors, Scarabs',
+      ]);
+      expect(await vault.categoryOf(collection.id, 'Lord'), support.id);
+    });
+
+    test('a Unit put in another Category goes last there; a renamed Unit keeps its place', () async {
+      final heroes = await vault.addCategory(collection.id, 'Heroes');
+      final core = await vault.addCategory(collection.id, 'Core');
+      for (final name in ['Overlord', 'Lord']) {
+        await add(name, heroes);
+      }
+      for (final name in ['Warriors', 'Immortals']) {
+        await add(name, core);
+      }
+      await vault.moveUnit(collection, 'Lord', heroes.id, 0);
+
+      await vault.setUnitCategory(collection.id, 'Warriors', heroes.id);
+      final lord = (await vault.watchUnits(collection).first).firstWhere(
+        (u) => u.name == 'Lord',
+      );
+      await vault.renameUnit(lord, 'Zahndrekh');
+      expect(await groups(), [
+        'Heroes: Zahndrekh, Overlord, Warriors',
+        'Core: Immortals',
+      ]);
     });
   });
 }
