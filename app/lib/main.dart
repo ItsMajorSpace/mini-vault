@@ -27,6 +27,7 @@ Future<void> main() async {
   final db = PowerSyncDatabase(schema: appSchema, path: '${dir.path}/vault.db');
   await db.initialize();
   final auth = await openAuth(File('${dir.path}/session.json'));
+  final theme = await ThemeSetting.load(File('${dir.path}/theme.txt'));
   final photos = PhotoFiles(db, auth, Directory('${dir.path}/photos'));
   syncWhileSignedIn(auth, db, photos.queue);
   // Batches meeting at a Stage through sync are Merged here, once for the whole app (ADR 0009).
@@ -34,7 +35,7 @@ Future<void> main() async {
     null,
     onError: (Object e) => debugPrint('Automatic Merge failed: $e'),
   );
-  runApp(MiniVaultApp(auth: auth, db: db, photos: photos));
+  runApp(MiniVaultApp(auth: auth, db: db, photos: photos, theme: theme));
 }
 
 class MiniVaultApp extends StatelessWidget {
@@ -43,36 +44,42 @@ class MiniVaultApp extends StatelessWidget {
     required this.auth,
     required this.db,
     required this.photos,
+    required this.theme,
   });
 
   final GoTrueClient auth;
   final PowerSyncDatabase db;
   final PhotoFiles photos;
+  final ThemeSetting theme;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Mini Vault',
-      theme: grimdarkTheme,
-      home: StreamBuilder(
-        stream: auth.onAuthStateChange,
-        builder: (context, _) {
-          if (auth.currentSession == null) return SignInScreen(auth: auth);
-          final vault = Vault(SqliteVaultStore(db));
-          return HomeScreen(
-            vault: vault,
-            photos: photos,
-            collections: CollectionsScreen(
+    return ListenableBuilder(
+      listenable: theme,
+      builder: (context, _) => MaterialApp(
+        title: 'Mini Vault',
+        theme: theme.value.data,
+        home: StreamBuilder(
+          stream: auth.onAuthStateChange,
+          builder: (context, _) {
+            if (auth.currentSession == null) return SignInScreen(auth: auth);
+            final vault = Vault(SqliteVaultStore(db));
+            return HomeScreen(
               vault: vault,
-              db: db,
               photos: photos,
-              email: auth.currentUser?.email,
-              onSignOut: auth.signOut,
-              onSyncNow: () => syncNow(auth, db, photos.queue),
-              onDeleteAccount: () => deleteAccount(context, auth),
-            ),
-          );
-        },
+              collections: CollectionsScreen(
+                vault: vault,
+                db: db,
+                photos: photos,
+                email: auth.currentUser?.email,
+                onSignOut: auth.signOut,
+                onSyncNow: () => syncNow(auth, db, photos.queue),
+                onDeleteAccount: () => deleteAccount(context, auth),
+                theme: theme,
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -271,6 +278,7 @@ class CollectionsScreen extends StatefulWidget {
     this.onSignOut,
     this.onDeleteAccount,
     this.onSyncNow,
+    this.theme,
   });
 
   final Vault vault;
@@ -290,6 +298,9 @@ class CollectionsScreen extends StatefulWidget {
 
   /// Null hides Sync now.
   final Future<void> Function()? onSyncNow;
+
+  /// Null hides Theme.
+  final ThemeSetting? theme;
 
   @override
   State<CollectionsScreen> createState() => _CollectionsScreenState();
@@ -410,6 +421,11 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                   ),
                 ),
               ],
+              if (widget.theme case final theme?)
+                PopupMenuItem(
+                  value: () => pickTheme(context, theme),
+                  child: const Text('Theme'),
+                ),
               PopupMenuItem(
                 value: () => showAbout(context),
                 child: const Text('About'),
@@ -469,9 +485,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                               child: Text(
                                 'Recently painted',
-                                style: stencil(
-                                  Theme.of(context).textTheme.titleSmall,
-                                ),
+                                style: heading(context),
                               ),
                             ),
                             for (final r in units)
@@ -521,9 +535,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                           padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                           child: Text(
                             g.gameSystem ?? 'Other',
-                            style: stencil(
-                              Theme.of(context).textTheme.titleSmall,
-                            ),
+                            style: heading(context),
                           ),
                         ),
                       for (final c in g.collections)

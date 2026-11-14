@@ -7,10 +7,12 @@ import 'package:domain_core/domain_core.dart';
 import 'package:domain_core/sqlite_store.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gotrue/gotrue.dart';
 import 'package:mini_vault/account.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mini_vault/main.dart';
 import 'package:mini_vault/photos.dart';
+import 'package:mini_vault/theme.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:powersync/attachments/attachments.dart';
 import 'package:powersync/powersync.dart';
@@ -74,7 +76,86 @@ Future<void> openMenu(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// The heading font and AppBar colour as shown on screen.
+(String?, Color?) looks(WidgetTester tester, String title) {
+  final text = tester.widget<RichText>(
+    find.descendant(of: find.text(title), matching: find.byType(RichText)),
+  );
+  final bar = tester.widget<Material>(
+    find
+        .descendant(of: find.byType(AppBar), matching: find.byType(Material))
+        .first,
+  );
+  return (text.text.style!.fontFamily, bar.color);
+}
+
 void main() {
+  testWidgets(
+    'Theme switches colours and heading font at once and survives a restart',
+    (tester) async {
+      final db = await openDb(tester, waiting: 0);
+      final file = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('theme_test');
+        addTearDown(() => dir.delete(recursive: true));
+        return File('${dir.path}/theme.txt');
+      }))!;
+      final setting = (await tester.runAsync(() => ThemeSetting.load(file)))!;
+      expect(setting.value, AppTheme.grimdark);
+      // Rebuilt on change the way MiniVaultApp is.
+      await tester.pumpWidget(
+        ListenableBuilder(
+          listenable: setting,
+          builder: (_, _) => MaterialApp(
+            theme: setting.value.data,
+            home: CollectionsScreen(
+              vault: Vault(SqliteVaultStore(db)),
+              db: db,
+              theme: setting,
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(looks(tester, 'Collections'), (
+        stencilFont,
+        AppTheme.grimdark.data.colorScheme.surface,
+      ));
+
+      await openMenu(tester);
+      await tester.tap(find.text('Theme'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fantasy'));
+      await settle(tester);
+      final fantasy = AppTheme.fantasy.data.colorScheme;
+      expect(looks(tester, 'Collections'), (cinzelFont, fantasy.surface));
+      expect(
+        fantasy.surface,
+        isNot(AppTheme.grimdark.data.colorScheme.surface),
+      );
+
+      // Restart: a fresh setting from the same file, in the real app (signed out, so on Sign in).
+      final reloaded = (await tester.runAsync(() => ThemeSetting.load(file)))!;
+      final auth = GoTrueClient(
+        url: 'http://localhost',
+        autoRefreshToken: false,
+      );
+      final dir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('photos_test'),
+      ))!;
+      addTearDown(() => dir.delete(recursive: true));
+      await tester.pumpWidget(
+        MiniVaultApp(
+          auth: auth,
+          db: db,
+          photos: PhotoFiles(db, auth, dir),
+          theme: reloaded,
+        ),
+      );
+      await settle(tester);
+      expect(looks(tester, 'Mini Vault'), (cinzelFont, fantasy.surface));
+    },
+  );
+
   testWidgets('the account menu shows the email, Sign out and Delete account', (
     tester,
   ) async {
@@ -135,6 +216,15 @@ void main() {
     final text = fonts!.single.paragraphs.map((p) => p.text).join('\n');
     expect(text, contains('Copyright 2022 The Black-Ops Project Authors'));
     expect(text, contains('SIL OPEN FONT LICENSE Version 1.1'));
+    final cinzel = await tester.runAsync(
+      () => LicenseRegistry.licenses
+          .where((l) => l.packages.contains('Cinzel'))
+          .toList(),
+    );
+    expect(
+      cinzel!.single.paragraphs.map((p) => p.text).join('\n'),
+      contains('Copyright 2020 The Cinzel Project Authors'),
+    );
   });
 
   testWidgets('signing out with everything synced asks nothing', (
