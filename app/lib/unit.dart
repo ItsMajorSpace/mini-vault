@@ -39,6 +39,10 @@ class _UnitScreenState extends State<UnitScreen> {
   // again would listen to a single-subscription stream a second time.
   late final _library = widget.vault.watchPaints();
   late final _links = widget.vault.watchAllUnitPaints();
+  late final _categories = widget.vault.watchCategories(widget.collection.id);
+  late final _unitCategories = widget.vault.watchUnitCategories(
+    widget.collection.id,
+  );
   late String _name = widget.name;
   // The Unit's Tags, notes and history, followed through a rename.
   late var _tags = widget.vault.watchTags(widget.collection.id, _name);
@@ -48,8 +52,14 @@ class _UnitScreenState extends State<UnitScreen> {
     _name,
   );
 
-  /// Edits the Unit's name, notes and Tags, writing only what changed so edits elsewhere are kept.
-  Future<void> _edit(Unit unit, List<String> tags, String notes) async {
+  /// Edits the Unit's name, Category, notes and Tags, writing only what changed so edits elsewhere are kept.
+  Future<void> _edit(
+    Unit unit,
+    List<String> tags,
+    String notes,
+    List<Category> categories,
+    String? categoryId,
+  ) async {
     final result = await showDialog<UnitFields>(
       context: context,
       builder: (_) => UnitDialog(
@@ -57,6 +67,8 @@ class _UnitScreenState extends State<UnitScreen> {
         name: unit.name,
         notes: notes,
         tags: tags,
+        categories: categories,
+        categoryId: categoryId,
         suggestTags: widget.vault.suggestTags,
       ),
     );
@@ -70,6 +82,13 @@ class _UnitScreenState extends State<UnitScreen> {
       await vault.addTags(collectionId, unit.name, result.tags);
       if (result.notes != notes) {
         await vault.setNotes(collectionId, unit.name, result.notes);
+      }
+      final category = switch (result.newCategory) {
+        final name? => (await vault.addCategory(collectionId, name)).id,
+        null => result.categoryId,
+      };
+      if (category != categoryId) {
+        await vault.setUnitCategory(collectionId, unit.name, category);
       }
       // Last: a rename carries the notes and Tags just saved along.
       if (result.name == unit.name) return;
@@ -166,18 +185,26 @@ class _UnitScreenState extends State<UnitScreen> {
     builder: (context, library) => StreamBuilder(
       stream: _links,
       builder: (context, links) => StreamBuilder(
-        stream: _tags,
-        builder: (context, tags) => StreamBuilder(
-          stream: _notes,
-          builder: (context, notes) => StreamBuilder(
-            stream: _history,
-            builder: (context, history) => _build(
-              context,
-              library.data,
-              links.data,
-              tags.data ?? const [],
-              notes.data ?? '',
-              history.data ?? const [],
+        stream: _categories,
+        builder: (context, categories) => StreamBuilder(
+          stream: _unitCategories,
+          builder: (context, unitCategories) => StreamBuilder(
+            stream: _tags,
+            builder: (context, tags) => StreamBuilder(
+              stream: _notes,
+              builder: (context, notes) => StreamBuilder(
+                stream: _history,
+                builder: (context, history) => _build(
+                  context,
+                  library.data,
+                  links.data,
+                  tags.data ?? const [],
+                  notes.data ?? '',
+                  history.data ?? const [],
+                  categories.data ?? const [],
+                  unitCategories.data ?? const {},
+                ),
+              ),
             ),
           ),
         ),
@@ -192,8 +219,14 @@ class _UnitScreenState extends State<UnitScreen> {
     List<String> tags,
     String notes,
     List<StageChange> history,
+    List<Category> categories,
+    Map<String, String> unitCategories,
   ) {
     final theme = Theme.of(context);
+    // None while its Category is not synced yet, as on the Collection screen.
+    final category = categories
+        .where((c) => c.id == unitCategories[_name])
+        .firstOrNull;
     return StreamBuilder(
       stream: _units,
       builder: (context, snapshot) {
@@ -225,7 +258,8 @@ class _UnitScreenState extends State<UnitScreen> {
                 IconButton(
                   icon: const Icon(Icons.edit),
                   tooltip: 'Edit Unit',
-                  onPressed: () => _edit(unit, tags, notes),
+                  onPressed: () =>
+                      _edit(unit, tags, notes, categories, category?.id),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
@@ -254,13 +288,31 @@ class _UnitScreenState extends State<UnitScreen> {
               padding: const EdgeInsets.only(bottom: 88),
               children: [
                 // The Tags describe the whole Unit: above every section.
-                if (tags.isNotEmpty)
+                if (tags.isNotEmpty || category != null)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
+                        if (category != null)
+                          Semantics(
+                            label: 'Category ${category.name}',
+                            excludeSemantics: true,
+                            child: Chip(
+                              avatar: Icon(
+                                Icons.category,
+                                color: theme.colorScheme.primary,
+                              ),
+                              label: Text(category.name),
+                              labelStyle: TextStyle(
+                                color: theme.colorScheme.primary,
+                              ),
+                              side: BorderSide(
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                          ),
                         for (final t in tags)
                           Chip(
                             label: Text(t),
@@ -322,11 +374,13 @@ class _UnitScreenState extends State<UnitScreen> {
                     IconButton(
                       icon: const Icon(Icons.edit_note),
                       tooltip: 'Edit notes',
-                      onPressed: () => _edit(unit, tags, notes),
+                      onPressed: () =>
+                          _edit(unit, tags, notes, categories, category?.id),
                     ),
                   ],
                   child: InkWell(
-                    onTap: () => _edit(unit, tags, notes),
+                    onTap: () =>
+                        _edit(unit, tags, notes, categories, category?.id),
                     child: notes.isEmpty
                         ? const SectionHint('No notes yet')
                         : Padding(
