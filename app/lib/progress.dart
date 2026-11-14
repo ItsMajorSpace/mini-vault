@@ -54,13 +54,14 @@ String groupSummary(int count, String noun, Progress progress) =>
 /// leftmost, so the finished part fills from the left. Its wanted models follow as one outlined segment in the
 /// Wishlist colour, so they read as not yet owned; wanted and owned together fill the bar.
 class StageBar extends StatelessWidget {
-  const StageBar(this.progress, {super.key});
+  const StageBar(this.progress, {super.key, this.height = 4});
 
   final Progress progress;
+  final double height;
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 4,
+    height: height,
     foregroundDecoration: BoxDecoration(border: stageOutline(context)),
     child: ColoredBox(
       color: Theme.of(context).colorScheme.secondaryContainer,
@@ -92,7 +93,7 @@ class StageBar extends StatelessWidget {
 }
 
 /// Progress peeking from the bottom of the screen: [count] [noun]s and the owned, finished and wanted totals over a
-/// [StageBar]. Dragged up (or its button tapped) it lists each Workflow's Stages with their model counts. Hidden while
+/// [StageBar]. Dragged up (or its button tapped) it shows a [StageBreakdown] per Workflow. Hidden while
 /// [count] is 0. Meant for [Scaffold.bottomNavigationBar], which shrinks the body so nothing hides behind it.
 class ProgressDrawer extends StatefulWidget {
   const ProgressDrawer({
@@ -156,30 +157,9 @@ class _ProgressDrawerState extends State<ProgressDrawer> {
                     child: ListView(
                       shrinkWrap: true,
                       children: [
-                        for (final w in widget.workflows) ...[
-                          Padding(
-                            padding: const EdgeInsets.only(top: 16),
-                            child: Text(
-                              w.workflow.name,
-                              style: heading(context),
-                            ),
-                          ),
-                          for (final g in w.stages)
-                            ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              leading: SizedBox.square(
-                                dimension: 16,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: stageColour(g.stage.colour),
-                                    border: stageOutline(context),
-                                  ),
-                                ),
-                              ),
-                              title: Text(g.stage.name),
-                              trailing: Text('${g.modelCount}'),
-                            ),
+                        for (final (i, w) in widget.workflows.indexed) ...[
+                          if (i > 0) const Divider(),
+                          StageBreakdown(w),
                         ],
                       ],
                     ),
@@ -188,6 +168,139 @@ class _ProgressDrawerState extends State<ProgressDrawer> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// One Workflow's Progress: its name and "finished / owned finished · %", then its Stages captioned Wanted (before the
+/// Owned Stage), Owned and Finished (from the Finished Stage on). Each Stage row has a bar sized against the Workflow's
+/// largest Stage, its model count and, unless wanted, its share of owned models. Display only.
+class StageBreakdown extends StatelessWidget {
+  const StageBreakdown(this.workflow, {super.key});
+
+  final WorkflowProgress workflow;
+
+  @override
+  Widget build(BuildContext context) {
+    final colours = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final p = workflow.progress;
+    final stages = workflow.stages;
+    int at(Stage s) => stages.indexWhere((g) => g.stage.id == s.id);
+    final owned = at(workflow.workflow.ownedStage);
+    final finished = at(workflow.workflow.finishedStage);
+    final largest = stages.fold(
+      0,
+      (n, g) => g.modelCount > n ? g.modelCount : n,
+    );
+    String percent(double share) => '${(share * 100).round()}%';
+
+    Widget row(StageGroup g, {required bool wanted}) {
+      final n = g.modelCount;
+      final colour = stageColour(g.stage.colour);
+      final muted = n == 0 ? TextStyle(color: colours.onSurfaceVariant) : null;
+      return SizedBox(
+        height: 26,
+        child: Row(
+          children: [
+            SizedBox.square(
+              dimension: 16,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colour,
+                  border: stageOutline(context),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: Text(
+                g.stage.name,
+                style: muted,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Expanded(
+              flex: 3,
+              child: Container(
+                height: 10,
+                color: colours.surfaceContainerLowest,
+                alignment: Alignment.centerLeft,
+                child: n == 0
+                    ? null
+                    : FractionallySizedBox(
+                        widthFactor: n / largest,
+                        heightFactor: 1,
+                        child: DecoratedBox(
+                          decoration: wanted
+                              ? BoxDecoration(border: Border.all(color: colour))
+                              : BoxDecoration(
+                                  color: colour,
+                                  border: stageOutline(context),
+                                ),
+                        ),
+                      ),
+              ),
+            ),
+            SizedBox(
+              width: 40,
+              child: Text('$n', style: muted, textAlign: TextAlign.end),
+            ),
+            SizedBox(
+              width: 44,
+              child: wanted || n == 0
+                  ? null
+                  : Text(
+                      percent(n / p.owned),
+                      style: TextStyle(color: colours.onSurfaceVariant),
+                      textAlign: TextAlign.end,
+                    ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget band(
+      String caption,
+      List<StageGroup> groups, {
+      bool wanted = false,
+    }) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 2),
+          child: Text(
+            caption,
+            style: text.labelSmall?.copyWith(color: colours.onSurfaceVariant),
+          ),
+        ),
+        for (final g in groups) row(g, wanted: wanted),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.end,
+            children: [
+              Text(workflow.workflow.name, style: heading(context)),
+              Text(
+                '${p.finished} / ${p.owned} finished · ${percent(p.finishedShare)}',
+                style: TextStyle(color: colours.onSurfaceVariant),
+              ),
+            ],
+          ),
+          if (owned > 0) band('Wanted', stages.sublist(0, owned), wanted: true),
+          if (finished > owned) band('Owned', stages.sublist(owned, finished)),
+          band('Finished', stages.sublist(finished)),
+        ],
       ),
     );
   }

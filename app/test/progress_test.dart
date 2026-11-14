@@ -109,6 +109,35 @@ void main() {
       progress(killTeam, {1: 4, 2: 1}),
     ];
 
+    /// The texts of the [i]th Workflow's breakdown, in order.
+    List<String?> breakdown(WidgetTester tester, int i) => [
+      for (final t in tester.widgetList<Text>(
+        find.descendant(
+          of: find.byType(StageBreakdown).at(i),
+          matching: find.byType(Text),
+        ),
+      ))
+        t.data,
+    ];
+
+    testWidgets('leaves out a band without Stages', (tester) async {
+      final w = Workflow(
+        id: 'x',
+        name: 'Painted only',
+        stages: const [Stage(id: 'x0', name: 'Painted', colour: '#FF7B7B')],
+        ownedStageId: 'x0',
+        finishedStageId: 'x0',
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: Material(child: StageBreakdown(progress(w, {0: 3})))),
+      );
+
+      expect(breakdown(tester, 0), [
+        'Painted only', '3 / 3 finished · 100%', //
+        'Finished', 'Painted', '3', '100%',
+      ]);
+    });
+
     Future<void> pump(WidgetTester tester, int count) => tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -122,12 +151,6 @@ void main() {
       ),
     );
 
-    /// The listed Stages, per Workflow, as "Stage models".
-    List<String> listed(WidgetTester tester) => [
-      for (final t in tester.widgetList<ListTile>(find.byType(ListTile)))
-        '${((t.title! as Text).data)} ${(t.trailing! as Text).data}',
-    ];
-
     testWidgets('collapsed, shows the totals over every Workflow and one bar', (
       tester,
     ) async {
@@ -138,11 +161,11 @@ void main() {
         findsOneWidget,
       );
       expect(find.byType(StageBar), findsOneWidget);
-      expect(find.byType(ListTile), findsNothing);
+      expect(find.byType(StageBreakdown), findsNothing);
     });
 
     testWidgets(
-      'dragged up, lists each Workflow\'s every Stage apart, even where names match; dragged down, collapses',
+      'dragged up, breaks each Workflow down into Wanted / Owned / Finished Stages with count, bar and share of owned; dragged down, collapses',
       (tester) async {
         // Tall enough to build every Stage row of the sheet's lazy list.
         tester.view.physicalSize = const Size(2400, 4800);
@@ -157,20 +180,42 @@ void main() {
           tester.getTopLeft(find.text('Starter')).dy,
           lessThan(tester.getTopLeft(find.text('Kill Team')).dy),
         );
-        // Wishlist is before the Owned Stage, Primed in Starter has no models.
-        expect(listed(tester), [
-          'Wishlist 5',
-          'Unassembled 10',
-          'Primed 0',
-          'Done 2',
-          'Wishlist 0',
-          'Primed 4',
-          'Done 1',
+        // Wishlist is before the Owned Stage, Primed in Starter has no models: still listed, without a %.
+        expect(breakdown(tester, 0), [
+          'Starter', '2 / 12 finished · 17%', //
+          'Wanted', 'Wishlist', '5', //
+          'Owned', 'Unassembled', '10', '83%', 'Primed', '0', //
+          'Finished', 'Done', '2', '17%',
+        ]);
+        expect(breakdown(tester, 1), [
+          'Kill Team', '1 / 5 finished · 20%', //
+          'Wanted', 'Wishlist', '0', //
+          'Owned', 'Primed', '4', '80%', //
+          'Finished', 'Done', '1', '20%',
+        ]);
+        expect(find.byType(Divider), findsOneWidget);
+        // Bars against the Workflow's largest Stage; the wanted one outlined; none for an empty Stage.
+        final bars = [
+          for (final b in tester.widgetList<FractionallySizedBox>(
+            find.descendant(
+              of: find.byType(StageBreakdown).first,
+              matching: find.byType(FractionallySizedBox),
+            ),
+          ))
+            (
+              b.widthFactor,
+              ((b.child! as DecoratedBox).decoration as BoxDecoration).color,
+            ),
+        ];
+        expect(bars, [
+          (0.5, null),
+          (1.0, stageColour(Vault.stageColours[1])),
+          (0.2, stageColour(Vault.stageColours[3])),
         ]);
 
         await tester.fling(find.byType(StageBar), const Offset(0, 200), 1000);
         await tester.pumpAndSettle();
-        expect(find.byType(ListTile), findsNothing);
+        expect(find.byType(StageBreakdown), findsNothing);
       },
     );
 

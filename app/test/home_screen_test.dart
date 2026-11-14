@@ -143,4 +143,63 @@ void main() {
     await settle(tester);
     expect(find.byType(ArmyListScreen), findsOneWidget);
   });
+
+  testWidgets(
+    'the expanded Progress drawer breaks down the Stages on Collections and on a Collection',
+    (tester) async {
+      tester.view.physicalSize = const Size(2400, 4800);
+      addTearDown(tester.view.reset);
+      final db = await openDb(tester, empty: true);
+      final vault = Vault(SqliteVaultStore(db));
+      await tester.runAsync(() async {
+        final w = await vault.createWorkflow('Standard');
+        final c = await vault.createCollection('Necrons', workflowId: w.id);
+        for (final (stage, n) in [(0, 6), (1, 9), (3, 11), (6, 18)]) {
+          await vault.addBatch(
+            c,
+            name: 'Warriors',
+            modelCount: n,
+            stageId: w.stages[stage].id,
+          );
+        }
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(
+            vault: vault,
+            collections: CollectionsScreen(vault: vault, db: db),
+          ),
+        ),
+      );
+      await settle(tester);
+
+      const expected = [
+        'Standard', '18 / 38 finished · 47%', //
+        'Wanted', 'Wishlist', '6', //
+        'Owned', 'Unassembled', '9', '24%', 'Assembled', '0', //
+        'Primed', '11', '29%', 'Painted', '0', 'Based', '0', //
+        'Finished', 'Done', '18', '47%',
+      ];
+      List<String?> shown() => [
+        for (final t in tester.widgetList<Text>(
+          find.descendant(
+            of: find.byType(StageBreakdown),
+            matching: find.byType(Text),
+          ),
+        ))
+          t.data,
+      ];
+
+      await tester.tap(find.byTooltip('Show Stages'));
+      await settle(tester);
+      expect(shown(), expected);
+
+      await tester.tap(find.text('Necrons'));
+      await settle(tester);
+      expect(find.byType(CollectionScreen), findsOneWidget);
+      await tester.tap(find.byTooltip('Show Stages'));
+      await settle(tester);
+      expect(shown(), expected);
+    },
+  );
 }
