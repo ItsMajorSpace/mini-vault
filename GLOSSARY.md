@@ -16,6 +16,10 @@ _Avoid_: System, game, franchise, category
 All the models in a Collection that a person tracks under one name (e.g. "Intercessors"); its models may be spread across Stages. Not necessarily a unit in game rules: it is whatever a person chose to name alike. A Unit has notes, Tags and photos and may use Paints, each with an optional note on where or how (e.g. "armour base"); renaming the Unit keeps them, and its Paints stay with the name even while it has no models.
 _Avoid_: Squad, group, kit, box, entry
 
+**Category**:
+A named group of Units within one Collection (e.g. Heroes, Core, Support), defined freely per Collection and kept in the order the person chooses. No two Categories of one Collection share a name, ignoring case. A Unit is in at most one Category; Units in none are Uncategorised. Deleting a Category keeps its Units, which become Uncategorised. Within a Collection, Units also keep a person-chosen order.
+_Avoid_: Tag (a Unit has many Tags but one Category), role, section
+
 **Batch**:
 The models of one Unit that are at the same Stage; a Unit has at most one Batch per Stage. People rarely see the word: they see "models at a Stage".
 _Avoid_: Unit (for this meaning), lot, group
