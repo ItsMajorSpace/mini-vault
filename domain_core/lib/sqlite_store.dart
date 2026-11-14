@@ -725,11 +725,20 @@ class SqliteVaultStore implements VaultStore {
   );
 
   @override
-  Stream<List<PaintScheme>> watchPaintSchemes(String collectionId) => _db
+  Stream<List<PaintScheme>> watchPaintSchemes(String collectionId) =>
+      _watchPaintSchemes('WHERE s.collection_id = ?', [collectionId]);
+
+  @override
+  Stream<List<PaintScheme>> watchAllPaintSchemes() => _watchPaintSchemes('');
+
+  Stream<List<PaintScheme>> _watchPaintSchemes(
+    String where, [
+    List<Object> parameters = const [],
+  ]) => _db
       .watch(
         'SELECT s.*, (SELECT count(*) FROM scheme_steps WHERE scheme_id = s.id) AS steps FROM paint_schemes s '
-        'WHERE s.collection_id = ? ORDER BY s.name COLLATE NOCASE, s.id',
-        parameters: [collectionId],
+        '$where ORDER BY s.name COLLATE NOCASE, s.id',
+        parameters: parameters,
       )
       .map(
         (rows) => [
