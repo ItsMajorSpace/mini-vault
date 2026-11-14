@@ -643,6 +643,13 @@ abstract interface class VaultStore {
 
   /// Appends [category] after the Collection's others.
   Future<void> insertCategory(Category category);
+  Future<void> renameCategory(String id, String name);
+
+  /// Stores [order] (all of a Collection's Category ids) as its Category order.
+  Future<void> reorderCategories(List<String> order);
+
+  /// In one transaction: makes the Category's Units Uncategorised, then deletes it.
+  Future<void> deleteCategory(String id);
 
   /// The Collection's Unit names with a Category, mapped to its id.
   Stream<Map<String, String>> watchUnitCategories(String collectionId);
@@ -1036,6 +1043,31 @@ class Vault {
     await _store.insertCategory(category);
     return category;
   }
+
+  /// Renames the Category. Throws a [StateError] if another Category of its Collection has that name, ignoring case.
+  Future<void> renameCategory(Category category, String name) async {
+    final valid = validName(name);
+    final known = await watchCategories(category.collectionId).first;
+    if (known.any(
+      (c) => c.id != category.id && tagKey(c.name) == tagKey(valid),
+    )) {
+      throw StateError('Already a Category "$valid"');
+    }
+    await _store.renameCategory(category.id, valid);
+  }
+
+  /// Moves the Category to [index] in its Collection's order.
+  Future<void> moveCategory(Category category, int index) async {
+    final order = [
+      for (final c in await watchCategories(category.collectionId).first)
+        if (c.id != category.id) c.id,
+    ];
+    order.insert(index.clamp(0, order.length), category.id);
+    await _store.reorderCategories(order);
+  }
+
+  /// Deletes the Category; its Units stay, Uncategorised.
+  Future<void> deleteCategory(String id) => _store.deleteCategory(id);
 
   /// The Collection's Unit names with a Category, mapped to its id, emitted again whenever they change.
   Stream<Map<String, String>> watchUnitCategories(String collectionId) =>
