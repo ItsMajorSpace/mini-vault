@@ -2,10 +2,13 @@
 library;
 
 import 'package:domain_core/domain_core.dart';
+import 'package:flutter/semantics.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'section.dart';
 import 'stage_strip.dart';
 import 'theme.dart';
+import 'unit.dart' show showUndo;
 
 /// Runs a Vault operation, showing a refusal (an [ArgumentError] or [StateError]) as a snack bar.
 Future<void> attempt(BuildContext context, Future<void> Function() op) async {
@@ -244,7 +247,8 @@ class _WorkflowCard extends StatelessWidget {
   }
 }
 
-/// One Workflow's Stages, in order: drag to reorder, and a menu per Stage for the rest.
+/// One Workflow's Stages in Wanted / Owned / Finished zones: drag Stages to reorder and the zone markers to set the
+/// Owned and Finished Stages; tap a Stage for its menu.
 class WorkflowScreen extends StatefulWidget {
   const WorkflowScreen({
     super.key,
@@ -261,9 +265,50 @@ class WorkflowScreen extends StatefulWidget {
 
 class _WorkflowScreenState extends State<WorkflowScreen> {
   late final _workflows = widget.vault.watchWorkflows();
+  late final _collections = widget.vault.watchCollections();
 
   Vault get vault => widget.vault;
   String get id => widget.workflowId;
+
+  /// Makes [to] the Owned or Finished Stage, offering Undo; refused if [to] is null (no Stage there).
+  Future<void> _setBoundary(Workflow w, _Boundary b, Stage? to) =>
+      attempt(context, () async {
+        if (to == null) throw StateError('No Stage there');
+        final finished = b == _Boundary.finished;
+        final from = finished ? w.finishedStage : w.ownedStage;
+        if (to.id == from.id) return;
+        Future<void> set(Stage s) => finished
+            ? vault.setFinishedStage(id, s.id)
+            : vault.setOwnedStage(id, s.id);
+        await set(to);
+        if (mounted) {
+          showUndo(
+            context,
+            '${finished ? 'Finished' : 'Owned'} from ${to.name}',
+            () => set(from),
+          );
+        }
+      });
+
+  /// Moves a Stage, or drops a marker so the Stage right below it becomes the Owned or Finished Stage.
+  Future<void> _onReorder(Workflow w, List<Object> rows, int from, int to) {
+    final moved = [...rows];
+    final item = moved.removeAt(from);
+    moved.insert(to, item);
+    return switch (item) {
+      Stage s => attempt(
+        context,
+        () =>
+            vault.moveStage(id, s.id, moved.take(to).whereType<Stage>().length),
+      ),
+      _Boundary b => _setBoundary(
+        w,
+        b,
+        moved.skip(to).whereType<Stage>().firstOrNull,
+      ),
+      _ => throw StateError('Unknown row $item'),
+    };
+  }
 
   Future<void> _addStage(int index) async {
     final name = await askName(context, 'New Stage');
@@ -352,6 +397,178 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     );
   }
 
+  /// The used-by strip, then the Stages in Wanted / Owned / Finished zones split by the two markers.
+  Widget _stages(BuildContext context, Workflow w, List<String> usedBy) {
+    final theme = Theme.of(context);
+    final colours = theme.colorScheme;
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: colours.onSurfaceVariant,
+    );
+    final stages = w.stages;
+    final owned = stages.indexWhere((s) => s.id == w.ownedStage.id);
+    final finished = stages.indexWhere((s) => s.id == w.finishedStage.id);
+    // Stages, with each marker right above the Stage it starts at.
+    final rows = <Object>[
+      for (final (i, s) in stages.indexed) ...[
+        if (i == owned) _Boundary.owned,
+        if (i == finished) _Boundary.finished,
+        s,
+      ],
+    ];
+    final n = usedBy.length;
+    return ReorderableListView(
+      buildDefaultDragHandles: false,
+      padding: const EdgeInsets.only(bottom: 88),
+      onReorderItem: (from, to) => _onReorder(w, rows, from, to),
+      header: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (n > 0)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colours.surfaceContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 10,
+                children: [
+                  Icon(Icons.info, size: 20, color: colours.primary),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        style: muted,
+                        children: [
+                          const TextSpan(text: 'Used by '),
+                          for (final (i, name) in usedBy.indexed) ...[
+                            if (i > 0)
+                              TextSpan(text: i == n - 1 ? ' and ' : ', '),
+                            TextSpan(
+                              text: name,
+                              style: TextStyle(color: colours.onSurface),
+                            ),
+                          ],
+                          TextSpan(
+                            text:
+                                '. Changes apply to ${switch (n) {
+                                  1 => 'it',
+                                  2 => 'both',
+                                  _ => 'all $n',
+                                }}.',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          SizedBox(
+            height: 40,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                spacing: 8,
+                children: [
+                  Text(
+                    'WANTED',
+                    style: heading(context)?.copyWith(letterSpacing: 1.2),
+                  ),
+                  Text('not yet owned', style: muted),
+                ],
+              ),
+            ),
+          ),
+          if (owned == 0)
+            _ZoneCard(
+              zone: _Zone.wanted,
+              first: true,
+              last: true,
+              child: const SectionHint('No Wanted Stages'),
+            ),
+        ],
+      ),
+      children: [
+        for (final (i, row) in rows.indexed)
+          switch (row) {
+            Stage s => _stageRow(context, w, s, i, owned, finished),
+            _Boundary b => _ZoneMarker(
+              key: ValueKey(b.name),
+              boundary: b,
+              index: i,
+              // Owned and Finished at one Stage: the Owned zone between the stacked markers is empty.
+              empty: b == _Boundary.owned && owned == finished,
+              onMove: (by) {
+                final at = (b == _Boundary.owned ? owned : finished) + by;
+                _setBoundary(
+                  w,
+                  b,
+                  at >= 0 && at < stages.length ? stages[at] : null,
+                );
+              },
+            ),
+            _ => throw StateError('Unknown row $row'),
+          },
+      ],
+    );
+  }
+
+  /// A Stage in its zone card: colour swatch, name and drag handle; tap for its menu (until the Stage sheet).
+  Widget _stageRow(
+    BuildContext context,
+    Workflow w,
+    Stage stage,
+    int row,
+    int owned,
+    int finished,
+  ) {
+    final i = w.stages.indexOf(stage);
+    bool starts(int at) => at == 0 || at == owned || at == finished;
+    return _ZoneCard(
+      key: ValueKey(stage.id),
+      zone: i < owned
+          ? _Zone.wanted
+          : i < finished
+          ? _Zone.owned
+          : _Zone.finished,
+      first: starts(i),
+      last: i == w.stages.length - 1 || starts(i + 1),
+      child: PopupMenuButton<_StageAction>(
+        tooltip: 'Stage actions for ${stage.name}',
+        onSelected: (action) => _onMenu(action, stage, i),
+        itemBuilder: (_) => [
+          for (final a in _StageAction.values)
+            PopupMenuItem(value: a, child: Text(a.label)),
+        ],
+        child: ListTile(
+          contentPadding: const EdgeInsets.only(left: 14),
+          leading: Container(
+            key: ValueKey('swatch:${stage.id}'),
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: stageColour(stage.colour),
+              shape: BoxShape.circle,
+            ),
+          ),
+          title: Text(stage.name),
+          trailing: ReorderableDragStartListener(
+            index: row,
+            child: SizedBox.square(
+              dimension: 48,
+              child: Icon(
+                Icons.drag_handle,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
@@ -391,39 +608,17 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
               ),
             ],
           ),
-          body: ReorderableListView(
-            onReorderItem: (from, to) => attempt(
-              context,
-              () => vault.moveStage(id, workflow.stages[from].id, to),
-            ),
-            children: [
-              for (final (i, stage) in workflow.stages.indexed)
-                ListTile(
-                  key: ValueKey(stage.id),
-                  title: Text(stage.name),
-                  subtitle: switch ((
-                    stage.id == workflow.ownedStage.id,
-                    stage.id == workflow.finishedStage.id,
-                  )) {
-                    (true, true) => const Text('Owned Stage, Finished Stage'),
-                    (true, false) => const Text('Owned Stage'),
-                    (false, true) => const Text('Finished Stage'),
-                    _ => null,
-                  },
-                  trailing: PopupMenuButton<_StageAction>(
-                    tooltip: 'Stage actions for ${stage.name}',
-                    onSelected: (action) => _onMenu(action, stage, i),
-                    itemBuilder: (_) => [
-                      for (final a in _StageAction.values)
-                        PopupMenuItem(value: a, child: Text(a.label)),
-                    ],
-                  ),
-                ),
-            ],
+          body: StreamBuilder(
+            stream: _collections,
+            builder: (context, collections) => _stages(context, workflow, [
+              for (final c in collections.data ?? <Collection>[])
+                if (c.workflowId == id) c.name,
+            ]),
           ),
-          floatingActionButton: FloatingActionButton(
+          floatingActionButton: FloatingActionButton.extended(
             tooltip: 'New Stage',
-            child: const Icon(Icons.add),
+            icon: const Icon(Icons.add),
+            label: const Text('New Stage'),
             onPressed: () => _addStage(workflow.stages.length),
           ),
         );
@@ -443,6 +638,139 @@ enum _StageAction {
 
   const _StageAction(this.label);
   final String label;
+}
+
+/// Where the Owned or Finished zone begins.
+enum _Boundary { owned, finished }
+
+enum _Zone { wanted, owned, finished }
+
+/// One row of a zone's card: rounded at the zone's [first] and [last] row, with a left rail (outline = Wanted,
+/// half accent = Owned, accent = Finished) and a hairline between rows.
+class _ZoneCard extends StatelessWidget {
+  const _ZoneCard({
+    super.key,
+    required this.zone,
+    required this.first,
+    required this.last,
+    required this.child,
+  });
+
+  final _Zone zone;
+  final bool first;
+  final bool last;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colours = Theme.of(context).colorScheme;
+    const r = Radius.circular(12);
+    // shortcut: a solid outline rail stands in for the mockup's dashed Wanted rail; draw dashes if it reads unclear.
+    final rail = switch (zone) {
+      _Zone.wanted => colours.outline,
+      _Zone.owned => Color.lerp(
+        colours.primary,
+        colours.surfaceContainerLow,
+        0.45,
+      )!,
+      _Zone.finished => colours.primary,
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: ClipRRect(
+        borderRadius: BorderRadius.vertical(
+          top: first ? r : Radius.zero,
+          bottom: last ? r : Radius.zero,
+        ),
+        child: Material(
+          color: zone == _Zone.wanted
+              ? colours.surfaceContainerLowest
+              : colours.surfaceContainerLow,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(color: rail, width: 4),
+                top: first
+                    ? BorderSide.none
+                    : BorderSide(color: colours.outlineVariant, width: 0.5),
+              ),
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A draggable boundary between zones, "Owned from here" or "Finished from here"; [onMove] moves it by a Stage
+/// (the semantics actions). [empty] adds the hint for an empty Owned zone below it.
+class _ZoneMarker extends StatelessWidget {
+  const _ZoneMarker({
+    super.key,
+    required this.boundary,
+    required this.index,
+    required this.empty,
+    required this.onMove,
+  });
+
+  final _Boundary boundary;
+  final int index;
+  final bool empty;
+  final void Function(int by) onMove;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final finished = boundary == _Boundary.finished;
+    return Semantics(
+      container: true,
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'Move up a Stage'): () => onMove(-1),
+        const CustomSemanticsAction(label: 'Move down a Stage'): () =>
+            onMove(1),
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            height: 48,
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            padding: const EdgeInsets.only(left: 12),
+            decoration: ShapeDecoration(
+              color: accent.withValues(alpha: 0.12),
+              shape: StadiumBorder(side: BorderSide(color: accent, width: 1.5)),
+            ),
+            child: Row(
+              spacing: 8,
+              children: [
+                Icon(
+                  finished ? Icons.military_tech : Icons.flag,
+                  size: 20,
+                  color: accent,
+                ),
+                Expanded(
+                  child: Text(
+                    finished ? 'FINISHED FROM HERE' : 'OWNED FROM HERE',
+                    style: heading(context)
+                        ?.copyWith(color: accent, letterSpacing: 1),
+                  ),
+                ),
+                ReorderableDragStartListener(
+                  index: index,
+                  child: SizedBox.square(
+                    dimension: 48,
+                    child: Icon(Icons.drag_indicator, color: accent),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (empty) const SectionHint('Finished as soon as owned'),
+        ],
+      ),
+    );
+  }
 }
 
 typedef _DeleteChoice = ({
