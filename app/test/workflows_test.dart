@@ -605,7 +605,180 @@ void main() {
       await tapAndWait(find.text('Delete'));
       expect(find.byType(BottomSheet), findsNothing);
       expect(find.text('Delete Undercoated?'), findsOneWidget);
-      expect(find.text('New Owned Stage'), findsOneWidget);
+      expect(find.text('Owned from'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Delete Stage dialog: next Stage by default, only allowed Owned/Finished, names the Collections, previews',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final vault = (await tester.runAsync(() async {
+        final dir = await Directory.systemTemp.createTemp('app_test');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        // Owned from Unassembled, Finished from Painted.
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id, starter) VALUES ('w', 'Standard', 's1', 's4', 1)",
+        );
+        for (final (i, name) in standard.indexed) {
+          await db.execute(
+            'INSERT INTO stages (id, workflow_id, name, position, colour) VALUES (?, ?, ?, ?, ?)',
+            ['s$i', 'w', name, i, Vault.stageColours[i]],
+          );
+        }
+        final vault = Vault(SqliteVaultStore(db));
+        for (final (c, stage) in [
+          ('Ultramarines', 's1'),
+          ('Death Guard', 's1'),
+          ('Kill Team', 's6'),
+        ]) {
+          final collection = await vault.createCollection(c, workflowId: 'w');
+          await vault.addBatch(
+            collection,
+            name: 'Squad',
+            modelCount: 5,
+            stageId: stage,
+          );
+        }
+        return vault;
+      }))!;
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      Future<void> tapAndWait(Finder f) async {
+        await tester.runAsync(() async {
+          await tester.tap(f);
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        });
+        await settle();
+      }
+
+      Future<Workflow> workflow() async =>
+          (await tester.runAsync(vault.workflows))!.single;
+      DropdownMenu<Stage> picker(String label) =>
+          tester.widget<DropdownMenu<Stage>>(
+            find.widgetWithText(DropdownMenu<Stage>, label),
+          );
+      List<String> choices(String label) => [
+        for (final e in picker(label).dropdownMenuEntries) e.label,
+      ];
+      Future<void> delete(String stage) async {
+        await tapAndWait(find.text(stage));
+        await tapAndWait(find.text('Delete'));
+      }
+
+      final preview = find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(StageStrip),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: grimdarkTheme,
+          home: WorkflowScreen(vault: vault, workflowId: 'w'),
+        ),
+      );
+      await settle();
+
+      // The Owned Stage holding Units: names their Collections, moves them to the next Stage by default, and offers
+      // only Owned Stages at or before Painted (the Finished Stage).
+      await delete('Unassembled');
+      expect(find.text('Delete Unassembled?'), findsOneWidget);
+      expect(
+        find.text(
+          '2 Units across Death Guard and Ultramarines are at this Stage. '
+          'It is also the Owned Stage.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        picker('Move their models to').initialSelection?.name,
+        'Assembled',
+      );
+      expect(choices('Move their models to'), [
+        'Wishlist',
+        'Assembled',
+        'Primed',
+        'Painted',
+        'Based',
+        'Done',
+      ]);
+      expect(picker('Owned from').initialSelection?.name, 'Assembled');
+      expect(choices('Owned from'), [
+        'Wishlist',
+        'Assembled',
+        'Primed',
+        'Painted',
+      ]);
+      expect(find.text('Finished from'), findsNothing);
+      expect(parts(tester, preview), [
+        's0',
+        'tick:s2',
+        's2',
+        's3',
+        'tick:s4',
+        's4',
+        's5',
+        's6',
+      ]);
+
+      // Picking another Owned Stage updates the preview; Delete applies it.
+      await tapAndWait(find.text('Owned from'));
+      await tapAndWait(find.widgetWithText(MenuItemButton, 'Primed').last);
+      expect(picker('Owned from').initialSelection?.name, 'Primed');
+      expect(parts(tester, preview), [
+        's0',
+        's2',
+        'tick:s3',
+        's3',
+        'tick:s4',
+        's4',
+        's5',
+        's6',
+      ]);
+      await tapAndWait(find.widgetWithText(TextButton, 'Delete'));
+      var w = await workflow();
+      expect(w.stages.map((s) => s.id), ['s0', 's2', 's3', 's4', 's5', 's6']);
+      expect(w.ownedStage.id, 's3');
+      expect(
+        [
+          for (final b in (await tester.runAsync(() => vault.batchesAt('s2')))!)
+            b.name,
+        ],
+        ['Squad', 'Squad'],
+      );
+
+      // The Finished Stage: only Stages at or after Primed (the Owned Stage), defaulting to the next.
+      await delete('Painted');
+      expect(find.text('It is the Finished Stage.'), findsOneWidget);
+      expect(find.text('Move their models to'), findsNothing);
+      expect(picker('Finished from').initialSelection?.name, 'Based');
+      expect(choices('Finished from'), ['Primed', 'Based', 'Done']);
+      await tapAndWait(find.text('Cancel'));
+      expect((await workflow()).stages.length, 6);
+
+      // The last Stage moves its Units to the previous one by default.
+      await delete('Done');
+      expect(
+        find.text('1 Unit in Kill Team is at this Stage.'),
+        findsOneWidget,
+      );
+      expect(picker('Move their models to').initialSelection?.name, 'Based');
+      await tapAndWait(find.widgetWithText(TextButton, 'Delete'));
+      w = await workflow();
+      expect(w.stages.last.id, 's5');
+      expect((await tester.runAsync(() => vault.batchesAt('s5')))!.length, 1);
     },
   );
 }
