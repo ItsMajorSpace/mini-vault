@@ -109,6 +109,8 @@ void main() {
       expect(find.text('PAINT SCHEMES'), findsOneWidget);
       expect(find.text('Armour'), findsOneWidget);
       expect(find.text('3 Scheme Steps'), findsOneWidget);
+      // No other Collection has a Paint Scheme to copy.
+      expect(find.byTooltip('Copy a Paint Scheme'), findsNothing);
       expect(
         top(tester, find.text('Armour')),
         lessThan(top(tester, find.text('Intercessors'))),
@@ -137,6 +139,50 @@ void main() {
       await tapAndWait(tester, find.text('Armour'));
       expect(find.byType(PaintSchemeScreen), findsOneWidget);
       expect(find.text('Ultramarines · Paint Scheme'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'a Paint Scheme is started as a copy of one from another Collection, offered only from other Collections',
+    (tester) async {
+      await seed(tester);
+      await tester.runAsync(() async {
+        final other = await vault.createCollection('Dark Angels');
+        final robes = await vault.addPaintScheme(other.id, 'Robes');
+        await vault.addSchemeStep(
+          robes.id,
+          paintIds: [white.id, black.id],
+          technique: 'Basecoat',
+          note: 'Bone',
+        );
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CollectionScreen(vault: vault, db: db, collection: collection),
+        ),
+      );
+      await settle(tester);
+
+      await tester.tap(find.byTooltip('Copy a Paint Scheme'));
+      await tester.pumpAndSettle();
+      expect(find.text('Copy a Paint Scheme from'), findsOneWidget);
+      expect(find.text('Robes · Dark Angels'), findsOneWidget);
+      expect(find.text('Armour · Ultramarines'), findsNothing);
+      await tapAndWait(tester, find.text('Robes · Dark Angels'));
+
+      expect(find.text('Robes'), findsOneWidget);
+      expect(find.text('1 Scheme Step'), findsOneWidget);
+      final copied = await tester.runAsync(() async {
+        final copy = (await vault.watchPaintSchemes(collection.id).first)
+            .firstWhere((s) => s.name == 'Robes');
+        return [
+          for (final s in await vault.watchSchemeSteps(copy.id).first)
+            '${s.technique} ${s.paints.map((p) => p.name)} ${s.note}',
+        ];
+      });
+      expect(copied, ['Basecoat (White Scar, Abaddon Black) Bone']);
 
       await tester.pumpWidget(const SizedBox());
     },

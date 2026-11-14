@@ -533,6 +533,9 @@ abstract interface class VaultStore {
 
   /// Emits the Collection's Paint Schemes, by name, with their Step counts, now and again whenever they change.
   Stream<List<PaintScheme>> watchPaintSchemes(String collectionId);
+
+  /// Emits every Paint Scheme, by name, with their Step counts, now and again whenever they change.
+  Stream<List<PaintScheme>> watchAllPaintSchemes();
   Future<void> insertPaintScheme(PaintScheme scheme);
   Future<void> renamePaintScheme(String id, String name);
 
@@ -1603,6 +1606,46 @@ class Vault {
 
   Future<void> renamePaintScheme(String id, String name) =>
       _store.renamePaintScheme(id, validName(name));
+
+  /// The Paint Schemes of Collections other than [collectionId], with their Collection, by name, emitted again
+  /// whenever they or the Collections change. Schemes whose Collection has not synced are left out.
+  Stream<List<({Collection collection, PaintScheme scheme})>>
+  watchOtherPaintSchemes(String collectionId) => _combineLatest(
+    [_store.watchAllPaintSchemes(), _store.watchCollections()],
+    (latest) {
+      final [schemes as List<PaintScheme>, collections as List<Collection>] =
+          latest;
+      final byId = {for (final c in collections) c.id: c};
+      return [
+        for (final s in schemes)
+          if (s.collectionId != collectionId)
+            if (byId[s.collectionId] case final c?) (collection: c, scheme: s),
+      ];
+    },
+  );
+
+  /// Starts a Paint Scheme in Collection [toCollectionId] as a copy of [from]: same name (names may repeat, as for a
+  /// new one), and its Scheme Steps in order with their Paints, Technique and note. The copy has its own ids.
+  Future<PaintScheme> copyPaintScheme(
+    PaintScheme from,
+    String toCollectionId,
+  ) async {
+    final steps = await watchSchemeSteps(from.id).first;
+    final copy = await addPaintScheme(toCollectionId, from.name);
+    // Stored as they are, not re-checked: a Step left empty by a deleted Paint is copied too.
+    for (final s in steps) {
+      await _store.insertSchemeStep(
+        SchemeStep(
+          id: _newId(),
+          schemeId: copy.id,
+          paints: s.paints,
+          technique: s.technique,
+          note: s.note,
+        ),
+      );
+    }
+    return copy;
+  }
 
   /// Deletes the Paint Scheme and its Scheme Steps (not their Paints).
   Future<void> deletePaintScheme(String id) => _store.deletePaintScheme(id);

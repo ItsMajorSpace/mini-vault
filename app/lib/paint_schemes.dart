@@ -26,6 +26,9 @@ class PaintSchemesSection extends StatefulWidget {
 
 class _PaintSchemesSectionState extends State<PaintSchemesSection> {
   late final _schemes = widget.vault.watchPaintSchemes(widget.collection.id);
+  late final _others = widget.vault.watchOtherPaintSchemes(
+    widget.collection.id,
+  );
 
   Vault get vault => widget.vault;
   Collection get collection => widget.collection;
@@ -39,6 +42,28 @@ class _PaintSchemesSectionState extends State<PaintSchemesSection> {
     await attempt(context, () => vault.addPaintScheme(collection.id, name));
   }
 
+  /// Starts a Paint Scheme here as a copy of one picked from [others].
+  Future<void> _copy(
+    BuildContext context,
+    List<({Collection collection, PaintScheme scheme})> others,
+  ) async {
+    final from = await showDialog<PaintScheme>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Copy a Paint Scheme from'),
+        children: [
+          for (final o in others)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, o.scheme),
+              child: Text('${o.scheme.name} · ${o.collection.name}'),
+            ),
+        ],
+      ),
+    );
+    if (from == null || !context.mounted) return;
+    await attempt(context, () => vault.copyPaintScheme(from, collection.id));
+  }
+
   @override
   Widget build(BuildContext context) => StreamBuilder(
     stream: _schemes,
@@ -49,6 +74,16 @@ class _PaintSchemesSectionState extends State<PaintSchemesSection> {
         title: 'Paint Schemes',
         card: schemes.isEmpty,
         actions: [
+          StreamBuilder(
+            stream: _others,
+            builder: (context, others) => (others.data ?? const []).isEmpty
+                ? const SizedBox.shrink()
+                : IconButton(
+                    icon: const Icon(Icons.content_copy),
+                    tooltip: 'Copy a Paint Scheme',
+                    onPressed: () => _copy(context, others.data!),
+                  ),
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'New Paint Scheme',
