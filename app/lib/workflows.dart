@@ -533,6 +533,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           decoration: BoxDecoration(
             color: stageColour(stage.colour),
             shape: BoxShape.circle,
+            border: stageOutline(context),
           ),
         ),
         title: Text(stage.name),
@@ -623,12 +624,15 @@ _Zone _zoneOf(Workflow w, Stage s) {
 }
 
 /// A Stage's colour as a dot.
-Widget _dot(Stage s, [double size = 16]) => Container(
-  width: size,
-  height: size,
-  decoration: BoxDecoration(
-    color: stageColour(s.colour),
-    shape: BoxShape.circle,
+Widget _dot(Stage s, [double size = 16]) => Builder(
+  builder: (context) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: stageColour(s.colour),
+      shape: BoxShape.circle,
+      border: stageOutline(context),
+    ),
   ),
 );
 
@@ -850,6 +854,7 @@ class _StageSheetState extends State<_StageSheet> {
                   decoration: BoxDecoration(
                     color: stageColour(_colour),
                     shape: BoxShape.circle,
+                    border: stageOutline(context),
                   ),
                 ),
                 Expanded(child: Text(name, style: theme.textTheme.titleLarge)),
@@ -883,11 +888,15 @@ class _StageSheetState extends State<_StageSheet> {
                         shape: BoxShape.circle,
                         border: c == _colour
                             ? Border.all(color: colours.onSurface, width: 3)
-                            : null,
+                            : stageOutline(context),
                       ),
-                      // Every preset theme's surface is dark enough to read on the light Stage colours.
+                      // Every Stage colour is light, so a dark tick reads on all of them in either Brightness.
                       child: c == _colour
-                          ? Icon(Icons.check, size: 20, color: colours.surface)
+                          ? Icon(
+                              Icons.check,
+                              size: 20,
+                              color: AppTheme.grimdark.dark.background,
+                            )
                           : null,
                     ),
                   ),

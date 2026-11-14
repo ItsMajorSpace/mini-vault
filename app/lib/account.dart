@@ -239,17 +239,32 @@ void registerFontLicense() => LicenseRegistry.addLicense(() async* {
   ], await rootBundle.loadString('assets/fonts/Cinzel-OFL.txt'));
 });
 
-/// Lets the user pick this device's theme, applied app-wide at once.
+/// Lets the user pick this device's Brightness and Theme, applied app-wide at once.
 Future<void> pickTheme(BuildContext context, ThemeSetting setting) =>
     showDialog<void>(
       context: context,
       builder: (context) => SimpleDialog(
         title: const Text('Theme'),
         children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: ListenableBuilder(
+              listenable: setting,
+              builder: (context, _) => SegmentedButton<ThemeMode>(
+                segments: const [
+                  ButtonSegment(value: ThemeMode.system, label: Text('System')),
+                  ButtonSegment(value: ThemeMode.light, label: Text('Light')),
+                  ButtonSegment(value: ThemeMode.dark, label: Text('Dark')),
+                ],
+                selected: {setting.brightness},
+                onSelectionChanged: (s) => setting.pickBrightness(s.single),
+              ),
+            ),
+          ),
           for (final t in AppTheme.values)
             ListTile(
               title: Text(t.label),
-              trailing: t == setting.value ? const Icon(Icons.check) : null,
+              trailing: t == setting.theme ? const Icon(Icons.check) : null,
               onTap: () {
                 setting.pick(t);
                 Navigator.pop(context);
