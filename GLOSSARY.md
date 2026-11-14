@@ -72,3 +72,11 @@ _Avoid_: Recipe, guide
 **Scheme Step**:
 One numbered entry in a Paint Scheme: any number of Paints (several means mixed), an optional Technique and an optional note, at least one of the three. Deleting a Paint takes it out of every Scheme Step but keeps the Step.
 _Avoid_: Step (a Stage is a step in a Workflow), layer
+
+**Theme**:
+The named look of the app on one device (e.g. Grimdark, Fantasy): its colours and heading font. Every Theme comes in a light and a dark version; which one shows is a separate choice. Stage colours belong to the Stage and are not changed by the Theme.
+_Avoid_: Skin, style, preset
+
+**Brightness**:
+Whether a device shows its Theme's light or dark version: Light, Dark, or System (follow the device's own setting, the default). Chosen per device, like the Theme.
+_Avoid_: Mode, appearance, dark mode (for the setting itself)
