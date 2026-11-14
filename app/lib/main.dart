@@ -748,203 +748,224 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
               ],
             ),
           },
-          body: Column(
-            children: [
-              SyncBanner(db: widget.db),
-              Expanded(
-                child: Builder(
-                  builder: (context) {
-                    if (snapshot.error case final error?) {
-                      return LoadError(
-                        what: 'your Collections',
-                        error: error,
-                        onRetry: () => setState(
-                          () => _collections = widget.vault.watchCollections(),
-                        ),
-                      );
-                    }
-                    final collections = snapshot.data;
-                    if (collections == null) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (collections.isEmpty) {
-                      return EmptyState(
-                        explanation: 'A Collection is a named set of Units that progress through the same Workflow.',
-                        label: 'New Collection',
-                        onPressed: _create,
-                        alternative: TextButton(
-                          onPressed: () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) =>
-                                  ArmyListScreen(vault: widget.vault),
+          // Above the list so it stays listened to while the list is replaced: the stream can be listened to once.
+          body: StreamBuilder(
+            stream: _progress,
+            builder: (context, progress) => Column(
+              children: [
+                SyncBanner(db: widget.db),
+                Expanded(
+                  child: Builder(
+                    builder: (context) {
+                      if (snapshot.error case final error?) {
+                        return LoadError(
+                          what: 'your Collections',
+                          error: error,
+                          onRetry: () => setState(
+                            () =>
+                                _collections = widget.vault.watchCollections(),
+                          ),
+                        );
+                      }
+                      final collections = snapshot.data;
+                      if (collections == null) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (collections.isEmpty) {
+                        return EmptyState(
+                          icon: Icons.collections_bookmark,
+                          title: 'No Collections yet',
+                          explanation: 'A Collection is a named set of Units that progress through the same Workflow.',
+                          label: 'New Collection',
+                          onPressed: _create,
+                          alternative: TextButton(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) =>
+                                    ArmyListScreen(vault: widget.vault),
+                              ),
                             ),
+                            child: const Text('Import army list'),
                           ),
-                          child: const Text('Import army list'),
-                        ),
-                      );
-                    }
-                    final groups = [
-                      for (final g in groupByGameSystem(collections))
-                        if (g.gameSystem?.toLowerCase().contains(query) ??
-                            false)
-                          g
-                        else
-                          (
-                            gameSystem: g.gameSystem,
-                            collections: [
-                              for (final c in g.collections)
-                                if (c.name.toLowerCase().contains(query)) c,
-                            ],
-                          ),
-                    ].where((g) => g.collections.isNotEmpty).toList();
-                    // Headers only once some Collection has a Game System; until then the list is as before.
-                    final headed = groups.any((g) => g.gameSystem != null);
-                    String groupKey(String? gameSystem) =>
-                        'game-system:${gameSystem?.toLowerCase() ?? ''}';
-                    bool open(String? gameSystem) =>
-                        searching ||
-                        !headed ||
-                        !(widget.collapsed?.isCollapsed(groupKey(gameSystem)) ??
-                            false);
-                    return ListView(
-                      children: [
-                        // Kept mounted while searching: the stream can be listened to once.
-                        StreamBuilder(
-                          stream: _recent,
-                          builder: (context, recent) => switch (searching
-                              ? null
-                              : recent.data) {
-                            null || [] => const SizedBox.shrink(),
-                            final units => Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                const SectionHeader(title: 'Recently painted'),
-                                SizedBox(
-                                  // Fixed parts plus ~4 lines of text, which grow with the text scale.
-                                  height:
-                                      56 +
-                                      MediaQuery.textScalerOf(context)
-                                          .scale(80),
-                                  child: ListView.separated(
-                                    scrollDirection: Axis.horizontal,
-                                    padding: const EdgeInsets.fromLTRB(
-                                      16,
-                                      0,
-                                      16,
-                                      8,
-                                    ),
-                                    itemCount: units.length,
-                                    separatorBuilder: (_, _) =>
-                                        const SizedBox(width: 8),
-                                    itemBuilder: (context, i) => RecentUnitCard(
-                                      units[i],
-                                      onMove: () => showMoveSheet(
-                                        context,
-                                        widget.vault,
-                                        units[i].collection,
-                                        units[i].unit.name,
-                                        [
-                                          for (final g in units[i].unit.stages)
-                                            g.stage,
-                                        ],
-                                        // shortcut: no recount from here, it needs the Unit screen; open it for that.
-                                        units[i].from,
-                                      ),
-                                      onOpen: () => Navigator.push(
-                                        context,
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => UnitScreen(
-                                            vault: widget.vault,
-                                            photos: widget.photos,
-                                            collection: units[i].collection,
-                                            name: units[i].unit.name,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                        );
+                      }
+                      final groups = [
+                        for (final g in groupByGameSystem(collections))
+                          if (g.gameSystem?.toLowerCase().contains(query) ??
+                              false)
+                            g
+                          else
+                            (
+                              gameSystem: g.gameSystem,
+                              collections: [
+                                for (final c in g.collections)
+                                  if (c.name.toLowerCase().contains(query)) c,
                               ],
                             ),
-                          },
-                        ),
-                        if (groups.isEmpty)
-                          NoMatches(
-                            query: _search.text.trim(),
-                            onClear: () => setState(_search.clear),
-                          ),
-                        for (final g in groups) ...[
-                          if (headed)
-                            GameSystemHeader(
-                              // Restarts the watches when the group's Collections or their Workflows change.
-                              key: ValueKey(
-                                [
-                                  for (final c in g.collections)
-                                    '${c.id}/${c.workflowId}',
-                                ].join(','),
-                              ),
-                              vault: widget.vault,
-                              title: g.gameSystem ?? 'Other',
-                              collections: g.collections,
-                              match: query,
-                              expanded: open(g.gameSystem),
-                              onToggle: switch (widget.collapsed) {
-                                _ when searching => null,
-                                null => null,
-                                final c => () => c.toggle(
-                                  groupKey(g.gameSystem),
-                                ),
-                              },
+                      ].where((g) => g.collections.isNotEmpty).toList();
+                      // Headers only once some Collection has a Game System; until then the list is as before.
+                      final headed = groups.any((g) => g.gameSystem != null);
+                      String groupKey(String? gameSystem) =>
+                          'game-system:${gameSystem?.toLowerCase() ?? ''}';
+                      bool open(String? gameSystem) =>
+                          searching ||
+                          !headed ||
+                          !(widget.collapsed?.isCollapsed(
+                                groupKey(gameSystem),
+                              ) ??
+                              false);
+                      return ListView(
+                        children: [
+                          // Always in this slot, so the Recently painted below keeps its place and its stream.
+                          switch (searching ? null : progress.data) {
+                            null => const SizedBox.shrink(),
+                            final workflows => ProgressOverview(
+                              collections: collections.length,
+                              workflows: workflows,
                             ),
-                          if (open(g.gameSystem))
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                              child: Card.filled(
-                                margin: EdgeInsets.zero,
-                                clipBehavior: Clip.antiAlias,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerLow,
-                                child: sectionRows(context, [
-                                  for (final c in g.collections)
-                                    // Keyed by Workflow too, so switching it restarts the watch on the new one.
-                                    CollectionRow(
-                                      key: ValueKey('${c.id}/${c.workflowId}'),
-                                      vault: widget.vault,
-                                      collection: c,
-                                      match: query,
-                                      onTap: () => Navigator.push(
-                                        context,
-                                        MaterialPageRoute<void>(
-                                          builder: (_) => CollectionScreen(
-                                            vault: widget.vault,
-                                            db: widget.db,
-                                            photos: widget.photos,
-                                            collection: c,
-                                            onSyncNow: widget.onSyncNow,
-                                            collapsed: widget.collapsed,
+                          },
+                          // Kept mounted while searching: the stream can be listened to once.
+                          StreamBuilder(
+                            stream: _recent,
+                            builder: (context, recent) => switch (searching
+                                ? null
+                                : recent.data) {
+                              null || [] => const SizedBox.shrink(),
+                              final units => Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  const SectionHeader(
+                                    title: 'Recently painted',
+                                  ),
+                                  SizedBox(
+                                    // Fixed parts plus ~4 lines of text, which grow with the text scale.
+                                    height:
+                                        56 +
+                                        MediaQuery.textScalerOf(context)
+                                            .scale(80),
+                                    child: ListView.separated(
+                                      scrollDirection: Axis.horizontal,
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        0,
+                                        16,
+                                        8,
+                                      ),
+                                      itemCount: units.length,
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(width: 8),
+                                      itemBuilder: (context, i) =>
+                                          RecentUnitCard(
+                                            units[i],
+                                            onMove: () => showMoveSheet(
+                                              context,
+                                              widget.vault,
+                                              units[i].collection,
+                                              units[i].unit.name,
+                                              [
+                                                for (final g
+                                                    in units[i].unit.stages)
+                                                  g.stage,
+                                              ],
+                                              // shortcut: no recount from here, it needs the Unit screen; open it for that.
+                                              units[i].from,
+                                            ),
+                                            onOpen: () => Navigator.push(
+                                              context,
+                                              MaterialPageRoute<void>(
+                                                builder: (_) => UnitScreen(
+                                                  vault: widget.vault,
+                                                  photos: widget.photos,
+                                                  collection:
+                                                      units[i].collection,
+                                                  name: units[i].unit.name,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            },
+                          ),
+                          if (groups.isEmpty)
+                            NoMatches(
+                              query: _search.text.trim(),
+                              onClear: () => setState(_search.clear),
+                            ),
+                          for (final g in groups) ...[
+                            if (headed)
+                              GameSystemHeader(
+                                // Restarts the watches when the group's Collections or their Workflows change.
+                                key: ValueKey(
+                                  [
+                                    for (final c in g.collections)
+                                      '${c.id}/${c.workflowId}',
+                                  ].join(','),
+                                ),
+                                vault: widget.vault,
+                                title: g.gameSystem ?? 'Other',
+                                collections: g.collections,
+                                match: query,
+                                expanded: open(g.gameSystem),
+                                onToggle: switch (widget.collapsed) {
+                                  _ when searching => null,
+                                  null => null,
+                                  final c => () => c.toggle(
+                                    groupKey(g.gameSystem),
+                                  ),
+                                },
+                              ),
+                            if (open(g.gameSystem))
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  12,
+                                ),
+                                child: Card.filled(
+                                  margin: EdgeInsets.zero,
+                                  clipBehavior: Clip.antiAlias,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerLow,
+                                  child: sectionRows(context, [
+                                    for (final c in g.collections)
+                                      // Keyed by Workflow too, so switching it restarts the watch on the new one.
+                                      CollectionRow(
+                                        key: ValueKey(
+                                          '${c.id}/${c.workflowId}',
+                                        ),
+                                        vault: widget.vault,
+                                        collection: c,
+                                        match: query,
+                                        onTap: () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute<void>(
+                                            builder: (_) => CollectionScreen(
+                                              vault: widget.vault,
+                                              db: widget.db,
+                                              photos: widget.photos,
+                                              collection: c,
+                                              onSyncNow: widget.onSyncNow,
+                                              collapsed: widget.collapsed,
+                                            ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                ]),
+                                  ]),
+                                ),
                               ),
-                            ),
+                          ],
                         ],
-                      ],
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
-          ),
-          bottomNavigationBar: StreamBuilder(
-            stream: _progress,
-            builder: (context, progress) => ProgressDrawer(
-              count: progress.hasData ? snapshot.data?.length ?? 0 : 0,
-              noun: 'Collection',
-              workflows: progress.data ?? const [],
+              ],
             ),
           ),
           floatingActionButton: searching
@@ -1075,7 +1096,6 @@ class _GameSystemHeaderState extends State<GameSystemHeader> {
   }
 }
 
-/// An empty screen: one line on what belongs here and a large button to add the first one.
 /// A stream that failed: a plain sentence and Retry; the exception goes to the log, not the screen.
 class LoadError extends StatelessWidget {
   const LoadError({
@@ -1109,15 +1129,21 @@ class LoadError extends StatelessWidget {
   }
 }
 
+/// An empty screen: optionally an [icon] and [title], one line on what belongs here and a large button to add the
+/// first one.
 class EmptyState extends StatelessWidget {
   const EmptyState({
     super.key,
+    this.icon,
+    this.title,
     required this.explanation,
     required this.label,
     required this.onPressed,
     this.alternative,
   });
 
+  final IconData? icon;
+  final String? title;
   final String explanation;
   final String label;
   final VoidCallback onPressed;
@@ -1132,6 +1158,20 @@ class EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (icon case final icon?) ...[
+            Icon(icon, size: 48, color: Theme.of(context).colorScheme.outline),
+            const SizedBox(height: 16),
+          ],
+          if (title case final title?) ...[
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontFamily: Theme.of(context).textTheme.titleLarge?.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           Text(explanation, textAlign: TextAlign.center),
           const SizedBox(height: 24),
           FilledButton.icon(
