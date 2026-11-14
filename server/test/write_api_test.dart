@@ -938,6 +938,7 @@ void main() {
     final unitPaintId = await newId();
     final unitTagId = tagId(unitId(id, 'Intercessors'), '40k');
     final unitPhotoId = await newId();
+    final categoryId = await newId();
     final uploaded = await upload(alice.token, [
       putBatch(batchId, collectionId: id, stageId: wishlist),
       {
@@ -1010,6 +1011,22 @@ void main() {
           'file_id': await newId(),
         },
       },
+      {
+        'op': 'PUT',
+        'type': 'categories',
+        'id': categoryId,
+        'data': {'collection_id': id, 'name': 'Core', 'position': 0},
+      },
+      {
+        'op': 'PUT',
+        'type': 'squad_categories',
+        'id': unitId(id, 'Intercessors'),
+        'data': {
+          'collection_id': id,
+          'squad_name': 'Intercessors',
+          'category_id': categoryId,
+        },
+      },
     ]);
     expect(uploaded.statusCode, 204, reason: uploaded.body);
 
@@ -1044,30 +1061,25 @@ void main() {
     }
 
     // Replication from Postgres is asynchronous: wait until Alice's Collection reaches her stream.
+    final expected = [
+      id,
+      batchId,
+      stageChangeId,
+      tag['id'],
+      photoId,
+      paintId,
+      unitPaintId,
+      unitId(id, 'Intercessors'),
+      unitTagId,
+      unitPhotoId,
+      categoryId,
+    ];
     var aliceIds = <String>{};
-    for (
-      var i = 0;
-      i < 20 && !aliceIds.containsAll([stageChangeId, tag['id']]);
-      i++
-    ) {
+    for (var i = 0; i < 20 && !aliceIds.containsAll(expected); i++) {
       if (i > 0) await Future<void>.delayed(const Duration(milliseconds: 250));
       aliceIds = await syncedIds(alice.token);
     }
-    expect(
-      aliceIds,
-      containsAll([
-        id,
-        batchId,
-        stageChangeId,
-        tag['id'],
-        photoId,
-        paintId,
-        unitPaintId,
-        unitId(id, 'Intercessors'),
-        unitTagId,
-        unitPhotoId,
-      ]),
-    );
+    expect(aliceIds, containsAll(expected));
     expect(aliceIds, contains(await workflowOf(alice.id)));
 
     final bobIds = await syncedIds(bob.token);
@@ -3281,6 +3293,142 @@ void main() {
       }
       expect(await schemesOf(alice.id), ['Armour: Wash [Macragge Blue]']);
       expect(await schemesOf(bob.id), ['Armour: Wash []']);
+    });
+  });
+
+  group('Categories', () {
+    Map<String, Object?> op(
+      String kind,
+      String table,
+      String id, [
+      Map<String, Object?>? data,
+    ]) => {'op': kind, 'type': table, 'id': id, 'data': ?data};
+    Map<String, Object?> putUnitCategory(
+      String collectionId,
+      String unit,
+      String? categoryId,
+    ) => op('PUT', 'squad_categories', unitId(collectionId, unit), {
+      'collection_id': collectionId,
+      'squad_name': unit,
+      'category_id': categoryId,
+    });
+
+    /// [userId]'s Units with a Category row, as "Unit: Category", and their Categories, as "position name".
+    Future<List<List<String>>> categoriesOf(String userId) async => [
+      [
+        for (final [unit, category] in await db.execute(
+          r'''SELECT u.squad_name, coalesce(c.name, '-') FROM squad_categories u
+            LEFT JOIN categories c ON c.id = u.category_id WHERE u.owner_id = $1::uuid ORDER BY u.squad_name''',
+          parameters: [userId],
+        ))
+          '$unit: $category',
+      ],
+      [
+        for (final [position, name] in await db.execute(
+          r'SELECT position, name FROM categories WHERE owner_id = $1::uuid ORDER BY position, id',
+          parameters: [userId],
+        ))
+          '$position $name',
+      ],
+    ];
+
+    test("are stored in order with Units in them, keyed by the Unit's id; deleting one leaves its Units Uncategorised", () async {
+      final user = await signUp();
+      final collectionId = await createCollection(user);
+      final [heroes, core] = [for (var i = 0; i < 2; i++) await newId()];
+      final created = await upload(user.token, [
+        op('PUT', 'categories', heroes, {
+          'collection_id': collectionId,
+          'name': ' Heroes ',
+          'position': 0,
+        }),
+        op('PUT', 'categories', core, {
+          'collection_id': collectionId,
+          'name': 'Core',
+          'position': 1,
+        }),
+        putUnitCategory(collectionId, 'Overlord', heroes),
+        putUnitCategory(collectionId, 'Warriors', core),
+      ]);
+      expect(created.statusCode, 204, reason: created.body);
+      expect(await categoriesOf(user.id), [
+        ['Overlord: Heroes', 'Warriors: Core'],
+        ['0 Heroes', '1 Core'],
+      ]);
+
+      final edited = await upload(user.token, [
+        op('PATCH', 'squad_categories', unitId(collectionId, 'Warriors'), {
+          'category_id': heroes,
+        }),
+        op('DELETE', 'categories', heroes),
+      ]);
+      expect(edited.statusCode, 204, reason: edited.body);
+      expect(await categoriesOf(user.id), [
+        ['Overlord: -', 'Warriors: -'],
+        ['1 Core'],
+      ]);
+
+      for (final bad in [
+        op('PUT', 'squad_categories', await newId(), {
+          'collection_id': collectionId,
+          'squad_name': 'Overlord',
+          'category_id': core,
+        }),
+        op('PATCH', 'squad_categories', unitId(collectionId, 'Overlord'), {
+          'squad_name': 'Lord',
+        }),
+        op('PATCH', 'categories', core, {'name': '  '}),
+        putUnitCategory(collectionId, 'Lord', await newId()),
+      ]) {
+        final response = await upload(user.token, [bad]);
+        expect(response.statusCode, 422, reason: '$bad: ${response.body}');
+      }
+
+      expect(
+        (await upload(user.token, [
+          op('DELETE', 'collections', collectionId),
+        ])).statusCode,
+        204,
+      );
+      expect(await categoriesOf(user.id), [<String>[], <String>[]]);
+    });
+
+    test("cannot point at another user's Collection or Category, nor touch their rows", () async {
+      final alice = await signUp();
+      final bob = await signUp();
+      final aliceCollection = await createCollection(alice);
+      final bobCollection = await createCollection(bob);
+      final aliceCategory = await newId();
+      final created = await upload(alice.token, [
+        op('PUT', 'categories', aliceCategory, {
+          'collection_id': aliceCollection,
+          'name': 'Heroes',
+          'position': 0,
+        }),
+        putUnitCategory(aliceCollection, 'Overlord', aliceCategory),
+      ]);
+      expect(created.statusCode, 204, reason: created.body);
+
+      for (final bad in [
+        op('PUT', 'categories', await newId(), {
+          'collection_id': aliceCollection,
+          'name': 'Mine',
+          'position': 1,
+        }),
+        putUnitCategory(bobCollection, 'Boyz', aliceCategory),
+        op('PATCH', 'categories', aliceCategory, {'name': 'Mine'}),
+        op('DELETE', 'categories', aliceCategory),
+        op('PATCH', 'squad_categories', unitId(aliceCollection, 'Overlord'), {
+          'category_id': null,
+        }),
+      ]) {
+        final response = await upload(bob.token, [bad]);
+        expect(response.statusCode, 403, reason: '$bad: ${response.body}');
+      }
+      expect(await categoriesOf(alice.id), [
+        ['Overlord: Heroes'],
+        ['0 Heroes'],
+      ]);
     });
   });
 

@@ -682,6 +682,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                                       photos: widget.photos,
                                       collection: c,
                                       onSyncNow: widget.onSyncNow,
+                                      collapsed: widget.collapsed,
                                     ),
                                   ),
                                 ),
@@ -905,7 +906,7 @@ class EmptyState extends StatelessWidget {
   );
 }
 
-/// A Collection's Units, by name, each with its model count and progress.
+/// A Collection's Units under their Categories (ADR 0011), by name inside each, each with its model count and progress.
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({
     super.key,
@@ -914,6 +915,7 @@ class CollectionScreen extends StatefulWidget {
     this.photos,
     required this.collection,
     this.onSyncNow,
+    this.collapsed,
   });
 
   final Vault vault;
@@ -924,6 +926,9 @@ class CollectionScreen extends StatefulWidget {
   final Collection collection;
   final Future<void> Function()? onSyncNow;
 
+  /// Which Category groups this device shows collapsed; null makes them not collapsible.
+  final CollapsedGroups? collapsed;
+
   @override
   State<CollectionScreen> createState() => _CollectionScreenState();
 }
@@ -931,19 +936,22 @@ class CollectionScreen extends StatefulWidget {
 class _CollectionScreenState extends State<CollectionScreen> {
   // Kept current, so a rename shows in the title and a Workflow switch restarts the watches below.
   late var _collection = widget.collection;
-  late var _units = widget.vault.watchUnits(_collection);
+  late var _groups = widget.vault.watchUnitsByCategory(_collection);
   late var _progress = widget.vault.watchProgressByWorkflow(_collection);
   late final StreamSubscription<List<Collection>> _subscription;
+
+  void _rebuild() => setState(() {});
 
   @override
   void initState() {
     super.initState();
+    widget.collapsed?.addListener(_rebuild);
     _subscription = widget.vault.watchCollections().listen((collections) {
       for (final c in collections) {
         if (c.id != _collection.id) continue;
         setState(() {
           if (c.workflowId != _collection.workflowId) {
-            _units = widget.vault.watchUnits(c);
+            _groups = widget.vault.watchUnitsByCategory(c);
             _progress = widget.vault.watchProgressByWorkflow(c);
           }
           _collection = c;
@@ -954,6 +962,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
 
   @override
   void dispose() {
+    widget.collapsed?.removeListener(_rebuild);
     _subscription.cancel();
     super.dispose();
   }
@@ -1030,9 +1039,64 @@ class _CollectionScreenState extends State<CollectionScreen> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
-      stream: _units,
+      stream: _groups,
       builder: (context, snapshot) {
-        final units = snapshot.data;
+        final groups = snapshot.data;
+        final units = groups?.expand((g) => g.units).toList();
+        final names = [for (final u in units ?? const <Unit>[]) u.name];
+        final listed = !snapshot.hasError && (units?.isNotEmpty ?? false);
+        // Headers only once the Collection has a Category; until then the list is as before.
+        final headed = groups?.any((g) => g.category != null) ?? false;
+        String groupKey(Category? category) => category == null
+            ? 'uncategorised:${_collection.id}'
+            : 'category:${category.id}';
+        bool open(Category? category) =>
+            !headed ||
+            !(widget.collapsed?.isCollapsed(groupKey(category)) ?? false);
+        final above = [
+          if (_collection.description.isNotEmpty)
+            InkWell(
+              onTap: () => _edit(_collection),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _collection.description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          PaintSchemesSection(vault: widget.vault, collection: _collection),
+        ];
+        Widget unitTile(Unit unit) => ListTile(
+          leading: UnitThumbnail(
+            key: ValueKey(unit.name),
+            vault: widget.vault,
+            files: widget.photos,
+            collectionId: _collection.id,
+            unitName: unit.name,
+          ),
+          title: Text(unit.name),
+          subtitle: StageBar(unit.progress),
+          trailing: Text(modelCountText(unit.modelCount)),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => UnitScreen(
+                vault: widget.vault,
+                photos: widget.photos,
+                collection: _collection,
+                name: unit.name,
+              ),
+            ),
+          ),
+        );
         return Scaffold(
           appBar: AppBar(
             title: Text(_collection.name),
@@ -1080,72 +1144,84 @@ class _CollectionScreenState extends State<CollectionScreen> {
           body: Column(
             children: [
               SyncBanner(db: widget.db),
-              if (_collection.description.isNotEmpty)
-                InkWell(
-                  onTap: () => _edit(_collection),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        _collection.description,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              PaintSchemesSection(vault: widget.vault, collection: _collection),
+              // One scrolling list: the description and Paint Schemes scroll away above the Units. They stay at the
+              // same place in the tree while the Units load, so their watches are not restarted.
               Expanded(
-                child: switch (snapshot) {
-                  AsyncSnapshot(:final error?) => LoadError(
-                    what: 'the Units',
-                    error: error,
-                    onRetry: () => setState(
-                      () => _units = widget.vault.watchUnits(_collection),
-                    ),
-                  ),
-                  _ when units == null => const Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                  _ when units.isEmpty => EmptyState(
-                    explanation: 'A Unit is all the models you track under one name, like "Intercessors", wherever they are in your Workflow.',
-                    label: 'Add models',
-                    onPressed: () =>
-                        addModels(context, widget.vault, _collection, const []),
-                  ),
-                  _ => ListView(
-                    children: [
-                      for (final unit in units)
-                        ListTile(
-                          leading: UnitThumbnail(
-                            key: ValueKey(unit.name),
-                            vault: widget.vault,
-                            files: widget.photos,
-                            collectionId: _collection.id,
-                            unitName: unit.name,
-                          ),
-                          title: Text(unit.name),
-                          subtitle: StageBar(unit.progress),
-                          trailing: Text(modelCountText(unit.modelCount)),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => UnitScreen(
-                                vault: widget.vault,
-                                photos: widget.photos,
-                                collection: _collection,
-                                name: unit.name,
+                child: CustomScrollView(
+                  slivers: [
+                    SliverList.list(children: above),
+                    if (listed)
+                      SliverList.list(
+                        children: [
+                          for (final g in groups!) ...[
+                            if (headed)
+                              SectionHeader(
+                                title: g.category?.name ?? 'Uncategorised',
+                                count: g.units.length,
+                                muted: g.category == null,
+                                actions: [
+                                  IconButton(
+                                    icon: const Icon(Icons.add),
+                                    tooltip:
+                                        'Add models to ${g.category?.name ?? 'Uncategorised'}',
+                                    onPressed: () => addModels(
+                                      context,
+                                      widget.vault,
+                                      _collection,
+                                      names,
+                                      categoryId: g.category?.id,
+                                    ),
+                                  ),
+                                ],
+                                expanded: widget.collapsed == null
+                                    ? null
+                                    : open(g.category),
+                                onToggle: () => widget.collapsed?.toggle(
+                                  groupKey(g.category),
+                                ),
+                                summary: groupSummary(
+                                  g.units.length,
+                                  'Unit',
+                                  Progress.combined([
+                                    for (final u in g.units) u.progress,
+                                  ]),
+                                ),
+                              ),
+                            if (open(g.category))
+                              for (final unit in g.units) unitTile(unit),
+                          ],
+                        ],
+                      )
+                    else
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: switch (snapshot) {
+                          AsyncSnapshot(:final error?) => LoadError(
+                            what: 'the Units',
+                            error: error,
+                            onRetry: () => setState(
+                              () => _groups = widget.vault.watchUnitsByCategory(
+                                _collection,
                               ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-                },
+                          _ when units == null => const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                          _ => EmptyState(
+                            explanation: 'A Unit is all the models you track under one name, like "Intercessors", wherever they are in your Workflow.',
+                            label: 'Add models',
+                            onPressed: () => addModels(
+                              context,
+                              widget.vault,
+                              _collection,
+                              const [],
+                            ),
+                          ),
+                        },
+                      ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1160,12 +1236,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
           floatingActionButton: units == null
               ? null
               : FloatingActionButton(
-                  onPressed: () => addModels(
-                    context,
-                    widget.vault,
-                    _collection,
-                    [for (final s in units) s.name],
-                  ),
+                  onPressed: () =>
+                      addModels(context, widget.vault, _collection, names),
                   tooltip: 'Add models',
                   child: const Icon(Icons.add),
                 ),
@@ -1175,16 +1247,20 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 }
 
-/// Asks for a name (prefilled with [name], suggested from [unitNames]), a model count and a Stage (the Owned Stage to
-/// start with), then adds that many models at it to the Unit of that name in [collection], creating it if new.
+/// Asks for a name (prefilled with [name], suggested from [unitNames]), a Category for a new Unit ([categoryId] to
+/// start with, else Uncategorised), a model count and a Stage (the Owned Stage to start with), then adds that many
+/// models at it to the Unit of that name in [collection], creating it (and a new Category) if new.
 Future<void> addModels(
   BuildContext context,
   Vault vault,
   Collection collection,
   List<String> unitNames, {
   String name = '',
+  String? categoryId,
 }) async {
   final workflow = await vault.workflowOf(collection);
+  final categories = await vault.watchCategories(collection.id).first;
+  final unitCategories = await vault.watchUnitCategories(collection.id).first;
   if (!context.mounted) return;
   final result = await showDialog<UnitFields>(
     context: context,
@@ -1194,16 +1270,24 @@ Future<void> addModels(
       unitNames: unitNames,
       stages: workflow.stages,
       stageId: workflow.ownedStage.id,
+      categories: categories,
+      categoryId: categoryId,
+      unitCategories: unitCategories,
       suggestTags: vault.suggestTags,
     ),
   );
   if (result == null) return;
+  final category = switch (result.newCategory) {
+    final name? => (await vault.addCategory(collection.id, name)).id,
+    null => result.categoryId,
+  };
   // A Batch of the Unit already at that Stage takes these in through the automatic Merge (ADR 0009).
   await vault.addBatch(
     collection,
     name: result.name,
     modelCount: result.modelCount,
     stageId: result.stageId!,
+    categoryId: category,
   );
 }
 
@@ -1213,10 +1297,14 @@ typedef UnitFields = ({
   String notes,
   String? stageId,
   List<String> tags,
+  String? categoryId,
+
+  /// A Category to create on save, set instead of [categoryId].
+  String? newCategory,
 });
 
 /// Adds models (name, count and a starting Stage from [stages], [stageId] first) or, without [stages], edits a Unit
-/// (name, [notes] and [tags]).
+/// (name, [notes] and [tags]). With [categories], a [CategoryField] follows the name.
 class UnitDialog extends StatefulWidget {
   const UnitDialog({
     super.key,
@@ -1227,6 +1315,9 @@ class UnitDialog extends StatefulWidget {
     this.stageId,
     this.notes = '',
     this.tags = const [],
+    this.categories,
+    this.categoryId,
+    this.unitCategories = const {},
     required this.suggestTags,
   });
 
@@ -1241,6 +1332,13 @@ class UnitDialog extends StatefulWidget {
   /// The Unit's notes, when editing.
   final String notes;
   final List<String> tags;
+
+  /// The Collection's Categories, in order; null leaves the Category field out.
+  final List<Category>? categories;
+  final String? categoryId;
+
+  /// The Category id of each of [unitNames] that has one: shown, not changeable, when the Name is theirs.
+  final Map<String, String> unitCategories;
   final Future<List<String>> Function(String prefix) suggestTags;
 
   @override
@@ -1257,8 +1355,20 @@ class _UnitDialogState extends State<UnitDialog> {
   late final _tags = [...widget.tags];
   final _tag = TextEditingController();
   final _tagFocus = FocusNode();
+  late CategoryChoice _category = (id: widget.categoryId, name: null);
 
   bool get _adding => widget.stages.isNotEmpty;
+
+  /// Whether the Name is an existing Unit, whose Category adding models never changes.
+  bool get _existing => widget.unitNames.contains(_name.text.trim());
+
+  @override
+  void initState() {
+    super.initState();
+    _name.addListener(_rebuild);
+  }
+
+  void _rebuild() => setState(() {});
 
   void _addTag(String name) {
     final key = tagKey(name);
@@ -1288,98 +1398,109 @@ class _UnitDialogState extends State<UnitDialog> {
       notes: _notes.text.trim(),
       stageId: _stageId,
       tags: _tags,
+      categoryId: _category.id,
+      newCategory: _existing ? null : _category.name,
     ));
   }
 
   @override
   Widget build(BuildContext context) {
+    // Scrollable, so the fields scroll above the keyboard and Cancel and Save stay in reach.
     return AlertDialog(
+      scrollable: true,
       title: Text(widget.title),
       content: Form(
         key: _form,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Autocomplete<String>(
+              textEditingController: _name,
+              focusNode: _nameFocus,
+              optionsBuilder: (value) {
+                final typed = value.text.trim().toLowerCase();
+                return [
+                  for (final n in widget.unitNames)
+                    if (typed.isNotEmpty &&
+                        n != value.text &&
+                        n.toLowerCase().contains(typed))
+                      n,
+                ];
+              },
+              fieldViewBuilder: (context, field, focus, submit) =>
+                  TextFormField(
+                    controller: field,
+                    focusNode: focus,
+                    autofocus: _adding,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                    validator: (v) => v!.trim().isEmpty ? 'Enter a name' : null,
+                  ),
+            ),
+            if (widget.categories case final categories?)
+              CategoryField(
+                categories: categories,
+                categoryId: _existing
+                    ? widget.unitCategories[_name.text.trim()]
+                    : _category.id,
+                enabled: !_existing,
+                onChanged: (c) => setState(() => _category = c),
+              ),
+            if (_adding) ...[
+              TextFormField(
+                controller: _count,
+                decoration: const InputDecoration(labelText: 'Models'),
+                keyboardType: TextInputType.number,
+                validator: (v) =>
+                    (int.tryParse(v!.trim()) ?? 0) < 1 ? 'At least 1' : null,
+              ),
+              DropdownButtonFormField<String>(
+                initialValue: _stageId,
+                decoration: const InputDecoration(labelText: 'Stage'),
+                items: [
+                  for (final s in widget.stages)
+                    DropdownMenuItem(value: s.id, child: Text(s.name)),
+                ],
+                onChanged: (id) => _stageId = id,
+              ),
+            ] else ...[
+              TextFormField(
+                controller: _notes,
+                decoration: const InputDecoration(labelText: 'Notes'),
+                maxLines: null,
+              ),
               Autocomplete<String>(
-                textEditingController: _name,
-                focusNode: _nameFocus,
-                optionsBuilder: (value) {
-                  final typed = value.text.trim().toLowerCase();
-                  return [
-                    for (final n in widget.unitNames)
-                      if (typed.isNotEmpty &&
-                          n != value.text &&
-                          n.toLowerCase().contains(typed))
-                        n,
-                  ];
-                },
+                textEditingController: _tag,
+                focusNode: _tagFocus,
+                optionsBuilder: (value) async => [
+                  for (final t in await widget.suggestTags(value.text))
+                    if (!_tags.any((added) => tagKey(added) == tagKey(t))) t,
+                ],
                 fieldViewBuilder: (context, field, focus, submit) =>
                     TextFormField(
                       controller: field,
                       focusNode: focus,
-                      autofocus: _adding,
-                      decoration: const InputDecoration(labelText: 'Name'),
-                      validator: (v) =>
-                          v!.trim().isEmpty ? 'Enter a name' : null,
+                      decoration: const InputDecoration(labelText: 'Add Tag'),
+                      onFieldSubmitted: (v) {
+                        _addTag(v);
+                        focus.requestFocus(); // Ready for the next Tag.
+                      },
                     ),
+                onSelected: _addTag,
               ),
-              if (_adding) ...[
-                TextFormField(
-                  controller: _count,
-                  decoration: const InputDecoration(labelText: 'Models'),
-                  keyboardType: TextInputType.number,
-                  validator: (v) =>
-                      (int.tryParse(v!.trim()) ?? 0) < 1 ? 'At least 1' : null,
-                ),
-                DropdownButtonFormField<String>(
-                  initialValue: _stageId,
-                  decoration: const InputDecoration(labelText: 'Stage'),
-                  items: [
-                    for (final s in widget.stages)
-                      DropdownMenuItem(value: s.id, child: Text(s.name)),
-                  ],
-                  onChanged: (id) => _stageId = id,
-                ),
-              ] else ...[
-                TextFormField(
-                  controller: _notes,
-                  decoration: const InputDecoration(labelText: 'Notes'),
-                  maxLines: null,
-                ),
-                Autocomplete<String>(
-                  textEditingController: _tag,
-                  focusNode: _tagFocus,
-                  optionsBuilder: (value) async => [
-                    for (final t in await widget.suggestTags(value.text))
-                      if (!_tags.any((added) => tagKey(added) == tagKey(t))) t,
-                  ],
-                  fieldViewBuilder: (context, field, focus, submit) =>
-                      TextFormField(
-                        controller: field,
-                        focusNode: focus,
-                        decoration: const InputDecoration(labelText: 'Add Tag'),
-                        onFieldSubmitted: (v) {
-                          _addTag(v);
-                          focus.requestFocus(); // Ready for the next Tag.
-                        },
-                      ),
-                  onSelected: _addTag,
-                ),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final t in _tags)
-                      InputChip(
-                        label: Text(t),
-                        onDeleted: () => setState(() => _tags.remove(t)),
-                        deleteButtonTooltipMessage: 'Remove Tag $t',
-                      ),
-                  ],
-                ),
-              ],
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final t in _tags)
+                    InputChip(
+                      label: Text(t),
+                      onDeleted: () => setState(() => _tags.remove(t)),
+                      deleteButtonTooltipMessage: 'Remove Tag $t',
+                    ),
+                ],
+              ),
             ],
-          ),
+          ],
         ),
       ),
       actions: [
@@ -1389,6 +1510,124 @@ class _UnitDialogState extends State<UnitDialog> {
         ),
         TextButton(onPressed: _close, child: const Text('Save')),
       ],
+    );
+  }
+}
+
+/// A Unit's Category, as picked in a [CategoryField]: an existing Category's [id] (null: Uncategorised), or the [name]
+/// of a new one to create on save.
+typedef CategoryChoice = ({String? id, String? name});
+
+/// Picks a Unit's Category: the [categories] in order, Uncategorised (null), and "New Category…", which swaps the
+/// menu for a field naming a new one (created by whoever saves). Shows [categoryId]; disabled ([enabled] false) it
+/// explains the Category is changed on the Unit screen.
+class CategoryField extends StatefulWidget {
+  const CategoryField({
+    super.key,
+    required this.categories,
+    this.categoryId,
+    this.enabled = true,
+    required this.onChanged,
+  });
+
+  final List<Category> categories;
+  final String? categoryId;
+  final bool enabled;
+  final ValueChanged<CategoryChoice> onChanged;
+
+  @override
+  State<CategoryField> createState() => _CategoryFieldState();
+}
+
+class _CategoryFieldState extends State<CategoryField> {
+  // Menu values that are not Category ids.
+  static const _newValue = '\u0000new', _dividerValue = '\u0000divider';
+  final _name = TextEditingController();
+  bool _naming = false;
+
+  /// The Category picked before "New Category…", restored by the close button.
+  String? _before;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _picked(String? value) {
+    if (value != _newValue) {
+      widget.onChanged((id: value, name: null));
+      return;
+    }
+    _before = widget.categoryId;
+    _name.clear();
+    setState(() => _naming = true);
+    widget.onChanged((id: null, name: ''));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_naming && widget.enabled) {
+      return TextFormField(
+        controller: _name,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: 'New Category',
+          helperText: 'Created when you save',
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Pick a Category',
+            onPressed: () {
+              setState(() => _naming = false);
+              widget.onChanged((id: _before, name: null));
+            },
+          ),
+        ),
+        validator: (v) => v!.trim().isEmpty ? 'Enter a name' : null,
+        onChanged: (v) => widget.onChanged((id: null, name: v)),
+      );
+    }
+    final accent = Theme.of(context).colorScheme.primary;
+    // A Category not synced yet shows as Uncategorised, as on the Collection screen.
+    final value = widget.categories.any((c) => c.id == widget.categoryId)
+        ? widget.categoryId
+        : null;
+    return DropdownButtonFormField<String?>(
+      // Rebuilt when the shown Category changes from outside, e.g. the Name becomes an existing Unit's.
+      key: ValueKey((widget.enabled, value)),
+      initialValue: value,
+      menuMaxHeight: 320,
+      decoration: InputDecoration(
+        labelText: 'Category',
+        helperText: widget.enabled ? null : 'Change it on the Unit screen',
+      ),
+      items: [
+        for (final c in widget.categories)
+          DropdownMenuItem(value: c.id, child: Text(c.name)),
+        const DropdownMenuItem(
+          value: null,
+          child: Text(
+            'Uncategorised',
+            style: TextStyle(fontStyle: FontStyle.italic),
+          ),
+        ),
+        const DropdownMenuItem(
+          value: _dividerValue,
+          enabled: false,
+          child: Divider(),
+        ),
+        DropdownMenuItem(
+          value: _newValue,
+          child: Row(
+            children: [
+              Icon(Icons.add, color: accent),
+              const SizedBox(width: 8),
+              Text('New Category…', style: TextStyle(color: accent)),
+            ],
+          ),
+        ),
+      ],
+      onChanged: widget.enabled ? _picked : null,
     );
   }
 }

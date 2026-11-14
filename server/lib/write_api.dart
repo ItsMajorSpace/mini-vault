@@ -82,11 +82,18 @@ const _writable = {
     'paint_id': 'uuid',
     'position': 'int',
   },
+  'categories': {'collection_id': 'uuid', 'name': 'text', 'position': 'int'},
+  'squad_categories': {
+    'collection_id': 'uuid',
+    'squad_name': 'text',
+    'category_id': 'uuid',
+  },
 };
 
 /// The columns a PATCH may not change, per table: they make up the row's id ([unitId]) or point at its file.
 const _fixed = {
   'squad_notes': {'collection_id', 'squad_name'},
+  'squad_categories': {'collection_id', 'squad_name'},
   'squad_photos': {'collection_id', 'file_id'},
 };
 
@@ -104,6 +111,7 @@ const _references = {
   'paint_id': 'paints',
   'scheme_id': 'paint_schemes',
   'step_id': 'scheme_steps',
+  'category_id': 'categories',
 };
 
 /// Creates the synced tables, the trigger that gives each new account its starter Workflow,
@@ -340,6 +348,25 @@ CREATE TABLE IF NOT EXISTS scheme_step_paints (
 );
 CREATE INDEX IF NOT EXISTS scheme_step_paints_step_id ON scheme_step_paints (step_id);
 CREATE INDEX IF NOT EXISTS scheme_step_paints_paint_id ON scheme_step_paints (paint_id);
+-- A Collection's Categories (ADR 0011), deleted with it, in (position, id) order as Stages. Names unique per
+-- Collection ignoring case is the app's rule, not checked here: two devices may add the same name offline. A Unit's
+-- Category is a squad_categories row whose id is the Unit's unitId, like squad_notes; deleting a Category leaves its
+-- Units Uncategorised (null).
+CREATE TABLE IF NOT EXISTS categories (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  collection_id uuid NOT NULL REFERENCES collections ON DELETE CASCADE,
+  name text NOT NULL,
+  position integer NOT NULL
+);
+CREATE TABLE IF NOT EXISTS squad_categories (
+  id uuid PRIMARY KEY,
+  owner_id uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  collection_id uuid NOT NULL REFERENCES collections ON DELETE CASCADE,
+  squad_name text NOT NULL,
+  category_id uuid REFERENCES categories ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS squad_categories_category_id ON squad_categories (category_id);
 
 -- Runs as its owner, since GoTrue's own role inserts into auth.users.
 CREATE OR REPLACE FUNCTION public.create_starter_workflow() RETURNS trigger
@@ -368,7 +395,7 @@ DO \$\$ DECLARE t text; BEGIN
   IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'powersync') THEN
     CREATE PUBLICATION powersync;
   END IF;
-  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges', 'paints', 'squad_paints', 'squad_notes', 'squad_tags', 'squad_photos', 'paint_schemes', 'scheme_steps', 'scheme_step_paints'])
+  FOR t IN SELECT unnest(ARRAY['workflows', 'stages', 'collections', 'units', 'stage_changes', 'unit_tags', 'photos', 'splits', 'merges', 'paints', 'squad_paints', 'squad_notes', 'squad_tags', 'squad_photos', 'paint_schemes', 'scheme_steps', 'scheme_step_paints', 'categories', 'squad_categories'])
     EXCEPT SELECT tablename FROM pg_publication_tables WHERE pubname = 'powersync'
   LOOP
     EXECUTE format('ALTER PUBLICATION powersync ADD TABLE %I', t);
@@ -658,7 +685,10 @@ Future<void> _apply(
   if (table == 'unit_tags' || table == 'squad_tags') {
     _checkTag(op['op'], id, data);
   }
-  if (table == 'squad_notes' && op['op'] == 'PUT') _checkUnitId(id, data);
+  if ((table == 'squad_notes' || table == 'squad_categories') &&
+      op['op'] == 'PUT') {
+    _checkUnitId(id, data);
+  }
   if (op['op'] == 'DELETE' &&
       (table == 'photos' || table == 'units' || table == 'squad_photos')) {
     unlinked.addAll([
@@ -922,7 +952,7 @@ void _checkTag(Object? op, String id, Map<String, Object?> data) {
   throw _Rejected(422, 'Tag $id must have the id of its Unit and name');
 }
 
-/// A Unit's notes row must have the [unitId] of its collection_id and squad_name.
+/// A Unit's notes or Category row must have the [unitId] of its collection_id and squad_name.
 void _checkUnitId(String id, Map<String, Object?> data) {
   if (data case {
     'collection_id': final String collection,
@@ -934,7 +964,7 @@ void _checkUnitId(String id, Map<String, Object?> data) {
       // Falls through to the rejection.
     }
   }
-  throw _Rejected(422, 'Notes $id must have the id of their Unit');
+  throw _Rejected(422, 'Row $id must have the id of its Unit');
 }
 
 /// Rejects the batch if it leaves a (still existing) Workflow without its Owned and Finished Stage among its own
