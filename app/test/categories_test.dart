@@ -332,4 +332,111 @@ void main() {
     expect(find.text('Stage').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  /// From the Collection screen to [unit]'s Unit screen, then its Edit Unit dialog.
+  Future<void> editUnit(WidgetTester tester, String unit) async {
+    await tapAndWait(tester, find.text(unit));
+    await tapAndWait(tester, find.byTooltip('Edit Unit'));
+  }
+
+  Future<void> back(WidgetTester tester) async {
+    await tapAndWait(tester, find.byTooltip('Back'));
+  }
+
+  testWidgets(
+    'the Unit screen leads its Tags with the Category chip; Uncategorised shows none',
+    (tester) async {
+      await seed(tester);
+      await tester.runAsync(
+        () => vault.addTags(collection.id, 'Overlord', ['Character']),
+      );
+      await open(tester);
+
+      await tapAndWait(tester, find.text('Overlord'));
+      final chip = find.ancestor(
+        of: find.text('Heroes'),
+        matching: find.byType(Chip),
+      );
+      expect(chip, findsOneWidget);
+      expect(
+        find.descendant(of: chip, matching: find.byIcon(Icons.category)),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('Category Heroes'), findsOneWidget);
+      expect(
+        tester.getTopLeft(chip).dx,
+        lessThan(tester.getTopLeft(find.text('Character')).dx),
+      );
+
+      await back(tester);
+      await tapAndWait(tester, find.text('Scarabs'));
+      expect(find.byIcon(Icons.category), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'changing the Category in Edit Unit moves the Unit on the Collection screen',
+    (tester) async {
+      await seed(tester);
+      await open(tester);
+
+      await editUnit(tester, 'Scarabs');
+      expect(categoryShows('Uncategorised'), findsOneWidget);
+      await tester.tap(find.byType(CategoryField));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Support').last);
+      await tester.pumpAndSettle();
+      await tapAndWait(tester, find.text('Save'));
+      expect(find.bySemanticsLabel('Category Support'), findsOneWidget);
+
+      await back(tester);
+      expect(find.text('UNCATEGORISED'), findsNothing);
+      expectInOrder(tester, ['CORE', 'Warriors', 'SUPPORT', 'Scarabs']);
+
+      // Renamed and moved in one save: the Unit keeps the new Category.
+      await editUnit(tester, 'Scarabs');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Name'),
+        'Canoptek Scarabs',
+      );
+      await tester.tap(find.byType(CategoryField));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Heroes').last);
+      await tester.pumpAndSettle();
+      await tapAndWait(tester, find.text('Save'));
+      await back(tester);
+      expectInOrder(tester, ['HEROES', 'Canoptek Scarabs', 'CORE']);
+    },
+  );
+
+  testWidgets("'New Category…' in Edit Unit creates and assigns the Category", (
+    tester,
+  ) async {
+    await seed(tester);
+    await open(tester);
+
+    await editUnit(tester, 'Overlord');
+    await tester.tap(find.byType(CategoryField));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New Category…').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'New Category'),
+      'Lords',
+    );
+    await tapAndWait(tester, find.text('Save'));
+    expect(find.bySemanticsLabel('Category Lords'), findsOneWidget);
+
+    await back(tester);
+    expectInOrder(tester, ['CORE', 'SUPPORT', 'LORDS', 'Overlord']);
+    expect(
+      [
+        for (final c in (await tester.runAsync(
+          () => vault.watchCategories(collection.id).first,
+        ))!)
+          c.name,
+      ],
+      ['Heroes', 'Core', 'Support', 'Lords'],
+    );
+  });
 }
