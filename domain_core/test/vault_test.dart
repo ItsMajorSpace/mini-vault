@@ -2823,6 +2823,76 @@ void main() {
       expect(await vault.watchPaintSchemeCounts().first, {white.id: 1});
     });
 
+    test('copying a Paint Scheme to another Collection gives the same name and Steps, independent afterwards', () async {
+      final other = await vault.createCollection('Dark Angels');
+      final armour = await vault.addPaintScheme(collection.id, 'Armour');
+      await vault.addSchemeStep(armour.id, technique: 'Prime');
+      final mixed = await vault.addSchemeStep(
+        armour.id,
+        paintIds: [white.id, blue.id],
+        technique: 'Layer',
+        note: 'Thin',
+      );
+      await vault.addSchemeStep(armour.id, paintIds: [blue.id]);
+      await vault.addPaintScheme(other.id, 'Armour');
+
+      final copy = await vault.copyPaintScheme(armour, other.id);
+
+      expect(copy.collectionId, other.id);
+      expect(copy.id, isNot(armour.id));
+      final inOther = await vault.watchPaintSchemes(other.id).first;
+      expect([for (final s in inOther) s.name], ['Armour', 'Armour']);
+      expect(await stepsOf(copy), await stepsOf(armour));
+      expect(await stepsOf(copy), [
+        'Prime',
+        'Layer [White Scar, Macragge Blue] Thin',
+        '[Macragge Blue]',
+      ]);
+
+      final copied = await vault.watchSchemeSteps(copy.id).first;
+      await vault.editSchemeStep(
+        copied[1],
+        paintIds: [blue.id],
+        technique: 'Wash',
+        note: '',
+      );
+      await vault.moveSchemeStep(copy.id, copied[0].id, 2);
+      await vault.deleteSchemeStep(copied[2].id);
+      await vault.renamePaintScheme(copy.id, 'Robes');
+      await vault.addSchemeStep(armour.id, note: 'Varnish');
+
+      expect(await stepsOf(armour), [
+        'Prime',
+        'Layer [White Scar, Macragge Blue] Thin',
+        '[Macragge Blue]',
+        'Varnish',
+      ]);
+      expect(await stepsOf(copy), ['Wash [Macragge Blue]', 'Prime']);
+      expect((await vault.watchSchemeSteps(armour.id).first)[1].id, mixed.id);
+      expect(
+        [
+          for (final s in await vault.watchPaintSchemes(collection.id).first)
+            s.name,
+        ],
+        ['Armour'],
+      );
+    });
+
+    test('other Collections\' Paint Schemes are offered for copying, with their Collection', () async {
+      final other = await vault.createCollection('Dark Angels');
+      await vault.addPaintScheme(collection.id, 'Armour');
+      await vault.addPaintScheme(other.id, 'Robes');
+      await vault.addPaintScheme(other.id, 'Bases');
+
+      final offered = await vault.watchOtherPaintSchemes(collection.id).first;
+
+      expect(
+        [for (final o in offered) '${o.scheme.name} · ${o.collection.name}'],
+        ['Bases · Dark Angels', 'Robes · Dark Angels'],
+      );
+      expect(await vault.watchOtherPaintSchemes(other.id).first, hasLength(1));
+    });
+
     test('deleting a Collection deletes its Paint Schemes, not the Paints or other Collections\' Schemes', () async {
       final other = await vault.createCollection('Dark Angels');
       final armour = await vault.addPaintScheme(collection.id, 'Armour');
