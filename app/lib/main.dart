@@ -182,12 +182,19 @@ class SignInScreen extends StatefulWidget {
   State<SignInScreen> createState() => _SignInScreenState();
 }
 
+enum _Mode { signIn, createAccount }
+
 class _SignInScreenState extends State<SignInScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
+  _Mode _mode = _Mode.signIn;
   bool _busy = false;
   bool _showPassword = false;
-  String? _error;
+  AuthNotice? _notice;
+  bool _offline = false;
+
+  /// The address a confirmation email went to; set, it shows the Check your email panel.
+  String? _sentTo;
 
   @override
   void dispose() {
@@ -196,78 +203,131 @@ class _SignInScreenState extends State<SignInScreen> {
     super.dispose();
   }
 
+  void _clearNotice() {
+    if (_notice != null) setState(() => _notice = null);
+  }
+
   /// Signing in swaps this screen for the Collections through the auth state stream.
-  Future<void> _submit({required bool signUp}) async {
+  Future<void> _submit() async {
     setState(() {
       _busy = true;
-      _error = null;
+      _notice = null;
     });
+    AuthNotice? notice;
+    var offline = false;
     try {
       final email = _email.text.trim();
       final password = _password.text;
-      final response = signUp
+      final response = _mode == _Mode.createAccount
           ? await widget.auth.signUp(email: email, password: password)
           : await widget.auth.signInWithPassword(
               email: email,
               password: password,
             );
       if (response.session == null && mounted) {
-        setState(() => _error = 'Check your email to confirm your account.');
+        setState(() => _sentTo = email);
       }
+    } on AuthRetryableFetchException {
+      offline = true;
     } on AuthException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      notice = AuthNotice(icon: Icons.error, title: e.message);
     } on Exception {
-      if (mounted) {
-        setState(() => _error = 'Could not reach the server. Are you online?');
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      offline = true;
     }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _offline = offline;
+      _notice =
+          notice ??
+          (offline
+              ? const AuthNotice(
+                  icon: Icons.cloud_off,
+                  title: 'Could not reach the server.',
+                  detail: 'Are you online?',
+                )
+              : null);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Mini Vault')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          TextField(
-            controller: _email,
-            decoration: const InputDecoration(labelText: 'Email'),
-            keyboardType: TextInputType.emailAddress,
-            autofillHints: const [AutofillHints.email],
-          ),
-          TextField(
-            controller: _password,
-            decoration: InputDecoration(
-              labelText: 'Password',
-              suffixIcon: IconButton(
-                tooltip: _showPassword ? 'Hide password' : 'Show password',
-                icon: Icon(
-                  _showPassword ? Icons.visibility_off : Icons.visibility,
-                ),
-                onPressed: () => setState(() => _showPassword = !_showPassword),
+    final theme = Theme.of(context);
+    final colours = theme.colorScheme;
+    final signIn = _mode == _Mode.signIn;
+    final label = _offline && _notice != null
+        ? 'Try again'
+        : signIn
+        ? 'Sign in'
+        : 'Create account';
+    final form = Column(
+      key: const ValueKey('form'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SegmentedButton<_Mode>(
+          segments: const [
+            ButtonSegment(value: _Mode.signIn, label: Text('Sign in')),
+            ButtonSegment(
+              value: _Mode.createAccount,
+              label: Text('Create account'),
+            ),
+          ],
+          selected: {_mode},
+          onSelectionChanged: _busy
+              ? null
+              : (s) => setState(() {
+                  _mode = s.single;
+                  _notice = null;
+                }),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _email,
+          enabled: !_busy,
+          onChanged: (_) => _clearNotice(),
+          decoration: const InputDecoration(labelText: 'Email'),
+          keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.email],
+        ),
+        TextField(
+          controller: _password,
+          enabled: !_busy,
+          onChanged: (_) => _clearNotice(),
+          decoration: InputDecoration(
+            labelText: 'Password',
+            suffixIcon: IconButton(
+              tooltip: _showPassword ? 'Hide password' : 'Show password',
+              icon: Icon(
+                _showPassword ? Icons.visibility_off : Icons.visibility,
               ),
+              onPressed: () => setState(() => _showPassword = !_showPassword),
             ),
-            obscureText: !_showPassword,
-            autofillHints: const [AutofillHints.password],
           ),
-          const SizedBox(height: 16),
-          if (_error case final error?)
-            Text(
-              error,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _busy ? null : () => _submit(signUp: false),
-            child: const Text('Sign in'),
-          ),
-          TextButton(
-            onPressed: _busy ? null : () => _submit(signUp: true),
-            child: const Text('Create account'),
-          ),
+          obscureText: !_showPassword,
+          autofillHints: [
+            signIn ? AutofillHints.password : AutofillHints.newPassword,
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (_notice case final notice?) ...[notice, const SizedBox(height: 16)],
+        SizedBox(
+          height: 48,
+          child: _busy
+              ? FilledButton.icon(
+                  onPressed: null,
+                  icon: const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  ),
+                  label: Semantics(
+                    liveRegion: true,
+                    child: Text(signIn ? 'Signing in…' : 'Creating account…'),
+                  ),
+                )
+              : FilledButton(onPressed: _submit, child: Text(label)),
+        ),
+        const SizedBox(height: 4),
+        if (signIn)
           TextButton(
             onPressed: _busy
                 ? null
@@ -281,8 +341,188 @@ class _SignInScreenState extends State<SignInScreen> {
                     ),
                   ),
             child: const Text('Forgot password?'),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+            child: Text(
+              "You'll get an email to confirm your account before you can sign in.",
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colours.onSurfaceVariant,
+              ),
+            ),
           ),
-        ],
+      ],
+    );
+    final checkEmail = Column(
+      key: const ValueKey('check email'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Center(
+          child: CircleAvatar(
+            radius: 36,
+            backgroundColor: colours.primary.withValues(alpha: 0.12),
+            child: Icon(
+              Icons.mark_email_unread,
+              size: 36,
+              color: colours.primary,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Check your email',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.titleLarge,
+        ),
+        const SizedBox(height: 8),
+        Text.rich(
+          TextSpan(
+            text:
+                'Check your email to confirm your account.\nWe sent a link to ',
+            children: [
+              TextSpan(
+                text: _sentTo,
+                style: TextStyle(
+                  color: colours.onSurface,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const TextSpan(text: '.'),
+            ],
+          ),
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colours.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 24),
+        SizedBox(
+          height: 48,
+          child: FilledButton(
+            onPressed: () => setState(() {
+              _sentTo = null;
+              _mode = _Mode.signIn;
+            }),
+            child: const Text('Back to sign in'),
+          ),
+        ),
+      ],
+    );
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: AutofillGroup(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text.rich(
+                      TextSpan(
+                        text: 'MINI ',
+                        children: [
+                          TextSpan(
+                            text: 'VAULT',
+                            style: TextStyle(color: colours.primary),
+                          ),
+                        ],
+                      ),
+                      style: theme.textTheme.displaySmall?.copyWith(
+                        color: colours.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        width: 48,
+                        height: 4,
+                        color: colours.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Every model, from wishlist to finished.',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: colours.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      child: _sentTo == null ? form : checkEmail,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A sign-in error: [icon] and [title], with an optional muted [detail] line, in an error-outlined box that screen
+/// readers announce.
+class AuthNotice extends StatelessWidget {
+  const AuthNotice({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.detail,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colours = theme.colorScheme;
+    return Semantics(
+      liveRegion: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colours.error.withValues(alpha: 0.12),
+          border: Border.all(color: colours.error),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: colours.error),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (detail case final detail?)
+                      Text(
+                        detail,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colours.onSurfaceVariant,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
