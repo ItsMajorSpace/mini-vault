@@ -63,6 +63,7 @@ class SectionHeader extends StatelessWidget {
     this.onToggle,
     this.summary,
     this.muted = false,
+    this.match = '',
   });
 
   final String title;
@@ -79,6 +80,9 @@ class SectionHeader extends StatelessWidget {
   final String? summary;
   final bool muted;
 
+  /// Search text to [highlight] in [title].
+  final String match;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -88,8 +92,8 @@ class SectionHeader extends StatelessWidget {
     final titleRow = Row(
       children: [
         Flexible(
-          child: Text(
-            title.toUpperCase(),
+          child: Text.rich(
+            highlight(context, title.toUpperCase(), match),
             overflow: TextOverflow.ellipsis,
             style: heading(context)?.copyWith(
               letterSpacing: 1.2,
@@ -168,6 +172,30 @@ class SectionHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+/// [text] with each case-insensitive occurrence of [match] bold in the accent colour.
+TextSpan highlight(BuildContext context, String text, String match) {
+  if (match.isEmpty) return TextSpan(text: text);
+  final accent = TextStyle(
+    fontWeight: FontWeight.bold,
+    color: Theme.of(context).colorScheme.primary,
+  );
+  final lower = text.toLowerCase(), m = match.toLowerCase();
+  final spans = <TextSpan>[];
+  var start = 0;
+  for (var i = lower.indexOf(m); i >= 0; i = lower.indexOf(m, start)) {
+    spans
+      ..add(TextSpan(text: text.substring(start, i)))
+      ..add(TextSpan(text: text.substring(i, i + m.length), style: accent));
+    start = i + m.length;
+  }
+  return TextSpan(
+    children: [
+      ...spans,
+      TextSpan(text: text.substring(start)),
+    ],
+  );
 }
 
 /// Which groups of a list this device shows collapsed, kept one key per line in [file]. Not synced: each device keeps

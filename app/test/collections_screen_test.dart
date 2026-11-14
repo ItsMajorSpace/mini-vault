@@ -258,6 +258,158 @@ void main() {
   );
 
   testWidgets(
+    'search filters by Collection or Game System name, opens collapsed groups and ends with back',
+    (tester) async {
+      final dir = (await tester.runAsync(
+        () => Directory.systemTemp.createTemp('app_test'),
+      ))!;
+      final file = File('${dir.path}/collapsed.txt');
+      final (db, collapsed) = (await tester.runAsync(() async {
+        await file.writeAsString('game-system:warhammer\n');
+        final db = PowerSyncDatabase(
+          schema: appSchema,
+          path: '${dir.path}/vault.db',
+        );
+        await db.execute(
+          "INSERT INTO workflows (id, name, owned_stage_id, finished_stage_id) VALUES ('w', 'Starter', 's0', 's1')",
+        );
+        for (final (i, name) in ['Wishlist', 'Painted'].indexed) {
+          await db.execute(
+            'INSERT INTO stages (id, workflow_id, name, position) VALUES (?, ?, ?, ?)',
+            ['s$i', 'w', name, i],
+          );
+        }
+        final vault = Vault(SqliteVaultStore(db));
+        final terrain = await vault.createCollection('Terrain');
+        await vault.addBatch(
+          terrain,
+          name: 'Ruins',
+          modelCount: 2,
+          stageId: 's0',
+        );
+        await vault.moveModels(terrain, 'Ruins', 's0', 's1', 1);
+        await vault.createCollection('Space Marines', gameSystem: 'Warhammer');
+        await vault.createCollection('Orks', gameSystem: 'Warhammer');
+        await vault.createCollection('Necrons', gameSystem: 'Grimdark Future');
+        await vault.createCollection(
+          'Death Guard',
+          gameSystem: 'Grimdark Future',
+        );
+        return (db, await CollapsedGroups.load(file));
+      }))!;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CollectionsScreen(
+            vault: Vault(SqliteVaultStore(db)),
+            db: db,
+            collapsed: collapsed,
+          ),
+        ),
+      );
+      Future<void> settle() async {
+        for (var i = 0; i < 60; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      Future<void> search(String query) async {
+        await tester.enterText(find.byType(TextField), query);
+        await settle();
+      }
+
+      await settle();
+      expect(find.text('Orks'), findsNothing); // Warhammer is collapsed.
+      expect(find.text('Recently painted'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Search'));
+      await tester.pump();
+      expect(find.text('Search Collections'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).autofocus,
+        isTrue,
+      );
+
+      // A Game System match keeps all its Collections.
+      await search('grim');
+      expect(find.text('GRIMDARK FUTURE'), findsOneWidget);
+      expect(find.text('Necrons'), findsOneWidget);
+      expect(find.text('Death Guard'), findsOneWidget);
+      expect(find.text('WARHAMMER'), findsNothing);
+      expect(find.text('Terrain'), findsNothing);
+      expect(find.text('Recently painted'), findsNothing);
+      expect(find.byTooltip('New Collection'), findsNothing);
+
+      // Otherwise only the matching Collections, collapsed groups open, no chevrons.
+      await search('ORK');
+      expect(find.text('WARHAMMER'), findsOneWidget);
+      expect(find.text('Orks'), findsOneWidget);
+      expect(find.text('Space Marines'), findsNothing);
+      expect(find.text('Necrons'), findsNothing);
+      expect(
+        find.byWidgetPredicate((w) => w is SectionHeader && w.expanded != null),
+        findsNothing,
+      );
+      final orks = tester.widget<Text>(find.text('Orks')).textSpan!;
+      final bold = <String>[];
+      orks.visitChildren((span) {
+        if (span is TextSpan && span.style?.fontWeight == FontWeight.bold) {
+          bold.add(span.text!);
+        }
+        return true;
+      });
+      expect(bold, ['Ork']);
+
+      // No matches: Clear search empties the field and keeps search open.
+      await search('tyranids');
+      expect(find.text('No Collections match "tyranids"'), findsOneWidget);
+      expect(
+        find.text('Search looks at Collection names and Game Systems.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Clear search'));
+      await settle();
+      expect(find.byType(TextField), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '',
+      );
+      expect(find.text('No Collections match "tyranids"'), findsNothing);
+
+      // Back ends search: the full list as before, Warhammer collapsed again.
+      await search('ork');
+      await tester.tap(find.byTooltip('End search'));
+      await settle();
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('Collections'), findsOneWidget);
+      expect(find.text('Orks'), findsNothing);
+      expect(find.byIcon(Icons.expand_more), findsOneWidget);
+      expect(
+        find.text('Terrain'),
+        findsNWidgets(2),
+      ); // Its row and under Ruins.
+      expect(find.text('Recently painted'), findsOneWidget);
+      expect(find.byTooltip('New Collection'), findsOneWidget);
+      expect(collapsed.isCollapsed('game-system:warhammer'), isTrue);
+
+      // So does system back.
+      await tester.tap(find.byTooltip('Search'));
+      await tester.pump();
+      await search('ork');
+      await tester.binding.handlePopRoute();
+      await settle();
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('Necrons'), findsOneWidget);
+      expect(find.text('Orks'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => dir.delete(recursive: true));
+    },
+  );
+
+  testWidgets(
     'the Collection dialog suggests Game Systems in use and returns the fields',
     (tester) async {
       (String, String?, String, String)? result;
