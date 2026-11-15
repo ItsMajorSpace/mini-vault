@@ -319,23 +319,25 @@ class SqliteVaultStore implements VaultStore {
     ],
   );
 
-  // An UPDATE of one column, so sync uploads it as a per-field change (PATCH).
+  // Only the given columns, so sync uploads a PATCH of just those fields.
   @override
-  Future<void> renameCollection(String id, String name) =>
-      _db.execute('UPDATE collections SET name = ? WHERE id = ?', [name, id]);
-
-  @override
-  Future<void> setGameSystem(String id, String? gameSystem) => _db.execute(
-    'UPDATE collections SET game_system = ? WHERE id = ?',
-    [gameSystem, id],
-  );
-
-  @override
-  Future<void> setCollectionDescription(String id, String description) =>
-      _db.execute('UPDATE collections SET description = ? WHERE id = ?', [
-        description,
-        id,
-      ]);
+  Future<void> updateCollection(
+    String id, {
+    String? name,
+    (String?,)? gameSystem,
+    String? description,
+  }) async {
+    final changes = {
+      'name': ?name,
+      if (gameSystem != null) 'game_system': gameSystem.$1,
+      'description': ?description,
+    };
+    if (changes.isEmpty) return;
+    await _db.execute(
+      'UPDATE collections SET ${changes.keys.map((c) => '$c = ?').join(', ')} WHERE id = ?',
+      [...changes.values, id],
+    );
+  }
 
   // As deleteBatch, for every Batch: Stage Changes are left to the server, and children go first. The server also
   // deletes Batches and Unit rows this device hasn't seen yet when the Collection's delete arrives.

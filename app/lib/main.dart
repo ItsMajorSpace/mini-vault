@@ -1276,32 +1276,25 @@ class _CollectionScreenState extends State<CollectionScreen> {
     );
     if (edited case (final name, _, final gameSystem, final description)
         when mounted) {
-      // Only changed fields, so an edit to the other field on another device is kept.
-      await attempt(context, () async {
-        if (name.trim() != collection.name) {
-          await widget.vault.renameCollection(collection.id, name);
-        }
-        if (validGameSystem(gameSystem) != collection.gameSystem) {
-          await widget.vault.setGameSystem(collection.id, gameSystem);
-        }
-        if (description.trim() != collection.description) {
-          await widget.vault.setCollectionDescription(
-            collection.id,
-            description,
-          );
-        }
-      });
+      await attempt(
+        context,
+        () => widget.vault.editCollection(
+          collection,
+          name: name,
+          gameSystem: gameSystem,
+          description: description,
+        ),
+      );
     }
   }
 
   /// Asks first, saying how many Units, models and Paint Schemes go with the Collection; back to the Collections once
   /// deleted.
   Future<void> _delete(Collection collection) async {
-    final batches = await widget.vault.batchesOf(collection);
-    final schemes = await widget.vault.watchPaintSchemes(collection.id).first;
+    final (:units, :models, :paintSchemes) = await widget.vault.deleteCounts(
+      collection,
+    );
     if (!mounted) return;
-    final units = {for (final b in batches) b.name}.length;
-    final models = batches.fold(0, (sum, u) => sum + u.modelCount);
     String count(int n, String noun) => n == 1 ? '1 $noun' : '$n ${noun}s';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1309,7 +1302,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
         title: Text('Delete ${collection.name}?'),
         content: Text(
           'Its ${count(units, 'Unit')} (${count(models, 'model')}) and their history, '
-          'Tags and photos${schemes.isEmpty ? '' : ', and its ${count(schemes.length, 'Paint Scheme')},'} '
+          'Tags and photos${paintSchemes == 0 ? '' : ', and its ${count(paintSchemes, 'Paint Scheme')},'} '
           'will be deleted on all your devices.',
         ),
         actions: [

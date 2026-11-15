@@ -537,9 +537,15 @@ abstract interface class VaultStore {
   /// Emits the Collections now and again whenever they change, locally or through sync.
   Stream<List<Collection>> watchCollections();
   Future<void> insertCollection(Collection collection);
-  Future<void> renameCollection(String id, String name);
-  Future<void> setGameSystem(String id, String? gameSystem);
-  Future<void> setCollectionDescription(String id, String description);
+
+  /// Updates only the given fields in one write, so concurrent edits of other fields on other devices are kept.
+  /// [gameSystem] is a record so that null can clear it.
+  Future<void> updateCollection(
+    String id, {
+    String? name,
+    (String?,)? gameSystem,
+    String? description,
+  });
 
   /// Deletes the Collection, its Batches, its Units' notes, Tags, Photos and [UnitPaint]s, and its Paint Schemes, in
   /// one transaction.
@@ -1048,16 +1054,28 @@ class Vault {
     return collection;
   }
 
-  Future<void> renameCollection(String id, String name) =>
-      _store.renameCollection(id, validName(name));
-
-  /// Sets the Collection's Game System; blank or null removes it.
-  Future<void> setGameSystem(String id, String? gameSystem) async =>
-      _store.setGameSystem(id, await _knownGameSystem(gameSystem));
-
-  /// Sets the Collection's description, trimmed; blank clears it.
-  Future<void> setCollectionDescription(String id, String description) =>
-      _store.setCollectionDescription(id, description.trim());
+  /// Sets [collection]'s name, Game System (blank or null removes it) and description (trimmed; blank clears it),
+  /// writing only those that changed, in one write, so an edit to another field on another device is kept.
+  Future<void> editCollection(
+    Collection collection, {
+    required String name,
+    required String? gameSystem,
+    required String description,
+  }) async {
+    final newName = validName(name);
+    final newGameSystem = await _knownGameSystem(gameSystem);
+    final newDescription = description.trim();
+    await _store.updateCollection(
+      collection.id,
+      name: newName == collection.name ? null : newName,
+      gameSystem: newGameSystem == collection.gameSystem
+          ? null
+          : (newGameSystem,),
+      description: newDescription == collection.description
+          ? null
+          : newDescription,
+    );
+  }
 
   /// The Game Systems in use, A–Z, each spelled as its first Collection spells it.
   Future<List<String>> gameSystems() async => [
@@ -1078,6 +1096,19 @@ class Vault {
   /// The Collection's Batches, by name: what deleting it would delete.
   Future<List<Batch>> batchesOf(Collection collection) =>
       _store.watchBatches(collection.id).first;
+
+  /// What deleting [collection] takes: its Units (each name once, across Stages), their models and its Paint Schemes.
+  Future<({int units, int models, int paintSchemes})> deleteCounts(
+    Collection collection,
+  ) async {
+    final batches = await batchesOf(collection);
+    return (
+      units: {for (final b in batches) b.name}.length,
+      models: batches.fold(0, (sum, b) => sum + b.modelCount),
+      paintSchemes:
+          (await _store.watchPaintSchemes(collection.id).first).length,
+    );
+  }
 
   /// Deletes the Collection, its Batches and their history, its Units' notes, Tags, Photos and Paint links (not the
   /// Paints), its Paint Schemes and its Categories. The server deletes the history with the Batches, and any Batch another device added meanwhile, and each

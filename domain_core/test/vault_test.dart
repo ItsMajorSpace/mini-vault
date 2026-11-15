@@ -360,12 +360,35 @@ void main() {
       expect((await vault.collections()).single.workflowId, w.id);
     });
 
+    Future<Collection> current(Collection c) async =>
+        (await vault.collections()).singleWhere((e) => e.id == c.id);
+    // Edits the Collection as it is now, changing only the given fields.
+    Future<void> edit(
+      Collection c, {
+      String? name,
+      (String?,)? gameSystem,
+      String? description,
+    }) async {
+      final now = await current(c);
+      await vault.editCollection(
+        now,
+        name: name ?? now.name,
+        gameSystem: gameSystem == null ? now.gameSystem : gameSystem.$1,
+        description: description ?? now.description,
+      );
+    }
+
+    Future<List<Map<String, dynamic>?>> patches() async => [
+      for (final e in (await db.getCrudBatch(limit: 100))?.crud ?? [])
+        if (e.table == 'collections' && e.op == UpdateType.patch) e.opData,
+    ];
+
     test('is renamed, and the new name persists across restarts', () async {
       await syncStarterWorkflow();
       final created = await vault.createCollection('Space Marines');
       await vault.createCollection('Kill Team');
 
-      await vault.renameCollection(created.id, 'Ultramarines');
+      await edit(created, name: ' Ultramarines ');
       await restart();
 
       expect((await vault.collections()).map((c) => c.name), [
@@ -379,21 +402,63 @@ void main() {
       final created = await vault.createCollection('Space Marines');
 
       await expectLater(vault.createCollection('  '), throwsArgumentError);
-      expect(() => vault.renameCollection(created.id, ''), throwsArgumentError);
+      await expectLater(edit(created, name: ''), throwsArgumentError);
       expect((await vault.collections()).map((c) => c.name), ['Space Marines']);
+      expect(await patches(), isEmpty);
+    });
+
+    test('changes are queued for upload: an insert, then an update of only the changed field', () async {
+      await syncStarterWorkflow();
+      final created = await vault.createCollection(
+        'Space Marines',
+        gameSystem: 'Warhammer 40k',
+      );
+      await edit(created, name: 'Ultramarines');
+
+      final batch = (await db.getCrudBatch())!;
+      final ops = batch.crud.where((e) => e.table == 'collections').toList();
+      expect(ops.map((e) => e.op), [UpdateType.put, UpdateType.patch]);
+      expect(ops.last.opData, {'name': 'Ultramarines'});
+    });
+
+    test('editing several fields uploads one update of just those', () async {
+      await syncStarterWorkflow();
+      final created = await vault.createCollection('Space Marines');
+      await edit(
+        created,
+        name: 'Ultramarines',
+        gameSystem: ('Warhammer 40k',),
+        description: ' 2nd Company ',
+      );
+
+      expect(await patches(), [
+        {
+          'name': 'Ultramarines',
+          'game_system': 'Warhammer 40k',
+          'description': '2nd Company',
+        },
+      ]);
     });
 
     test(
-      'changes are queued for upload: an insert, then a per-field update',
+      'an edit that changes nothing, once normalised, writes nothing',
       () async {
         await syncStarterWorkflow();
-        final created = await vault.createCollection('Space Marines');
-        await vault.renameCollection(created.id, 'Ultramarines');
+        final created = await vault.createCollection(
+          'Space Marines',
+          gameSystem: 'Warhammer 40k',
+        );
+        await edit(created, description: 'Blue');
+        await (await db.getCrudBatch(limit: 100))!.complete();
 
-        final batch = (await db.getCrudBatch())!;
-        final ops = batch.crud.where((e) => e.table == 'collections').toList();
-        expect(ops.map((e) => e.op), [UpdateType.put, UpdateType.patch]);
-        expect(ops.last.opData, {'name': 'Ultramarines'});
+        await vault.editCollection(
+          await current(created),
+          name: ' Space Marines ',
+          gameSystem: 'WARHAMMER 40K',
+          description: ' Blue\n',
+        );
+
+        expect(await db.getCrudBatch(), isNull);
       },
     );
 
@@ -408,8 +473,8 @@ void main() {
         gameSystem: 'WARHAMMER 40K',
       );
       final party = await vault.createCollection('Party', gameSystem: '  ');
-      await vault.setGameSystem(party.id, 'D&D');
-      await vault.setGameSystem(marines.id, 'warhammer 40k');
+      await edit(party, gameSystem: ('D&D',));
+      await edit(marines, gameSystem: ('warhammer 40k',));
       await restart();
 
       final byName = {
@@ -422,8 +487,8 @@ void main() {
       });
       expect(await vault.gameSystems(), ['D&D', 'Warhammer 40k']);
 
-      await vault.setGameSystem(orks.id, '');
-      await vault.setGameSystem(party.id, null);
+      await edit(orks, gameSystem: ('',));
+      await edit(party, gameSystem: (null,));
       expect((await vault.collections()).map((c) => c.gameSystem), [
         null,
         null,
@@ -431,30 +496,23 @@ void main() {
       ]);
       expect(await vault.gameSystems(), ['Warhammer 40k']);
 
-      final ops = (await db.getCrudBatch(limit: 100))!.crud
-          .where((e) => e.table == 'collections' && e.op == UpdateType.patch);
-      expect(ops.last.opData, {'game_system': null});
+      expect((await patches()).last, {'game_system': null});
     });
 
     test('has a description, set trimmed, cleared, kept across restarts and uploaded per field', () async {
       await syncStarterWorkflow();
       final marines = await vault.createCollection('Space Marines');
       expect(marines.description, '');
-      await vault.setCollectionDescription(
-        marines.id,
-        ' 2nd Company,\nblue with gold trim \n',
-      );
+      await edit(marines, description: ' 2nd Company,\nblue with gold trim \n');
       await restart();
       expect(
         (await vault.collections()).single.description,
         '2nd Company,\nblue with gold trim',
       );
 
-      await vault.setCollectionDescription(marines.id, '   ');
+      await edit(marines, description: '   ');
       expect((await vault.collections()).single.description, '');
-      final ops = (await db.getCrudBatch(limit: 100))!.crud
-          .where((e) => e.table == 'collections' && e.op == UpdateType.patch);
-      expect(ops.last.opData, {'description': ''});
+      expect((await patches()).last, {'description': ''});
     });
 
     test('are grouped by Game System ignoring case, A–Z, with those without one last', () {
@@ -490,6 +548,45 @@ void main() {
       await vault.createCollection('Space Marines');
       await expectation;
     });
+    test('counts what deleting it takes: Units once per name, models summed, Paint Schemes', () async {
+      await syncStarterWorkflow();
+      final doomed = await vault.createCollection('Space Marines');
+      final kept = await vault.createCollection('Kill Team');
+      final intercessors = await vault.addBatch(
+        doomed,
+        name: 'Intercessors',
+        modelCount: 10,
+        stageId: 's0',
+      );
+      await vault.splitBatch(intercessors, 's1', 3);
+      await vault.addBatch(
+        doomed,
+        name: 'Hellblasters',
+        modelCount: 5,
+        stageId: 's0',
+      );
+      await vault.addBatch(
+        kept,
+        name: 'Veterans',
+        modelCount: 7,
+        stageId: 's0',
+      );
+      await vault.addPaintScheme(doomed.id, 'Ultramarines');
+      await vault.addPaintScheme(doomed.id, 'Blood Angels');
+      await vault.addPaintScheme(kept.id, 'Kommandos');
+
+      expect(await vault.deleteCounts(doomed), (
+        models: 15,
+        paintSchemes: 2,
+        units: 2,
+      ));
+      expect(await vault.deleteCounts(await vault.createCollection('Orks')), (
+        models: 0,
+        paintSchemes: 0,
+        units: 0,
+      ));
+    });
+
     test("is deleted with its Batches and its Units' notes, Tags and Photos, in one upload; another Collection is untouched", () async {
       await syncStarterWorkflow();
       final doomed = await vault.createCollection('Space Marines');
