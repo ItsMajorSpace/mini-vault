@@ -754,6 +754,17 @@ void main() {
     },
   );
 
+  testWidgets('on desktop a photo is only added from a file, with no camera', (
+    tester,
+  ) async {
+    await openUnit(tester, stages, [(5, 0)], photoFiles: []);
+    expect(find.byTooltip('Take a photo'), findsNothing);
+    expect(find.byIcon(Icons.photo_camera), findsNothing);
+    expect(find.byTooltip('Add a photo from a file'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+  }, variant: TargetPlatformVariant.desktop());
+
   testWidgets(
     'Edit changes the notes and Tags; tapping the notes opens it too',
     (tester) async {
