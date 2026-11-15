@@ -1340,6 +1340,48 @@ void main() {
     });
   });
 
+  group('Zones', () {
+    final [a, b, c, d] = [
+      for (final n in ['A', 'B', 'C', 'D'])
+        Stage(id: n, name: n, colour: '#000000'),
+    ];
+    Workflow workflow(Stage owned, Stage finished) => Workflow(
+      id: 'w',
+      name: 'W',
+      stages: [a, b, c, d],
+      ownedStageId: owned.id,
+      finishedStageId: finished.id,
+    );
+    List<Zone> zones(Workflow w) => [for (final s in w.stages) w.zoneOf(s)];
+
+    test('Wanted before the Owned Stage, Owned up to the Finished Stage, Finished from it on', () {
+      expect(zones(workflow(b, c)), [
+        Zone.wanted,
+        Zone.owned,
+        Zone.finished,
+        Zone.finished,
+      ]);
+    });
+
+    test('Owned and Finished at one Stage leave the Owned Zone empty', () {
+      expect(zones(workflow(c, c)), [
+        Zone.wanted,
+        Zone.wanted,
+        Zone.finished,
+        Zone.finished,
+      ]);
+    });
+
+    test('Owned at the first Stage leaves the Wanted Zone empty', () {
+      expect(zones(workflow(a, d)), [
+        Zone.owned,
+        Zone.owned,
+        Zone.owned,
+        Zone.finished,
+      ]);
+    });
+  });
+
   group('Switching a Collection to another Workflow', () {
     late Workflow starter, target;
     late Collection marines;
@@ -1392,8 +1434,36 @@ void main() {
       final mapping = await vault.stageMapping(marines, target);
 
       expect(
-        [for (final m in mapping) (m.from.name, m.to?.name)],
-        [('Wishlist', '  WISHLIST '), ('Primed', null)],
+        [for (final m in mapping) (m.from.name, m.to.name, m.units)],
+        [('Wishlist', '  WISHLIST ', 1), ('Primed', 'Unassembled', 2)],
+      );
+    });
+
+    test('a name match wins over the Zone fallback', () async {
+      await vault.addBatch(marines, name: 'D', modelCount: 1, stageId: 's4');
+
+      final mapping = await vault.stageMapping(marines, target);
+
+      expect(mapping.last.from.name, 'Painted');
+      expect(mapping.last.to, target.stages[4]);
+      expect(target.ownedStage, isNot(target.stages[4]));
+    });
+
+    test('without a name match, each Zone maps to the Stage that starts it, the first Stage for Wanted', () async {
+      await vault.addBatch(marines, name: 'D', modelCount: 4, stageId: 's6');
+      await vault.renameStage(target.stages[0].id, 'Pile');
+      await vault.renameStage(target.stages.last.id, 'Shelf');
+      target = (await vault.workflows()).firstWhere((w) => w.id == target.id);
+
+      final mapping = await vault.stageMapping(marines, target);
+
+      expect(
+        [for (final m in mapping) (m.from.name, m.to.name, m.units)],
+        [
+          ('Wishlist', 'Pile', 1),
+          ('Primed', 'Unassembled', 2),
+          ('Done', 'Shelf', 1),
+        ],
       );
     });
 

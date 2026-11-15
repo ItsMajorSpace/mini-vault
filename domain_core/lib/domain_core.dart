@@ -54,7 +54,20 @@ class Workflow {
     (s) => s.id == finishedStageId,
     orElse: () => stages.last,
   );
+
+  /// The [Zone] [stage] is in.
+  Zone zoneOf(Stage stage) {
+    final i = stages.indexOf(stage);
+    return i < stages.indexOf(ownedStage)
+        ? Zone.wanted
+        : i < stages.indexOf(finishedStage)
+        ? Zone.owned
+        : Zone.finished;
+  }
 }
+
+/// The part of a [Workflow] a Stage is in: before the Owned Stage, from it up to the Finished Stage, or from that on.
+enum Zone { wanted, owned, finished }
 
 /// A named set of Batches owned by one person, all progressing through the same Workflow.
 class Collection {
@@ -1072,19 +1085,31 @@ class Vault {
   Future<void> deleteCollection(String id) => _store.deleteCollection(id);
 
   /// What switching [collection] to [target] has to map: each Stage of its Workflow that holds its Batches, in Workflow
-  /// order, with the Stage of [target] that has the same name (ignoring case and outer spaces), or null.
-  Future<List<({Stage from, Stage? to})>> stageMapping(
+  /// order, with the number of Units at it and the Stage of [target] it moves to: the one with the same name (ignoring
+  /// case and outer spaces), else the one that starts the same [Zone] (the first Stage for wanted).
+  Future<List<({Stage from, Stage to, int units})>> stageMapping(
     Collection collection,
     Workflow target,
   ) async {
     String key(Stage s) => s.name.trim().toLowerCase();
+    final source = await workflowOf(collection);
     final batches = await _store.watchBatches(collection.id).first;
     return [
-      for (final g in groupByStage(await workflowOf(collection), batches))
+      for (final g in groupByStage(source, batches))
         if (g.batches.isNotEmpty)
           (
             from: g.stage,
-            to: target.stages.where((s) => key(s) == key(g.stage)).firstOrNull,
+            to:
+                target.stages
+                    .where((s) => key(s) == key(g.stage))
+                    .firstOrNull ??
+                switch (source.zoneOf(g.stage)) {
+                  Zone.wanted => target.stages.first,
+                  Zone.owned => target.ownedStage,
+                  Zone.finished => target.finishedStage,
+                },
+            // A Unit has at most one Batch per Stage.
+            units: g.batches.length,
           ),
     ];
   }

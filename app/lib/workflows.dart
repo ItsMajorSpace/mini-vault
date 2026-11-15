@@ -456,7 +456,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
           ),
           if (owned == 0)
             _ZoneCard(
-              zone: _Zone.wanted,
+              zone: Zone.wanted,
               first: true,
               last: true,
               child: const SectionHint('No Wanted Stages'),
@@ -501,11 +501,7 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
     bool starts(int at) => at == 0 || at == owned || at == finished;
     return _ZoneCard(
       key: ValueKey(stage.id),
-      zone: i < owned
-          ? _Zone.wanted
-          : i < finished
-          ? _Zone.owned
-          : _Zone.finished,
+      zone: w.zoneOf(stage),
       first: starts(i),
       last: i == w.stages.length - 1 || starts(i + 1),
       child: ListTile(
@@ -597,17 +593,6 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
 /// Where the Owned or Finished zone begins.
 enum _Boundary { owned, finished }
 
-enum _Zone { wanted, owned, finished }
-
-_Zone _zoneOf(Workflow w, Stage s) {
-  final i = w.stages.indexOf(s);
-  return i < w.stages.indexOf(w.ownedStage)
-      ? _Zone.wanted
-      : i < w.stages.indexOf(w.finishedStage)
-      ? _Zone.owned
-      : _Zone.finished;
-}
-
 /// A Stage's colour as a dot.
 Widget _dot(Stage s, [double size = 16]) => Builder(
   builder: (context) => Container(
@@ -632,7 +617,7 @@ class _ZoneCard extends StatelessWidget {
     required this.child,
   });
 
-  final _Zone zone;
+  final Zone zone;
   final bool first;
   final bool last;
   final Widget child;
@@ -643,13 +628,13 @@ class _ZoneCard extends StatelessWidget {
     const r = Radius.circular(12);
     // shortcut: a solid outline rail stands in for the mockup's dashed Wanted rail; draw dashes if it reads unclear.
     final rail = switch (zone) {
-      _Zone.wanted => colours.outline,
-      _Zone.owned => Color.lerp(
+      Zone.wanted => colours.outline,
+      Zone.owned => Color.lerp(
         colours.primary,
         colours.surfaceContainerLow,
         0.45,
       )!,
-      _Zone.finished => colours.primary,
+      Zone.finished => colours.primary,
     };
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -659,7 +644,7 @@ class _ZoneCard extends StatelessWidget {
           bottom: last ? r : Radius.zero,
         ),
         child: Material(
-          color: zone == _Zone.wanted
+          color: zone == Zone.wanted
               ? colours.surfaceContainerLowest
               : colours.surfaceContainerLow,
           child: Container(
@@ -1121,20 +1106,11 @@ Future<void> switchWorkflow(
   );
   if (target == null || !context.mounted) return;
   final mapping = await vault.stageMapping(collection, target);
-  final units = <String, int>{};
-  // A Unit has at most one Batch per Stage.
-  for (final b in await vault.batchesOf(collection)) {
-    units.update(b.stageId, (n) => n + 1, ifAbsent: () => 1);
-  }
   if (!context.mounted) return;
   final moveTo = await showDialog<Map<String, String>>(
     context: context,
-    builder: (_) => _MapStagesDialog(
-      source: source,
-      target: target,
-      mapping: mapping,
-      units: units,
-    ),
+    builder: (_) =>
+        _MapStagesDialog(source: source, target: target, mapping: mapping),
   );
   if (moveTo == null || !context.mounted) return;
   await attempt(
@@ -1226,45 +1202,30 @@ class _PickWorkflowDialogState extends State<_PickWorkflowDialog> {
 }
 
 /// One row per old Stage that holds Batches: its dot, name and Unit count → a picker of the new Workflow's Stages,
-/// pre-set to the same-name Stage, else the Stage that starts the same zone (the first Stage for wanted). A choice
-/// that changes the zone is flagged, not barred.
+/// pre-set to [Vault.stageMapping]'s choice. A choice that changes the Zone is flagged, not barred.
 class _MapStagesDialog extends StatefulWidget {
   const _MapStagesDialog({
     required this.source,
     required this.target,
     required this.mapping,
-    required this.units,
   });
 
   final Workflow source;
   final Workflow target;
-  final List<({Stage from, Stage? to})> mapping;
-
-  /// Units per old Stage id.
-  final Map<String, int> units;
+  final List<({Stage from, Stage to, int units})> mapping;
 
   @override
   State<_MapStagesDialog> createState() => _MapStagesDialogState();
 }
 
 class _MapStagesDialogState extends State<_MapStagesDialog> {
-  late final _moveTo = {
-    for (final m in widget.mapping)
-      m.from.id:
-          m.to ??
-          switch (_zoneOf(widget.source, m.from)) {
-            _Zone.wanted => widget.target.stages.first,
-            _Zone.owned => widget.target.ownedStage,
-            _Zone.finished => widget.target.finishedStage,
-          },
-  };
+  late final _moveTo = {for (final m in widget.mapping) m.from.id: m.to};
 
-  Widget _row(ThemeData theme, Stage from) {
+  Widget _row(ThemeData theme, Stage from, int n) {
     final colours = theme.colorScheme;
     final to = _moveTo[from.id]!;
-    final was = _zoneOf(widget.source, from);
-    final now = _zoneOf(widget.target, to);
-    final n = widget.units[from.id] ?? 0;
+    final was = widget.source.zoneOf(from);
+    final now = widget.target.zoneOf(to);
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
@@ -1358,7 +1319,7 @@ class _MapStagesDialogState extends State<_MapStagesDialog> {
                   ? 'This Collection has no Units to move.'
                   : 'Move the Units at each Stage to:',
             ),
-            for (final m in widget.mapping) _row(theme, m.from),
+            for (final m in widget.mapping) _row(theme, m.from, m.units),
           ],
         ),
       ),
