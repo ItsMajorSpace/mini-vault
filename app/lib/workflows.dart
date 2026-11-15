@@ -1,8 +1,6 @@
 /// The Workflow editor: the list of Workflows, and one Workflow's Stages.
 library;
 
-import 'dart:math';
-
 import 'package:domain_core/domain_core.dart';
 import 'package:flutter/semantics.dart';
 import 'package:material_ui/material_ui.dart';
@@ -350,28 +348,14 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
 
   /// Deletes the Stage, first asking where its Batches go and which Stage replaces it as Owned or Finished, if needed.
   Future<void> _deleteStage(Stage stage) async {
-    final workflow = (await vault.workflows()).firstWhere((w) => w.id == id);
-    final batches = await vault.batchesAt(stage.id);
-    final inUse = {for (final b in batches) b.collectionId};
-    final affected = [
-      for (final c in await vault.collections())
-        if (inUse.contains(c.id)) c.name,
-    ]..sort();
-    final owned = stage.id == workflow.ownedStage.id;
-    final finished = stage.id == workflow.finishedStage.id;
+    final plan = await vault.planStageDelete(id, stage.id);
     if (!mounted) return;
-    if ((batches.isEmpty && !owned && !finished) ||
-        workflow.stages.length == 1) {
+    if (!plan.needsChoice) {
       return attempt(context, () => vault.deleteStage(id, stage.id));
     }
-    final choice = await showDialog<_DeleteChoice>(
+    final choice = await showDialog<StageDelete>(
       context: context,
-      builder: (_) => _DeleteStageDialog(
-        workflow: workflow,
-        stage: stage,
-        held: batches.length,
-        affected: affected,
-      ),
+      builder: (_) => _DeleteStageDialog(plan),
     );
     if (choice == null || !mounted) return;
     await attempt(
@@ -379,9 +363,9 @@ class _WorkflowScreenState extends State<WorkflowScreen> {
       () => vault.deleteStage(
         id,
         stage.id,
-        moveBatchesTo: choice.destination,
-        ownedStageId: choice.owned,
-        finishedStageId: choice.finished,
+        moveBatchesTo: choice.held > 0 ? choice.destination.id : null,
+        ownedStageId: choice.replacesOwned ? choice.owned.id : null,
+        finishedStageId: choice.replacesFinished ? choice.finished.id : null,
       ),
     );
   }
@@ -978,57 +962,25 @@ class _StageSheetState extends State<_StageSheet> {
   }
 }
 
-typedef _DeleteChoice = ({
-  String? destination,
-  String? owned,
-  String? finished,
-});
-
-/// Asks where a deleted Stage's Batches go, and which Stage replaces it as Owned or Finished, as needed. Every choice
-/// defaults to the next Stage (the previous one if it is the last), and Owned/Finished list only Stages the order rule
-/// allows; a [StageStrip] previews the Workflow after the delete.
+/// Asks where a deleted Stage's Batches go, and which Stage replaces it as Owned or Finished, as needed, showing the
+/// [StageDelete] plan's defaults and allowed choices; a [StageStrip] previews the Workflow after the delete.
 class _DeleteStageDialog extends StatefulWidget {
-  const _DeleteStageDialog({
-    required this.workflow,
-    required this.stage,
-    required this.held,
-    required this.affected,
-  });
+  const _DeleteStageDialog(this.plan);
 
-  final Workflow workflow;
-  final Stage stage;
-
-  /// Units at the Stage, and the names of their Collections, A–Z.
-  final int held;
-  final List<String> affected;
+  final StageDelete plan;
 
   @override
   State<_DeleteStageDialog> createState() => _DeleteStageDialogState();
 }
 
 class _DeleteStageDialogState extends State<_DeleteStageDialog> {
-  Workflow get w => widget.workflow;
-  late final bool _isOwned = widget.stage.id == w.ownedStage.id;
-  late final bool _isFinished = widget.stage.id == w.finishedStage.id;
-
-  /// The Stages left after the delete, in order.
-  late final List<Stage> _rest = [...w.stages]..remove(widget.stage);
-  late final Stage _next =
-      _rest[min(w.stages.indexOf(widget.stage), _rest.length - 1)];
-  late Stage _destination = _next;
-  late Stage _owned = _isOwned ? _next : w.ownedStage;
-  late Stage _finished = _isFinished ? _next : w.finishedStage;
-
-  // Owned at or before Finished, as Vault.deleteStage requires.
-  List<Stage> get _ownedChoices =>
-      _isFinished ? _rest : _rest.sublist(0, _rest.indexOf(_finished) + 1);
-  List<Stage> get _finishedChoices => _rest.sublist(_rest.indexOf(_owned));
+  late StageDelete _plan = widget.plan;
 
   Widget _picker(
     String label,
     Stage value,
     List<Stage> choices,
-    ValueChanged<Stage> onChanged,
+    StageDelete Function(Stage) pick,
   ) => Padding(
     padding: const EdgeInsets.only(top: 16),
     child: DropdownMenu<Stage>(
@@ -1043,28 +995,29 @@ class _DeleteStageDialogState extends State<_DeleteStageDialog> {
         for (final s in choices)
           DropdownMenuEntry(value: s, label: s.name, leadingIcon: _dot(s)),
       ],
-      onSelected: (s) => setState(() => onChanged(s!)),
+      onSelected: (s) => setState(() => _plan = pick(s!)),
     ),
   );
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final held = widget.held;
-    final names = widget.affected;
+    final plan = _plan;
+    final held = plan.held;
+    final names = plan.affected;
     final where = names.length < 2
         ? 'in ${names.join()}'
         : 'across ${names.take(names.length - 1).join(', ')} and ${names.last}';
     final role = [
-      if (_isOwned) 'Owned',
-      if (_isFinished) 'Finished',
+      if (plan.replacesOwned) 'Owned',
+      if (plan.replacesFinished) 'Finished',
     ].join(' and ');
     return AlertDialog(
       title: Row(
         spacing: 12,
         children: [
-          _dot(widget.stage, 24),
-          Expanded(child: Text('Delete ${widget.stage.name}?')),
+          _dot(plan.stage, 24),
+          Expanded(child: Text('Delete ${plan.stage.name}?')),
         ],
       ),
       content: SingleChildScrollView(
@@ -1084,31 +1037,32 @@ class _DeleteStageDialogState extends State<_DeleteStageDialog> {
             if (held > 0)
               _picker(
                 'Move their models to',
-                _destination,
-                _rest,
-                (s) => _destination = s,
+                plan.destination,
+                plan.stages,
+                plan.withDestination,
               ),
-            if (_isOwned)
-              _picker('Owned from', _owned, _ownedChoices, (s) {
-                _owned = s;
-                // Keep Finished at or after Owned when both are being replaced.
-                if (_rest.indexOf(_finished) < _rest.indexOf(s)) _finished = s;
-              }),
-            if (_isFinished)
+            if (plan.replacesOwned)
+              _picker(
+                'Owned from',
+                plan.owned,
+                plan.ownedChoices,
+                plan.withOwned,
+              ),
+            if (plan.replacesFinished)
               _picker(
                 'Finished from',
-                _finished,
-                _finishedChoices,
-                (s) => _finished = s,
+                plan.finished,
+                plan.finishedChoices,
+                plan.withFinished,
               ),
             const SizedBox(height: 16),
             StageStrip(
               Workflow(
-                id: w.id,
-                name: w.name,
-                stages: _rest,
-                ownedStageId: _owned.id,
-                finishedStageId: _finished.id,
+                id: plan.workflow.id,
+                name: plan.workflow.name,
+                stages: plan.stages,
+                ownedStageId: plan.owned.id,
+                finishedStageId: plan.finished.id,
               ),
             ),
             const SizedBox(height: 4),
@@ -1127,11 +1081,7 @@ class _DeleteStageDialogState extends State<_DeleteStageDialog> {
           child: const Text('Cancel'),
         ),
         TextButton(
-          onPressed: () => Navigator.pop<_DeleteChoice>(context, (
-            destination: held > 0 ? _destination.id : null,
-            owned: _isOwned ? _owned.id : null,
-            finished: _isFinished ? _finished.id : null,
-          )),
+          onPressed: () => Navigator.pop(context, plan),
           style: destructive(context),
           child: const Text('Delete'),
         ),

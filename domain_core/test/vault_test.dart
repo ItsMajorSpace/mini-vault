@@ -1238,6 +1238,108 @@ void main() {
     );
   });
 
+  group('Planning a Stage delete', () {
+    late Workflow w;
+    // Wishlist, Unassembled (Owned), Assembled, Primed, Painted, Based, Done (Finished).
+    late Stage wishlist, unassembled, assembled, primed, painted, based, done;
+    setUp(() async {
+      await syncStarterWorkflow();
+      w = await vault.createWorkflow('Shared');
+      [wishlist, unassembled, assembled, primed, painted, based, done] =
+          w.stages;
+    });
+
+    List<String> names(List<Stage> stages) => [for (final s in stages) s.name];
+
+    test(
+      'an empty Stage that is neither Owned nor Finished needs no choice',
+      () async {
+        final plan = await vault.planStageDelete(w.id, assembled.id);
+        expect(plan.needsChoice, isFalse);
+        expect(plan.held, 0);
+        expect(plan.affected, isEmpty);
+        expect(names(plan.stages), [
+          'Wishlist',
+          'Unassembled',
+          'Primed',
+          'Painted',
+          'Based',
+          'Done',
+        ]);
+      },
+    );
+
+    test('holding Units needs a destination, the next Stage by default, the previous one for the last', () async {
+      final marines = await vault.createCollection('Marines', workflowId: w.id);
+      for (final s in [primed, done]) {
+        await vault.addBatch(marines, name: 'A', modelCount: 1, stageId: s.id);
+      }
+      final middle = await vault.planStageDelete(w.id, primed.id);
+      expect(middle.needsChoice, isTrue);
+      expect(middle.destination, painted);
+      expect(middle.withDestination(wishlist).destination, wishlist);
+      expect((await vault.planStageDelete(w.id, done.id)).destination, based);
+    });
+
+    test(
+      'names the affected Collections A–Z and counts the Units held',
+      () async {
+        for (final name in ['Marines', 'Orks', 'Ad Mech']) {
+          final c = await vault.createCollection(name, workflowId: w.id);
+          await vault.addBatch(c, name: 'A', modelCount: 2, stageId: primed.id);
+        }
+        await vault.createCollection('Eldar', workflowId: w.id);
+        final plan = await vault.planStageDelete(w.id, primed.id);
+        expect(plan.held, 3);
+        expect(plan.affected, ['Ad Mech', 'Marines', 'Orks']);
+      },
+    );
+
+    test('deleting the Owned Stage replaces it with the next Stage, choosing only Stages up to Finished', () async {
+      await vault.setFinishedStage(w.id, primed.id);
+      final plan = await vault.planStageDelete(w.id, unassembled.id);
+      expect(plan.needsChoice, isTrue);
+      expect((plan.replacesOwned, plan.replacesFinished), (true, false));
+      expect((plan.owned.name, plan.finished.name), ('Assembled', 'Primed'));
+      expect(names(plan.ownedChoices), ['Wishlist', 'Assembled', 'Primed']);
+    });
+
+    test('deleting the Finished Stage replaces it with the previous Stage, choosing only Stages from Owned on', () async {
+      await vault.setOwnedStage(w.id, assembled.id);
+      final plan = await vault.planStageDelete(w.id, done.id);
+      expect((plan.replacesOwned, plan.replacesFinished), (false, true));
+      expect((plan.owned.name, plan.finished.name), ('Assembled', 'Based'));
+      expect(names(plan.finishedChoices), [
+        'Assembled',
+        'Primed',
+        'Painted',
+        'Based',
+      ]);
+      expect(plan.withFinished(primed).finished, primed);
+    });
+
+    test('deleting a Stage that is both offers every Stage for Owned, and Owned past Finished moves Finished along', () async {
+      await vault.setFinishedStage(w.id, primed.id);
+      await vault.setOwnedStage(w.id, primed.id);
+      final plan = await vault.planStageDelete(w.id, primed.id);
+      expect((plan.replacesOwned, plan.replacesFinished), (true, true));
+      expect((plan.owned, plan.finished), (painted, painted));
+      expect(plan.ownedChoices, plan.stages);
+
+      final earlier = plan.withOwned(assembled);
+      expect((earlier.owned, earlier.finished), (assembled, painted));
+      expect(names(earlier.finishedChoices), [
+        'Assembled',
+        'Painted',
+        'Based',
+        'Done',
+      ]);
+      final later = earlier.withFinished(based).withOwned(done);
+      expect((later.owned, later.finished), (done, done));
+      expect(names(later.finishedChoices), ['Done']);
+    });
+  });
+
   group('Switching a Collection to another Workflow', () {
     late Workflow starter, target;
     late Collection marines;

@@ -703,6 +703,102 @@ abstract interface class VaultStore {
 }
 
 /// The domain operations a collector can perform.
+/// What deleting [stage] from [workflow] involves, and the choices made so far; see [Vault.planStageDelete].
+/// Every choice starts at the next Stage (the previous one if [stage] is last); the `with` methods return a new plan.
+class StageDelete {
+  const StageDelete._(
+    this.workflow,
+    this.stage,
+    this.held,
+    this.affected,
+    this.destination,
+    this.owned,
+    this.finished,
+  );
+
+  factory StageDelete._start(
+    Workflow workflow,
+    Stage stage,
+    int held,
+    List<String> affected,
+  ) {
+    final i = workflow.stages.indexWhere((s) => s.id == stage.id);
+    final rest = [...workflow.stages]..removeAt(i);
+    final next = rest.isEmpty ? stage : rest[min(i, rest.length - 1)];
+    return StageDelete._(
+      workflow,
+      stage,
+      held,
+      affected,
+      next,
+      stage.id == workflow.ownedStage.id ? next : workflow.ownedStage,
+      stage.id == workflow.finishedStage.id ? next : workflow.finishedStage,
+    );
+  }
+
+  final Workflow workflow;
+  final Stage stage;
+
+  /// Units at the Stage, and the names of their Collections, A–Z.
+  final int held;
+  final List<String> affected;
+
+  /// Where the held Units move, and the Owned and Finished Stage after the delete.
+  final Stage destination;
+  final Stage owned;
+  final Stage finished;
+
+  /// The Stages left after the delete, in order.
+  List<Stage> get stages => [
+    for (final s in workflow.stages)
+      if (s.id != stage.id) s,
+  ];
+
+  bool get replacesOwned => stage.id == workflow.ownedStage.id;
+  bool get replacesFinished => stage.id == workflow.finishedStage.id;
+
+  /// False when the Stage can go straight away: it holds nothing and is neither Owned nor Finished, or is the only Stage.
+  bool get needsChoice =>
+      (held > 0 || replacesOwned || replacesFinished) &&
+      workflow.stages.length > 1;
+
+  // Owned at or before Finished, as Vault.deleteStage requires; [withOwned] moves a replaced Finished along.
+  List<Stage> get ownedChoices => [
+    for (final s in stages)
+      if (replacesFinished || _inOrder(s, finished)) s,
+  ];
+  List<Stage> get finishedChoices => [
+    for (final s in stages)
+      if (_inOrder(owned, s)) s,
+  ];
+
+  bool _inOrder(Stage owned, Stage finished) {
+    try {
+      Vault._checkOrder(stages, owned: owned.id, finished: finished.id);
+      return true;
+    } on ArgumentError {
+      return false;
+    }
+  }
+
+  StageDelete withDestination(Stage s) =>
+      StageDelete._(workflow, stage, held, affected, s, owned, finished);
+
+  /// Also moves Finished to [s] when both are replaced and Finished would come before it.
+  StageDelete withOwned(Stage s) => StageDelete._(
+    workflow,
+    stage,
+    held,
+    affected,
+    destination,
+    s,
+    replacesFinished && !_inOrder(s, finished) ? s : finished,
+  );
+
+  StageDelete withFinished(Stage s) =>
+      StageDelete._(workflow, stage, held, affected, destination, owned, s);
+}
+
 class Vault {
   Vault(this._store);
 
@@ -824,6 +920,23 @@ class Vault {
 
   /// The Batches at the Stage, in every Collection using its Workflow.
   Future<List<Batch>> batchesAt(String stageId) => _store.batchesAt(stageId);
+
+  /// Plans deleting the Stage: what it holds, whether it is the Owned or Finished Stage, and the default choices.
+  Future<StageDelete> planStageDelete(String workflowId, String stageId) async {
+    final w = await _workflow(workflowId);
+    final stage = w.stages.firstWhere(
+      (s) => s.id == stageId,
+      orElse: () =>
+          throw ArgumentError.value(stageId, 'stageId', 'not in this Workflow'),
+    );
+    final batches = await _store.batchesAt(stageId);
+    final inUse = {for (final b in batches) b.collectionId};
+    final affected = [
+      for (final c in await _store.collections())
+        if (inUse.contains(c.id)) c.name,
+    ]..sort();
+    return StageDelete._start(w, stage, batches.length, affected);
+  }
 
   /// Deletes a Stage in one transaction. If it holds Batches, in any Collection, they all move to [moveBatchesTo] first,
   /// each recording a Stage Change. If it is the Owned or Finished Stage, [ownedStageId] or [finishedStageId] replaces it.
