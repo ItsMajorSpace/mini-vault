@@ -224,6 +224,48 @@ jobs:
           [[ "$TAG" == *-* ]] && prerelease=(--prerelease)
           gh release create "$TAG" --verify-tag --generate-notes --notes "Install: https://github.com/$GH_REPO#get-the-app" "${prerelease[@]}" || true
           gh release upload "$TAG" "$apk" "$aab" --clobber
+          # A Release cut by hand (ADR 0006) skips the create above, so add the link here.
+          body=$(gh release view "$TAG" --json body -q .body)
+          grep -qF '#get-the-app' <<< "$body" ||
+            gh release edit "$TAG" --notes "Install: https://github.com/$GH_REPO#get-the-app"$'\n\n'"$body"
+
+  # Proves on every PR that the Linux desktop app builds and stays up for 15s.
+  desktop-smoke:
+    name: desktop-smoke
+    needs: check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev xvfb
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.50.0
+          channel: stable
+          cache: true
+
+      - name: Build Linux desktop app
+        working-directory: app
+        run: flutter build linux --release
+
+      # timeout exits 124 when it had to stop the app, i.e. it was still running.
+      - name: Launch and keep running
+        working-directory: app/build/linux/x64/release/bundle
+        run: |
+          set +e
+          timeout 15 xvfb-run -a ./mini_vault
+          rc=$?
+          [ "$rc" -eq 124 ] || { echo "::error::App exited early with code $rc."; exit 1; }
 
   # Unsigned desktop archives against production. Tags attach them to the
   # Release; manual runs keep them as workflow artifacts.

@@ -41,6 +41,7 @@ flutter:
         - asset: assets/fonts/Cinzel-Variable.ttf
 
 # Regenerate with: dart run flutter_launcher_icons
+# Then revert its change to ios/Runner.xcodeproj/project.pbxproj (it rewrites a YES setting to AppIcon).
 flutter_launcher_icons:
   image_path: assets/icon/app_icon.png
   android: true
