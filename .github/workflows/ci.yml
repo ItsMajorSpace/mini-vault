@@ -6,6 +6,8 @@ on:
   push:
     branches: [main]
     tags: ["v*.*.*"]
+  # Builds the desktop archives as workflow artifacts; never touches Releases.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -72,7 +74,7 @@ jobs:
         working-directory: server
         run: docker compose logs
 
-  # Publishes the api/migrate image on main and v*.*.* tags; PRs only build it.
+  # Publishes the api/migrate image on main and v*.*.* tags; PRs and manual runs only build it.
   build:
     name: build
     needs: check
@@ -84,7 +86,7 @@ jobs:
     env:
       # GHCR needs lowercase; github.repository keeps the owner's capitals.
       IMAGE: ghcr.io/itsmajorspace/mini-vault-server
-      PUBLISH: ${{ github.event_name != 'pull_request' }}
+      PUBLISH: ${{ github.event_name == 'push' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -220,5 +222,97 @@ jobs:
           cp app/build/app/outputs/bundle/release/app-release.aab "$aab"
           prerelease=()
           [[ "$TAG" == *-* ]] && prerelease=(--prerelease)
-          gh release create "$TAG" --verify-tag --generate-notes "${prerelease[@]}" || true
+          gh release create "$TAG" --verify-tag --generate-notes --notes "Install: https://github.com/$GH_REPO#get-the-app" "${prerelease[@]}" || true
           gh release upload "$TAG" "$apk" "$aab" --clobber
+
+  # Unsigned desktop archives against production. Tags attach them to the
+  # Release; manual runs keep them as workflow artifacts.
+  desktop:
+    name: ${{ matrix.os }}
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: write  # attach the archive to the GitHub Release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows, runner: windows-latest }
+          - { os: macos, runner: macos-latest }
+          - { os: linux, runner: ubuntu-latest }
+    defaults:
+      run:
+        shell: bash
+    env:
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      # A manual run has no tag, so it gets a visibly-dev version.
+      TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.0.0-dev' }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.50.0
+          channel: stable
+          cache: true
+
+      # The tag is the only source of the app version (ADR 0006).
+      - name: Build and package
+        working-directory: app
+        env:
+          OS: ${{ matrix.os }}
+        run: |
+          flutter build "$OS" --release \
+            --build-name="${TAG#v}" \
+            --build-number="$BUILD_NUMBER" \
+            --dart-define=AUTH_URL=https://auth.minivault.bingoscape.org \
+            --dart-define=POWERSYNC_URL=https://sync.minivault.bingoscape.org \
+            --dart-define=API_URL=https://api.minivault.bingoscape.org
+          dist="$GITHUB_WORKSPACE/dist"
+          mkdir -p "$dist"
+          case "$OS" in
+            windows)
+              test -f build/windows/x64/runner/Release/mini_vault.exe
+              (cd build/windows/x64/runner/Release && 7z a -tzip "$dist/mini-vault-$TAG-windows-x64.zip" .) ;;
+            macos)
+              test -d "build/macos/Build/Products/Release/Mini Vault.app/Contents/MacOS"
+              ditto -c -k --keepParent "build/macos/Build/Products/Release/Mini Vault.app" "$dist/mini-vault-$TAG-macos.zip" ;;
+            linux)
+              test -x build/linux/x64/release/bundle/mini_vault
+              tar -czf "$dist/mini-vault-$TAG-linux-x64.tar.gz" \
+                --transform 's,^\.,mini-vault,' -C build/linux/x64/release/bundle . ;;
+          esac
+          ls -l "$dist"
+
+      - name: Keep archive as workflow artifact
+        if: env.IS_TAG != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: mini-vault-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
+      # Same race-tolerant create as the apk job.
+      - name: Attach archive to GitHub Release
+        if: env.IS_TAG == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          prerelease=()
+          [[ "$TAG" == *-* ]] && prerelease=(--prerelease)
+          gh release create "$TAG" --verify-tag --generate-notes --notes "Install: https://github.com/$GH_REPO#get-the-app" "${prerelease[@]}" || true
+          gh release upload "$TAG" dist/* --clobber
