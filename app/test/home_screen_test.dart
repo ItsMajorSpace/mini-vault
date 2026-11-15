@@ -271,6 +271,55 @@ void main() {
   });
 
   testWidgets(
+    'Recently painted survives being scrolled out of view behind the opened overview and back',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 500);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final db = await openDb(tester);
+      final vault = Vault(SqliteVaultStore(db));
+      await tester.runAsync(() async {
+        final w = await vault.createWorkflow('Standard');
+        for (var i = 0; i < 12; i++) {
+          final c = await vault.createCollection('C$i', workflowId: w.id);
+          await vault.addBatch(
+            c,
+            name: 'W$i',
+            modelCount: 3,
+            stageId: w.stages[1].id,
+          );
+          if (i < 3) {
+            await vault.moveModels(c, 'W$i', w.stages[1].id, w.stages[2].id, 2);
+          }
+        }
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(
+            vault: vault,
+            collections: CollectionsScreen(vault: vault, db: db),
+          ),
+        ),
+      );
+      for (var i = 0; i < 5; i++) {
+        await settle(tester);
+      }
+      expect(find.byType(RecentUnitCard), findsNWidgets(3));
+
+      await tester.tap(overviewButton);
+      await settle(tester);
+      final list = find.byType(Scrollable).first;
+      await tester.drag(list, const Offset(0, -3000));
+      await settle(tester);
+      await tester.drag(list, const Offset(0, 6000));
+      await settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(RecentUnitCard), findsNWidgets(3));
+    },
+  );
+
+  testWidgets(
     'Show Stages breaks down each Workflow in the overview and in a Collection\'s drawer',
     (tester) async {
       final (db, vault) = await seeded(tester);

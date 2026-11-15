@@ -754,89 +754,89 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
               ],
             ),
           },
-          // Above the list so it stays listened to while the list is replaced: the stream can be listened to once.
+          // Above the list so they stay listened to while the list is replaced or scrolls their slot out of view: each
+          // stream can be listened to once.
           body: StreamBuilder(
             stream: _progress,
-            builder: (context, progress) => Column(
-              children: [
-                SyncBanner(db: widget.db),
-                Expanded(
-                  child: Builder(
-                    builder: (context) {
-                      if (snapshot.error case final error?) {
-                        return LoadError(
-                          what: 'your Collections',
-                          error: error,
-                          onRetry: () => setState(
-                            () =>
-                                _collections = widget.vault.watchCollections(),
-                          ),
-                        );
-                      }
-                      final collections = snapshot.data;
-                      if (collections == null) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (collections.isEmpty) {
-                        return EmptyState(
-                          icon: Icons.collections_bookmark,
-                          title: 'No Collections yet',
-                          explanation: 'A Collection is a named set of Units that progress through the same Workflow.',
-                          label: 'New Collection',
-                          onPressed: _create,
-                          alternative: TextButton(
-                            onPressed: () => Navigator.push(
-                              context,
-                              MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    ArmyListScreen(vault: widget.vault),
+            builder: (context, progress) => StreamBuilder(
+              stream: _recent,
+              builder: (context, recent) => Column(
+                children: [
+                  SyncBanner(db: widget.db),
+                  Expanded(
+                    child: Builder(
+                      builder: (context) {
+                        if (snapshot.error case final error?) {
+                          return LoadError(
+                            what: 'your Collections',
+                            error: error,
+                            onRetry: () => setState(
+                              () => _collections = widget.vault
+                                  .watchCollections(),
+                            ),
+                          );
+                        }
+                        final collections = snapshot.data;
+                        if (collections == null) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        if (collections.isEmpty) {
+                          return EmptyState(
+                            icon: Icons.collections_bookmark,
+                            title: 'No Collections yet',
+                            explanation: 'A Collection is a named set of Units that progress through the same Workflow.',
+                            label: 'New Collection',
+                            onPressed: _create,
+                            alternative: TextButton(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      ArmyListScreen(vault: widget.vault),
+                                ),
                               ),
+                              child: const Text('Import army list'),
                             ),
-                            child: const Text('Import army list'),
-                          ),
-                        );
-                      }
-                      final groups = [
-                        for (final g in groupByGameSystem(collections))
-                          if (g.gameSystem?.toLowerCase().contains(query) ??
-                              false)
-                            g
-                          else
-                            (
-                              gameSystem: g.gameSystem,
-                              collections: [
-                                for (final c in g.collections)
-                                  if (c.name.toLowerCase().contains(query)) c,
-                              ],
-                            ),
-                      ].where((g) => g.collections.isNotEmpty).toList();
-                      // Headers only once some Collection has a Game System; until then the list is as before.
-                      final headed = groups.any((g) => g.gameSystem != null);
-                      String groupKey(String? gameSystem) =>
-                          'game-system:${gameSystem?.toLowerCase() ?? ''}';
-                      bool open(String? gameSystem) =>
-                          searching ||
-                          !headed ||
-                          !(widget.collapsed?.isCollapsed(
-                                groupKey(gameSystem),
-                              ) ??
-                              false);
-                      return ListView(
-                        children: [
-                          // Always in this slot, so the Recently painted below keeps its place and its stream.
-                          switch (searching ? null : progress.data) {
-                            null => const SizedBox.shrink(),
-                            final workflows => ProgressOverview(
-                              collections: collections.length,
-                              workflows: workflows,
-                            ),
-                          },
-                          // Kept mounted while searching: the stream can be listened to once.
-                          StreamBuilder(
-                            stream: _recent,
-                            builder: (context, recent) => switch (searching
-                                ? null
-                                : recent.data) {
+                          );
+                        }
+                        final groups = [
+                          for (final g in groupByGameSystem(collections))
+                            if (g.gameSystem?.toLowerCase().contains(query) ??
+                                false)
+                              g
+                            else
+                              (
+                                gameSystem: g.gameSystem,
+                                collections: [
+                                  for (final c in g.collections)
+                                    if (c.name.toLowerCase().contains(query)) c,
+                                ],
+                              ),
+                        ].where((g) => g.collections.isNotEmpty).toList();
+                        // Headers only once some Collection has a Game System; until then the list is as before.
+                        final headed = groups.any((g) => g.gameSystem != null);
+                        String groupKey(String? gameSystem) =>
+                            'game-system:${gameSystem?.toLowerCase() ?? ''}';
+                        bool open(String? gameSystem) =>
+                            searching ||
+                            !headed ||
+                            !(widget.collapsed?.isCollapsed(
+                                  groupKey(gameSystem),
+                                ) ??
+                                false);
+                        return ListView(
+                          children: [
+                            // Always in this slot, so the Recently painted below keeps its place and its stream.
+                            switch (searching ? null : progress.data) {
+                              null => const SizedBox.shrink(),
+                              final workflows => ProgressOverview(
+                                collections: collections.length,
+                                workflows: workflows,
+                              ),
+                            },
+                            switch (searching ? null : recent.data) {
                               null || [] => const SizedBox.shrink(),
                               final units => Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -895,83 +895,83 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                                 ],
                               ),
                             },
-                          ),
-                          if (groups.isEmpty)
-                            NoMatches(
-                              query: _search.text.trim(),
-                              onClear: () => setState(_search.clear),
-                            ),
-                          for (final g in groups) ...[
-                            if (headed)
-                              GameSystemHeader(
-                                // Restarts the watches when the group's Collections or their Workflows change.
-                                key: ValueKey(
-                                  [
-                                    for (final c in g.collections)
-                                      '${c.id}/${c.workflowId}',
-                                  ].join(','),
-                                ),
-                                vault: widget.vault,
-                                title: g.gameSystem ?? 'Other',
-                                collections: g.collections,
-                                match: query,
-                                expanded: open(g.gameSystem),
-                                onToggle: switch (widget.collapsed) {
-                                  _ when searching => null,
-                                  null => null,
-                                  final c => () => c.toggle(
-                                    groupKey(g.gameSystem),
-                                  ),
-                                },
+                            if (groups.isEmpty)
+                              NoMatches(
+                                query: _search.text.trim(),
+                                onClear: () => setState(_search.clear),
                               ),
-                            if (open(g.gameSystem))
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  0,
-                                  16,
-                                  12,
+                            for (final g in groups) ...[
+                              if (headed)
+                                GameSystemHeader(
+                                  // Restarts the watches when the group's Collections or their Workflows change.
+                                  key: ValueKey(
+                                    [
+                                      for (final c in g.collections)
+                                        '${c.id}/${c.workflowId}',
+                                    ].join(','),
+                                  ),
+                                  vault: widget.vault,
+                                  title: g.gameSystem ?? 'Other',
+                                  collections: g.collections,
+                                  match: query,
+                                  expanded: open(g.gameSystem),
+                                  onToggle: switch (widget.collapsed) {
+                                    _ when searching => null,
+                                    null => null,
+                                    final c => () => c.toggle(
+                                      groupKey(g.gameSystem),
+                                    ),
+                                  },
                                 ),
-                                child: Card.filled(
-                                  margin: EdgeInsets.zero,
-                                  clipBehavior: Clip.antiAlias,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .surfaceContainerLow,
-                                  child: sectionRows(context, [
-                                    for (final c in g.collections)
-                                      // Keyed by Workflow too, so switching it restarts the watch on the new one.
-                                      CollectionRow(
-                                        key: ValueKey(
-                                          '${c.id}/${c.workflowId}',
-                                        ),
-                                        vault: widget.vault,
-                                        collection: c,
-                                        match: query,
-                                        onTap: () => Navigator.push(
-                                          context,
-                                          MaterialPageRoute<void>(
-                                            builder: (_) => CollectionScreen(
-                                              vault: widget.vault,
-                                              db: widget.db,
-                                              photos: widget.photos,
-                                              collection: c,
-                                              onSyncNow: widget.onSyncNow,
-                                              collapsed: widget.collapsed,
+                              if (open(g.gameSystem))
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    12,
+                                  ),
+                                  child: Card.filled(
+                                    margin: EdgeInsets.zero,
+                                    clipBehavior: Clip.antiAlias,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerLow,
+                                    child: sectionRows(context, [
+                                      for (final c in g.collections)
+                                        // Keyed by Workflow too, so switching it restarts the watch on the new one.
+                                        CollectionRow(
+                                          key: ValueKey(
+                                            '${c.id}/${c.workflowId}',
+                                          ),
+                                          vault: widget.vault,
+                                          collection: c,
+                                          match: query,
+                                          onTap: () => Navigator.push(
+                                            context,
+                                            MaterialPageRoute<void>(
+                                              builder: (_) => CollectionScreen(
+                                                vault: widget.vault,
+                                                db: widget.db,
+                                                photos: widget.photos,
+                                                collection: c,
+                                                onSyncNow: widget.onSyncNow,
+                                                collapsed: widget.collapsed,
+                                              ),
                                             ),
                                           ),
                                         ),
-                                      ),
-                                  ]),
+                                    ]),
+                                  ),
                                 ),
-                              ),
+                            ],
                           ],
-                        ],
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           floatingActionButton: searching
