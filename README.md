@@ -15,8 +15,15 @@ whole hobby has come. It works offline and syncs between devices.
 
 ## Get the app
 
-Android: download the APK from the latest [GitHub Release](https://github.com/ItsMajorSpace/mini-vault/releases/latest)
-and install it.
+Download your platform's file from the latest [GitHub Release](https://github.com/ItsMajorSpace/mini-vault/releases/latest).
+The desktop builds are unsigned, so each OS warns you the first time.
+
+- Android: install `mini-vault-vX.Y.Z.apk`.
+- Windows: extract `mini-vault-vX.Y.Z-windows-x64.zip` and run `mini_vault.exe`. When SmartScreen stops it, click
+  **More info → Run anyway**.
+- macOS: extract `mini-vault-vX.Y.Z-macos.zip` and move `Mini Vault.app` to Applications. The first time, right-click it
+  and choose **Open**, or run `xattr -dr com.apple.quarantine "Mini Vault.app"`.
+- Linux (x64): needs GTK 3. Extract with `tar -xzf mini-vault-vX.Y.Z-linux-x64.tar.gz` and run `./mini-vault/mini_vault`.
 
 Privacy: Mini Vault stores only your account email, your Collections and your photos, and has no ads or tracking. See
 the [privacy policy](https://itsmajorspace.github.io/mini-vault/privacy/).

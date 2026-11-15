@@ -1,6 +1,6 @@
 # A release is an app release; the server is versioned by commit
 
-Only the app gets a human-chosen version. A release is cut with `gh release create vX.Y.Z --generate-notes` on `main` (`--prerelease` for `-rc.N` tags), and CI attaches the release-signed APK to that GitHub Release. The server keeps deploying every green commit on `main` (ADR 0005); release tags only add semver image tags to roll back to. Versions matter for what people install and keep running for weeks, and that is the app; giving the server its own version would mean either giving up continuous deploy or tracking two version streams.
+Only the app gets a human-chosen version. A release is cut with `gh release create vX.Y.Z --generate-notes` on `main` (`--prerelease` for `-rc.N` tags), and CI attaches the release-signed APK and AAB, plus unsigned Windows, macOS and Linux archives, to that GitHub Release. The server keeps deploying every green commit on `main` (ADR 0005); release tags only add semver image tags to roll back to. Versions matter for what people install and keep running for weeks, and that is the app; giving the server its own version would mean either giving up continuous deploy or tracking two version streams.
 
 The tag is the only source of the version: CI passes it as `--build-name` and `github.run_number` as `--build-number`, which only ever grows, as Android requires. `pubspec.yaml` stays at `0.0.0-dev+0`, so a local build is visibly a dev build and there is no file to forget to bump.
 
