@@ -702,7 +702,6 @@ abstract interface class VaultStore {
   );
 }
 
-/// The domain operations a collector can perform.
 /// What deleting [stage] from [workflow] involves, and the choices made so far; see [Vault.planStageDelete].
 /// Every choice starts at the next Stage (the previous one if [stage] is last); the `with` methods return a new plan.
 class StageDelete {
@@ -773,12 +772,8 @@ class StageDelete {
   ];
 
   bool _inOrder(Stage owned, Stage finished) {
-    try {
-      Vault._checkOrder(stages, owned: owned.id, finished: finished.id);
-      return true;
-    } on ArgumentError {
-      return false;
-    }
+    final ids = [for (final s in stages) s.id];
+    return ids.indexOf(owned.id) <= ids.indexOf(finished.id);
   }
 
   StageDelete withDestination(Stage s) =>
@@ -799,6 +794,7 @@ class StageDelete {
       StageDelete._(workflow, stage, held, affected, destination, owned, s);
 }
 
+/// The domain operations a collector can perform.
 class Vault {
   Vault(this._store);
 
