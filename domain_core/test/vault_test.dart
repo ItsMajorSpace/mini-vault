@@ -1896,6 +1896,67 @@ void main() {
       expect(await details('Intercessors'), none);
     });
 
+    test('renaming onto an existing Unit uploads as one transaction', () async {
+      await describe('Intercessors', 'Blue', ['40k', 'Troops'], ['f1', 'f2']);
+      await describe('Captain', 'Gold', ['HQ', '40k'], ['f1']);
+      final troops = await vault.addCategory(collection.id, 'Troops');
+      final hq = await vault.addCategory(collection.id, 'HQ');
+      await vault.setUnitCategory(collection.id, 'Intercessors', troops.id);
+      await vault.setUnitCategory(collection.id, 'Captain', hq.id);
+      final blue = await vault.addPaint(
+        brand: 'Citadel',
+        range: 'Base',
+        name: 'Macragge Blue',
+      );
+      final gold = await vault.addPaint(
+        brand: 'Citadel',
+        range: 'Base',
+        name: 'Retributor Armour',
+      );
+      for (final (name, paint, note) in [
+        ('Intercessors', blue, 'armour'),
+        ('Intercessors', gold, 'trim'),
+        ('Captain', gold, ''),
+      ]) {
+        await vault.addUnitPaint(collection.id, name, paint.id, note: note);
+      }
+      await (await db.getCrudBatch(limit: 1000))!.complete();
+
+      await vault.renameUnit(await unit('Intercessors'), 'Captain');
+
+      final transaction = (await db.getNextCrudTransaction())!;
+      expect(transaction.crud.map((e) => e.table).toSet(), {
+        'units',
+        'squad_notes',
+        'squad_categories',
+        'squad_tags',
+        'squad_photos',
+        'squad_paints',
+      });
+      await transaction.complete();
+      expect(await db.getNextCrudTransaction(), isNull);
+      expect(
+        [for (final u in await vault.watchUnits(collection).first) u.name],
+        ['Captain'],
+      );
+      expect(await details('Captain'), [
+        'Gold\nBlue',
+        ['40k', 'HQ', 'Troops'],
+        ['f1', 'f2'],
+      ]);
+      expect(await details('Intercessors'), none);
+      expect(await vault.categoryOf(collection.id, 'Captain'), hq.id);
+      expect(await vault.categoryOf(collection.id, 'Intercessors'), isNull);
+      expect(
+        [
+          for (final l
+              in await vault.watchUnitPaints(collection.id, 'Captain').first)
+            '${l.paint.name}: ${l.note}',
+        ],
+        ['Macragge Blue: armour', 'Retributor Armour: trim'],
+      );
+    });
+
     test('notes, Tags and Photos stay with the name of a Unit without Batches and reappear when it is added again', () async {
       await describe('Captain', 'Gold', ['HQ'], ['f1']);
       await vault.deleteBatch((await unit('Captain')).batches.single.id);

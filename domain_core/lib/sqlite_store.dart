@@ -522,23 +522,28 @@ class SqliteVaultStore implements VaultStore {
   // An UPDATE of the one column once the row exists, so edits on two devices merge per field (the latest wins).
   @override
   Future<void> setNotes(String collectionId, String unit, String notes) =>
-      _db.writeTransaction((tx) async {
-        final id = unitId(collectionId, unit);
-        if (await tx.getOptional('SELECT 1 FROM squad_notes WHERE id = ?', [
-              id,
-            ]) ==
-            null) {
-          await tx.execute(
-            'INSERT INTO squad_notes (id, collection_id, squad_name, notes) VALUES (?, ?, ?, ?)',
-            [id, collectionId, unit, notes],
-          );
-        } else {
-          await tx.execute('UPDATE squad_notes SET notes = ? WHERE id = ?', [
-            notes,
-            id,
-          ]);
-        }
-      });
+      _db.writeTransaction((tx) => _setNotes(tx, collectionId, unit, notes));
+
+  static Future<void> _setNotes(
+    SqliteWriteContext tx,
+    String collectionId,
+    String unit,
+    String notes,
+  ) async {
+    final id = unitId(collectionId, unit);
+    if (await tx.getOptional('SELECT 1 FROM squad_notes WHERE id = ?', [id]) ==
+        null) {
+      await tx.execute(
+        'INSERT INTO squad_notes (id, collection_id, squad_name, notes) VALUES (?, ?, ?, ?)',
+        [id, collectionId, unit, notes],
+      );
+    } else {
+      await tx.execute('UPDATE squad_notes SET notes = ? WHERE id = ?', [
+        notes,
+        id,
+      ]);
+    }
+  }
 
   @override
   Future<void> deleteNotes(String collectionId, String unit) => _db.execute(
@@ -607,7 +612,16 @@ class SqliteVaultStore implements VaultStore {
     String collectionId,
     String unit,
     String? categoryId,
-  ) => _db.writeTransaction((tx) async {
+  ) => _db.writeTransaction(
+    (tx) => _setUnitCategory(tx, collectionId, unit, categoryId),
+  );
+
+  static Future<void> _setUnitCategory(
+    SqliteWriteContext tx,
+    String collectionId,
+    String unit,
+    String? categoryId,
+  ) async {
     final id = unitId(collectionId, unit);
     if (await tx.getOptional('SELECT 1 FROM squad_categories WHERE id = ?', [
           id,
@@ -623,7 +637,7 @@ class SqliteVaultStore implements VaultStore {
         [id, collectionId, unit, categoryId],
       );
     }
-  });
+  }
 
   @override
   Stream<Map<String, int>> watchUnitPositions(String collectionId) => _db
@@ -644,7 +658,17 @@ class SqliteVaultStore implements VaultStore {
     String? categoryId,
     List<String> order, [
     int from = 0,
-  ]) => _db.writeTransaction((tx) async {
+  ]) => _db.writeTransaction(
+    (tx) => _placeUnits(tx, collectionId, categoryId, order, from),
+  );
+
+  static Future<void> _placeUnits(
+    SqliteWriteContext tx,
+    String collectionId,
+    String? categoryId,
+    List<String> order,
+    int from,
+  ) async {
     for (final (i, unit) in order.indexed) {
       final id = unitId(collectionId, unit);
       final position = from + i;
@@ -669,7 +693,7 @@ class SqliteVaultStore implements VaultStore {
         );
       }
     }
-  });
+  }
 
   @override
   Stream<List<String>> watchTags(String collectionId, String unit) => _db
@@ -694,7 +718,16 @@ class SqliteVaultStore implements VaultStore {
     String collectionId,
     String unit,
     Map<String, String> namesById,
-  ) => _db.writeTransaction((tx) async {
+  ) => _db.writeTransaction(
+    (tx) => _insertTags(tx, collectionId, unit, namesById),
+  );
+
+  static Future<void> _insertTags(
+    SqliteWriteContext tx,
+    String collectionId,
+    String unit,
+    Map<String, String> namesById,
+  ) async {
     for (final MapEntry(key: id, value: name) in namesById.entries) {
       await tx.execute(
         'INSERT INTO squad_tags (id, collection_id, squad_name, name) SELECT ?, ?, ?, ? '
@@ -702,7 +735,7 @@ class SqliteVaultStore implements VaultStore {
         [id, collectionId, unit, name, id],
       );
     }
-  });
+  }
 
   @override
   Future<void> deleteTag(String id) =>
@@ -771,6 +804,129 @@ class SqliteVaultStore implements VaultStore {
       [created.modelCount, sourceId],
     );
   });
+
+  // Each write is the one the single-row store method would make (only changed columns, same ids), so the server
+  // checks the ops as before. Tags take the casing addTags would pick: the first one in use, in name order.
+  @override
+  Future<void> renameUnit(
+    String collectionId,
+    String from,
+    String to,
+  ) => _db.writeTransaction((tx) async {
+    final onto =
+        await tx.getOptional(
+          'SELECT 1 FROM units WHERE collection_id = ? AND name = ?',
+          [collectionId, to],
+        ) !=
+        null;
+    await tx.execute(
+      'UPDATE units SET name = ? WHERE collection_id = ? AND name = ?',
+      [to, collectionId, from],
+    );
+    if (from == to) return;
+    of(String sql, String unit) => tx.getAll(sql, [collectionId, unit]);
+
+    final notes = await _notes(tx, collectionId, from);
+    if (notes.isNotEmpty) {
+      final had = await _notes(tx, collectionId, to);
+      await _setNotes(tx, collectionId, to, joinNotes([had, notes]));
+    }
+    await tx.execute('DELETE FROM squad_notes WHERE id = ?', [
+      unitId(collectionId, from),
+    ]);
+
+    final placed = (await of(
+      'SELECT category_id, position FROM squad_categories WHERE collection_id = ? AND squad_name = ?',
+      from,
+    )).firstOrNull;
+    final category = placed?['category_id'] as String?;
+    final position = placed?['position'] as int?;
+    if (!onto && position != null) {
+      await _placeUnits(tx, collectionId, category, [to], position);
+    } else if (!onto && category != null) {
+      await _setUnitCategory(tx, collectionId, to, category);
+    }
+    if (category != null) {
+      await _setUnitCategory(tx, collectionId, from, null);
+    }
+
+    final tags = [
+      for (final r in await of(
+        'SELECT name FROM squad_tags WHERE collection_id = ? AND squad_name = ?',
+        from,
+      ))
+        r['name'] as String,
+    ];
+    final known = <String, String>{};
+    for (final r in await tx.getAll(
+      'SELECT DISTINCT name FROM squad_tags ORDER BY name',
+    )) {
+      final name = r['name'] as String;
+      known.putIfAbsent(tagKey(name), () => name);
+    }
+    final namesById = <String, String>{};
+    for (final t in tags) {
+      final display = known[tagKey(t)] ?? t;
+      namesById.putIfAbsent(
+        tagId(unitId(collectionId, to), display),
+        () => display,
+      );
+    }
+    await _insertTags(tx, collectionId, to, namesById);
+    for (final t in tags) {
+      await tx.execute('DELETE FROM squad_tags WHERE id = ?', [
+        tagId(unitId(collectionId, from), t),
+      ]);
+    }
+
+    const photos =
+        'SELECT id, file_id FROM squad_photos WHERE collection_id = ? AND squad_name = ? ORDER BY id';
+    final files = {for (final r in await of(photos, to)) r['file_id']};
+    for (final r in await of(photos, from)) {
+      if (files.contains(r['file_id'])) {
+        await tx.execute('DELETE FROM squad_photos WHERE id = ?', [r['id']]);
+      } else {
+        await tx.execute(
+          'UPDATE squad_photos SET squad_name = ? WHERE id = ?',
+          [to, r['id']],
+        );
+      }
+    }
+
+    // Joined with paints, as watchUnitPaints is: links whose Paint has not synced stay behind.
+    const paints =
+        'SELECT l.id, l.paint_id, l.note FROM squad_paints l JOIN paints p ON p.id = l.paint_id '
+        'WHERE l.collection_id = ? AND l.squad_name = ?';
+    final target = {for (final r in await of(paints, to)) r['paint_id']: r};
+    for (final l in await of(paints, from)) {
+      final note = l['note'] as String? ?? '';
+      if (target[l['paint_id']] case final t?) {
+        if ((t['note'] as String? ?? '').isEmpty && note.isNotEmpty) {
+          await tx.execute('UPDATE squad_paints SET note = ? WHERE id = ?', [
+            note,
+            t['id'],
+          ]);
+        }
+        await tx.execute('DELETE FROM squad_paints WHERE id = ?', [l['id']]);
+      } else {
+        await tx.execute(
+          'UPDATE squad_paints SET squad_name = ? WHERE id = ?',
+          [to, l['id']],
+        );
+      }
+    }
+  });
+
+  static Future<String> _notes(
+    SqliteWriteContext tx,
+    String collectionId,
+    String unit,
+  ) async =>
+      (await tx.getOptional('SELECT notes FROM squad_notes WHERE id = ?', [
+            unitId(collectionId, unit),
+          ]))?['notes']
+          as String? ??
+      '';
 
   // The Merge comes first, so the write API checks it against the Batches as they were before anything else in it.
   // The copied Stage Changes keep their timestamps (no clock-skew bump): they are history, not new moves.

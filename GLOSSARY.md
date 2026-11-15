@@ -13,7 +13,7 @@ The tabletop game a Collection belongs to (e.g. Warhammer 40k, D&D), named freel
 _Avoid_: System, game, franchise, category
 
 **Unit**:
-All the models in a Collection that a person tracks under one name (e.g. "Intercessors"); its models may be spread across Stages. Not necessarily a unit in game rules: it is whatever a person chose to name alike. A Unit has notes, Tags and photos and may use Paints, each with an optional note on where or how (e.g. "armour base"); renaming the Unit keeps them, and its Paints stay with the name even while it has no models.
+All the models in a Collection that a person tracks under one name (e.g. "Intercessors"); its models may be spread across Stages. Not necessarily a unit in game rules: it is whatever a person chose to name alike. A Unit has notes, Tags and photos and may use Paints, each with an optional note on where or how (e.g. "armour base"); renaming the Unit keeps them, and its Paints stay with the name even while it has no models. Renaming a Unit to the name of another Unit in its Collection combines the two, all at once or not at all.
 _Avoid_: Squad, group, kit, box, entry
 
 **Category**:

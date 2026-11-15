@@ -685,6 +685,16 @@ abstract interface class VaultStore {
     StageChange move,
   );
 
+  /// In one transaction, so it uploads as one batch the write API applies whole or not at all (on rejection the next
+  /// sync restores the old name): renames every Batch of Unit [from] in Collection [collectionId] to [to], one field
+  /// edit each, so other fields edited elsewhere are kept, and carries its notes, Tags, Photos and Paints to the new
+  /// name. Onto an existing Unit they are combined: notes joined (see [joinNotes]), Tags and Photos unioned (all
+  /// Photos kept, even past [maxPhotos]; one whose file the target has is deleted), and Paints unioned with the
+  /// target's note winning for a Paint both use, unless it is empty. Its Category and place in it go along, unless
+  /// onto an existing Unit, which keeps its own. Batches that now meet at a Stage are left to the automatic Merge
+  /// (ADR 0009), in transactions of their own.
+  Future<void> renameUnit(String collectionId, String from, String to);
+
   /// In one transaction: records Merge [id] of Batch [otherId] into Batch [batchId], then copies [history] onto
   /// [batchId], adds the other Batch's models to its count and deletes the other Batch. Does nothing unless both
   /// Batches still share Collection, name and Stage, so a repeated Merge changes nothing.
@@ -1550,71 +1560,14 @@ class Vault {
         modelCount: modelCount == null ? null : validModelCount(modelCount),
       );
 
-  /// Renames every Batch in [unit], one field edit each, so other fields edited elsewhere are kept, and carries its
-  /// notes, Tags, Photos and Paints to the new name. Onto an existing Unit they are combined: notes joined (see
-  /// [joinNotes]), Tags and Photos unioned (all Photos kept, even past [maxPhotos]), and Paints unioned with the
-  /// target's note winning for a Paint both use, unless it is empty. Its Category and place in it go along, unless onto
-  /// an existing Unit, which keeps its own.
+  /// Renames Unit [unit] to [name], carrying its notes, Tags, Photos, Paints and Category along; see
+  /// [VaultStore.renameUnit].
   Future<void> renameUnit(Unit unit, String name) async {
     final valid = validName(
       name,
     ); // Before any write, so a bad name renames none.
-    final onto =
-        unit.batches.isNotEmpty &&
-        (await _store.watchBatches(unit.batches.first.collectionId).first).any(
-          (b) => b.name == valid,
-        );
-    for (final u in unit.batches) {
-      await editBatch(u.id, name: valid);
-    }
-    if (valid == unit.name || unit.batches.isEmpty) return;
-    final collectionId = unit.batches.first.collectionId;
-    final notes = await notesOf(collectionId, unit.name);
-    if (notes.isNotEmpty) {
-      final had = await notesOf(collectionId, valid);
-      await _store.setNotes(collectionId, valid, joinNotes([had, notes]));
-    }
-    await _store.deleteNotes(collectionId, unit.name);
-    final category = await categoryOf(collectionId, unit.name);
-    final position = (await _store
-        .watchUnitPositions(collectionId)
-        .first)[unit.name];
-    if (!onto && position != null) {
-      await _store.placeUnits(collectionId, category, [valid], position);
-    } else if (!onto && category != null) {
-      await _store.setUnitCategory(collectionId, valid, category);
-    }
-    if (category != null) {
-      await _store.setUnitCategory(collectionId, unit.name, null);
-    }
-    final tags = await tagsOf(collectionId, unit.name);
-    await addTags(collectionId, valid, tags);
-    for (final t in tags) {
-      await removeTag(collectionId, unit.name, t);
-    }
-    final files = {
-      for (final p in await photosOf(collectionId, valid)) p.fileId,
-    };
-    for (final p in await photosOf(collectionId, unit.name)) {
-      if (files.contains(p.fileId)) {
-        await _store.deletePhoto(p.id);
-      } else {
-        await _store.movePhoto(p.id, valid);
-      }
-    }
-    final target = {
-      for (final l in await _unitPaints(collectionId, valid)) l.paint.id: l,
-    };
-    for (final l in await _unitPaints(collectionId, unit.name)) {
-      if (target[l.paint.id] case final t?) {
-        if (t.note.isEmpty && l.note.isNotEmpty) {
-          await _store.updateUnitPaint(t.id, note: l.note);
-        }
-        await _store.deleteUnitPaint(l.id);
-      } else {
-        await _store.updateUnitPaint(l.id, unit: valid);
-      }
-    }
+    if (unit.batches.isEmpty) return;
+    await _store.renameUnit(unit.batches.first.collectionId, unit.name, valid);
   }
 
   Future<void> deleteBatch(String id) => _store.deleteBatch(id);
