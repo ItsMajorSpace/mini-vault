@@ -583,6 +583,9 @@ abstract interface class VaultStore {
   /// Deletes the Batch. Its Unit's notes, Tags and Photos stay.
   Future<void> deleteBatch(String id);
 
+  /// As [deleteBatch] for each of [ids], in one transaction.
+  Future<void> deleteBatches(List<String> ids);
+
   /// Emits the paint library now and again whenever it changes.
   Stream<List<Paint>> watchPaints();
   Future<void> insertPaint(Paint paint);
@@ -709,6 +712,22 @@ abstract interface class VaultStore {
   /// onto an existing Unit, which keeps its own. Batches that now meet at a Stage are left to the automatic Merge
   /// (ADR 0009), in transactions of their own.
   Future<void> renameUnit(String collectionId, String from, String to);
+
+  /// In one transaction, so it uploads as one batch the write API applies whole or not at all, edits Unit [unit] of
+  /// Collection [collectionId] in this order, each step the write of its single-row method: deletes the Tags
+  /// [removeTagIds], inserts [addTags] (as [insertTags]), sets [notes], inserts [newCategory], places the Unit at
+  /// [place] (Category id, position; as [placeUnits]) and last renames it to [rename] (as [renameUnit]), carrying the
+  /// notes and Tags just written. A null or empty argument skips its step.
+  Future<void> editUnit(
+    String collectionId,
+    String unit, {
+    List<String> removeTagIds = const [],
+    Map<String, String> addTags = const {},
+    String? notes,
+    Category? newCategory,
+    (String?, int)? place,
+    String? rename,
+  });
 
   /// In one transaction: records Merge [id] of Batch [otherId] into Batch [batchId], then copies [history] onto
   /// [batchId], adds the other Batch's models to its count and deletes the other Batch. Does nothing unless both
@@ -1280,13 +1299,24 @@ class Vault {
     String unit,
     String? categoryId,
   ) async {
-    final categories = await watchUnitCategories(collectionId).first;
-    final positions = await _store.watchUnitPositions(collectionId).first;
-    final last = [
+    final last = await _lastPosition(collectionId, unit, categoryId);
+    await _store.placeUnits(collectionId, categoryId, [unit], last + 1);
+  }
+
+  /// The last position in Category [categoryId] (null: Uncategorised) of a Unit other than [unit]; -1 if none.
+  Future<int> _lastPosition(
+    String collectionId,
+    String unit,
+    String? categoryId,
+  ) async {
+    final (categories, positions) = await (
+      watchUnitCategories(collectionId).first,
+      _store.watchUnitPositions(collectionId).first,
+    ).wait;
+    return [
       for (final MapEntry(key: name, value: p) in positions.entries)
         if (name != unit && categories[name] == categoryId) p,
-    ].fold(-1, max);
-    await _store.placeUnits(collectionId, categoryId, [unit], last + 1);
+    ].fold<int>(-1, max);
   }
 
   /// Moves Unit [unit] to [index] among the Units of Category [categoryId] (null: Uncategorised), saving that
@@ -1731,7 +1761,73 @@ class Vault {
     await _store.renameUnit(unit.batches.first.collectionId, unit.name, valid);
   }
 
+  /// Edits Unit [unit] in one transaction, writing only what changed, so edits elsewhere are kept: its Tags become
+  /// [tags] (ignoring case and outer spaces; casing as [addTags] picks it), its notes [notes] (trimmed), its Category
+  /// [categoryId] or, if set, [newCategory] (created, or the one already named so, as [addCategory]), put last in it,
+  /// and last its name [name] (see [renameUnit]). Throws an [ArgumentError] before any write if a name is invalid.
+  Future<void> editUnit(
+    Unit unit, {
+    required String name,
+    required List<String> tags,
+    required String notes,
+    String? categoryId,
+    String? newCategory,
+  }) async {
+    final valid = validName(name);
+    final categoryName = newCategory == null ? null : validName(newCategory);
+    if (unit.batches.isEmpty) return;
+    final collectionId = unit.batches.first.collectionId;
+    final id = unitId(collectionId, unit.name);
+
+    // Read side by side: each read waits on the database, and the edit should save at once.
+    final (had, tagNames, hadNotes, hadCategory, categories) = await (
+      tagsOf(collectionId, unit.name),
+      _store.allTagNames(),
+      notesOf(collectionId, unit.name),
+      categoryOf(collectionId, unit.name),
+      watchCategories(collectionId).first,
+    ).wait;
+    final kept = {for (final t in tags) tagKey(t)};
+    final addTags = _tagsById(collectionId, unit.name, tags, tagNames)
+      ..removeWhere((tid, _) => had.any((t) => tagId(id, t) == tid));
+
+    final trimmed = notes.trim();
+    final known = categoryName == null
+        ? null
+        : categories
+              .where((c) => tagKey(c.name) == tagKey(categoryName))
+              .firstOrNull;
+    final created = categoryName != null && known == null
+        ? Category(id: _newId(), collectionId: collectionId, name: categoryName)
+        : null;
+    final category = (known ?? created)?.id ?? categoryId;
+
+    await _store.editUnit(
+      collectionId,
+      unit.name,
+      removeTagIds: [
+        for (final t in had)
+          if (!kept.contains(tagKey(t))) tagId(id, t),
+      ],
+      addTags: addTags,
+      notes: trimmed == hadNotes ? null : trimmed,
+      newCategory: created,
+      place: category == hadCategory
+          ? null
+          : (
+              category,
+              await _lastPosition(collectionId, unit.name, category) + 1,
+            ),
+      rename: valid == unit.name ? null : valid,
+    );
+  }
+
   Future<void> deleteBatch(String id) => _store.deleteBatch(id);
+
+  /// Deletes exactly the Batches in [unit]'s [Unit.batches], in one transaction; its notes, Tags and Paints stay with
+  /// the name.
+  Future<void> deleteUnit(Unit unit) =>
+      _store.deleteBatches([for (final b in unit.batches) b.id]);
 
   /// The notes of Unit [unit] in Collection [collectionId] ('' if none), emitted again whenever they change. They
   /// stay with the name while the Unit has no Batches, like its Paints.
@@ -1759,7 +1855,25 @@ class Vault {
     String unit,
     Iterable<String> names,
   ) async {
-    final known = _byKey(await _store.allTagNames());
+    final namesById = _tagsById(
+      collectionId,
+      unit,
+      names,
+      await _store.allTagNames(),
+    );
+    if (namesById.isNotEmpty) {
+      await _store.insertTags(collectionId, unit, namesById);
+    }
+  }
+
+  /// [names] as [addTags] writes them: by [tagId], blanks skipped, each in the casing first entered among [tagNames].
+  Map<String, String> _tagsById(
+    String collectionId,
+    String unit,
+    Iterable<String> names,
+    List<String> tagNames,
+  ) {
+    final known = _byKey(tagNames);
     final namesById = <String, String>{};
     for (final name in names.map((n) => n.trim()).where((n) => n.isNotEmpty)) {
       final display = known[tagKey(name)] ?? name;
@@ -1768,9 +1882,7 @@ class Vault {
         () => display,
       );
     }
-    if (namesById.isNotEmpty) {
-      await _store.insertTags(collectionId, unit, namesById);
-    }
+    return namesById;
   }
 
   Future<void> removeTag(String collectionId, String unit, String name) =>

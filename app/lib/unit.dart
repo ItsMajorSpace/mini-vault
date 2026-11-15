@@ -75,25 +75,15 @@ class _UnitScreenState extends State<UnitScreen> {
     if (result == null || !mounted) return;
     final (vault, collectionId) = (widget.vault, widget.collection.id);
     await attempt(context, () async {
-      final kept = {for (final t in result.tags) tagKey(t)};
-      for (final t in tags.where((t) => !kept.contains(tagKey(t)))) {
-        await vault.removeTag(collectionId, unit.name, t);
-      }
-      await vault.addTags(collectionId, unit.name, result.tags);
-      if (result.notes != notes) {
-        await vault.setNotes(collectionId, unit.name, result.notes);
-      }
-      final category = switch (result.newCategory) {
-        final name? => (await vault.addCategory(collectionId, name)).id,
-        null => result.categoryId,
-      };
-      if (category != categoryId) {
-        await vault.setUnitCategory(collectionId, unit.name, category);
-      }
-      // Last: a rename carries the notes and Tags just saved along.
-      if (result.name == unit.name) return;
-      await vault.renameUnit(unit, result.name);
-      if (mounted) {
+      await vault.editUnit(
+        unit,
+        name: result.name,
+        tags: result.tags,
+        notes: result.notes,
+        categoryId: result.categoryId,
+        newCategory: result.newCategory,
+      );
+      if (result.name != unit.name && mounted) {
         setState(() {
           _name = result.name;
           _tags = vault.watchTags(collectionId, _name);
@@ -112,11 +102,7 @@ class _UnitScreenState extends State<UnitScreen> {
       unit.modelCount,
     );
     if (!confirmed || !mounted) return;
-    await attempt(context, () async {
-      for (final b in unit.batches) {
-        await widget.vault.deleteBatch(b.id);
-      }
-    });
+    await attempt(context, () => widget.vault.deleteUnit(unit));
     if (mounted) Navigator.pop(context);
   }
 

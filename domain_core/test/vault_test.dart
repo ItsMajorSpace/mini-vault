@@ -2243,6 +2243,112 @@ void main() {
         ['f1'],
       ]);
     });
+
+    test('an edit of Tags, notes, a new Category and the name uploads as one transaction', () async {
+      await describe('Intercessors', 'Blue', ['40k', 'Troops'], []);
+      await vault.addTags(collection.id, 'Captain', ['Elite']);
+      await (await db.getCrudBatch(limit: 1000))!.complete();
+
+      await vault.editUnit(
+        await unit('Intercessors'),
+        name: 'Assault Intercessors',
+        tags: ['40K', 'elite', 'Jump'],
+        notes: ' Red ',
+        newCategory: 'Troops',
+      );
+
+      final transaction = (await db.getNextCrudTransaction())!;
+      expect(transaction.crud.map((e) => e.table).toSet(), {
+        'squad_tags',
+        'squad_notes',
+        'categories',
+        'squad_categories',
+        'units',
+      });
+      await transaction.complete();
+      expect(await db.getNextCrudTransaction(), isNull);
+      expect(await details('Assault Intercessors'), [
+        'Red',
+        ['40k', 'Elite', 'Jump'],
+        <String>[],
+      ]);
+      expect(await details('Intercessors'), none);
+      final [troops] = await vault.watchCategories(collection.id).first;
+      expect(troops.name, 'Troops');
+      expect(
+        await vault.categoryOf(collection.id, 'Assault Intercessors'),
+        troops.id,
+      );
+    });
+
+    test('an edit that changes nothing writes nothing', () async {
+      final troops = await vault.addCategory(collection.id, 'Troops');
+      await describe('Intercessors', 'Blue', ['40k'], []);
+      await vault.setUnitCategory(collection.id, 'Intercessors', troops.id);
+      await (await db.getCrudBatch(limit: 1000))!.complete();
+
+      await vault.editUnit(
+        await unit('Intercessors'),
+        name: 'Intercessors',
+        tags: ['40K '],
+        notes: 'Blue ',
+        categoryId: troops.id,
+      );
+
+      expect(await db.getNextCrudTransaction(), isNull);
+    });
+
+    test(
+      'a new Category typed in another case picks the existing one',
+      () async {
+        final troops = await vault.addCategory(collection.id, 'Troops');
+
+        await vault.editUnit(
+          await unit('Intercessors'),
+          name: 'Intercessors',
+          tags: [],
+          notes: '',
+          newCategory: ' TROOPS ',
+        );
+
+        expect(await vault.watchCategories(collection.id).first, hasLength(1));
+        expect(
+          await vault.categoryOf(collection.id, 'Intercessors'),
+          troops.id,
+        );
+      },
+    );
+
+    test(
+      'deleting a Unit deletes only its given Batches, in one transaction',
+      () async {
+        await describe('Intercessors', 'Blue', ['40k'], ['f1']);
+        final seen = await unit('Intercessors');
+        await vault.addBatch(
+          collection,
+          name: 'Intercessors',
+          modelCount: 3,
+          stageId: 's2',
+        );
+        await (await db.getCrudBatch(limit: 1000))!.complete();
+
+        await vault.deleteUnit(seen);
+
+        final transaction = (await db.getNextCrudTransaction())!;
+        expect(transaction.crud, hasLength(3));
+        await transaction.complete();
+        expect(await db.getNextCrudTransaction(), isNull);
+        expect(
+          [for (final b in (await unit('Intercessors')).batches) b.modelCount],
+          [3],
+        );
+        expect(await details('Intercessors'), [
+          'Blue',
+          ['40k'],
+          ['f1'],
+        ]);
+      },
+    );
   });
 
   group('Merge on arrival and Unit moves', () {

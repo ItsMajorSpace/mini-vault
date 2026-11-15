@@ -514,6 +514,14 @@ class SqliteVaultStore implements VaultStore {
       _db.execute('DELETE FROM units WHERE id = ?', [id]);
 
   @override
+  Future<void> deleteBatches(List<String> ids) =>
+      _db.writeTransaction((tx) async {
+        for (final id in ids) {
+          await tx.execute('DELETE FROM units WHERE id = ?', [id]);
+        }
+      });
+
+  @override
   Stream<String> watchNotes(String collectionId, String unit) => _db
       .watch(
         'SELECT notes FROM squad_notes WHERE id = ?',
@@ -565,7 +573,13 @@ class SqliteVaultStore implements VaultStore {
       );
 
   @override
-  Future<void> insertCategory(Category category) => _db.execute(
+  Future<void> insertCategory(Category category) =>
+      _db.writeTransaction((tx) => _insertCategory(tx, category));
+
+  static Future<void> _insertCategory(
+    SqliteWriteContext tx,
+    Category category,
+  ) => tx.execute(
     'INSERT INTO categories (id, collection_id, name, position) '
     'SELECT ?, ?, ?, coalesce(max(position) + 1, 0) FROM categories WHERE collection_id = ?',
     [category.id, category.collectionId, category.name, category.collectionId],
@@ -798,11 +812,39 @@ class SqliteVaultStore implements VaultStore {
   // Each write is the one the single-row store method would make (only changed columns, same ids), so the server
   // checks the ops as before. Tags take the casing addTags would pick: the first one in use, in name order.
   @override
-  Future<void> renameUnit(
+  Future<void> renameUnit(String collectionId, String from, String to) =>
+      _db.writeTransaction((tx) => _renameUnit(tx, collectionId, from, to));
+
+  // Each step is the write its single-row store method makes, so the server checks the ops as before.
+  @override
+  Future<void> editUnit(
+    String collectionId,
+    String unit, {
+    List<String> removeTagIds = const [],
+    Map<String, String> addTags = const {},
+    String? notes,
+    Category? newCategory,
+    (String?, int)? place,
+    String? rename,
+  }) => _db.writeTransaction((tx) async {
+    for (final id in removeTagIds) {
+      await tx.execute('DELETE FROM squad_tags WHERE id = ?', [id]);
+    }
+    await _insertTags(tx, collectionId, unit, addTags);
+    if (notes != null) await _setNotes(tx, collectionId, unit, notes);
+    if (newCategory != null) await _insertCategory(tx, newCategory);
+    if (place case (final categoryId, final position)) {
+      await _placeUnits(tx, collectionId, categoryId, [unit], position);
+    }
+    if (rename != null) await _renameUnit(tx, collectionId, unit, rename);
+  });
+
+  static Future<void> _renameUnit(
+    SqliteWriteContext tx,
     String collectionId,
     String from,
     String to,
-  ) => _db.writeTransaction((tx) async {
+  ) async {
     final onto =
         await tx.getOptional(
           'SELECT 1 FROM units WHERE collection_id = ? AND name = ?',
@@ -905,7 +947,7 @@ class SqliteVaultStore implements VaultStore {
         );
       }
     }
-  });
+  }
 
   static Future<String> _notes(
     SqliteWriteContext tx,
