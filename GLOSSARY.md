@@ -39,6 +39,10 @@ The Stage in a Workflow from which a Unit's models count as part of the collecti
 The Stage in a Workflow from which a Unit's models count as finished; models at it or any later Stage are finished. By default the Workflow's last Stage.
 _Avoid_: Done, complete
 
+**Zone**:
+The part of a Workflow a Stage is in: Wanted (before the Owned Stage), Owned (from the Owned Stage up to the Finished Stage) or Finished (from the Finished Stage on). Models in the Owned Zone are owned but not yet finished; finished models are still owned.
+_Avoid_: Section, phase
+
 **Progress**:
 How far a Collection, or several Collections together, has come: how many models are wanted, owned and finished, and how many owned models sit at each Stage. Finished models are always also owned; wanted models are never owned.
 _Avoid_: Stats, statistics, completion
