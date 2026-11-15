@@ -48,7 +48,12 @@ void main() {
 
         final vault = Vault(SqliteVaultStore(db));
         final created = await vault.createCollection('Space Marines');
-        await vault.renameCollection(created.id, 'Ultramarines');
+        await vault.editCollection(
+          created,
+          name: 'Ultramarines',
+          gameSystem: null,
+          description: '',
+        );
         await db.close();
       });
 
