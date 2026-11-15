@@ -8,64 +8,23 @@ import 'package:postgres/postgres.dart';
 import 'package:server/write_api.dart';
 import 'package:test/test.dart';
 
-// Seam 2: the write API over HTTP, against real Postgres, GoTrue and the API in Docker.
-// Start the stack first: `docker compose up -d --build` in server/ (with a .env, see .env.example).
-final _env = {
-  for (final line in File('.env').readAsLinesSync())
-    if (line.split('=') case [final key, ...final value]
-        when !key.startsWith('#') && value.isNotEmpty)
-      key.trim(): value.join('='),
-};
-final _auth = Uri.parse('http://localhost:9999');
-final _upload = Uri.parse('http://localhost:8000/upload');
+import 'stack.dart';
 
+// Seam 2: the write API over HTTP, against real Postgres, GoTrue and the API in Docker (see stack.dart).
 void main() {
   late Connection db;
 
-  setUpAll(() async {
-    db = await Connection.open(
-      Endpoint(
-        host: 'localhost',
-        database: 'postgres',
-        username: 'postgres',
-        password: _env['POSTGRES_PASSWORD'],
-      ),
-      settings: ConnectionSettings(sslMode: SslMode.disable),
-    );
-  });
+  setUpAll(() async => db = await openPostgres());
   tearDownAll(() => db.close());
-
-  /// Signs up a new account through GoTrue and returns its access token and user id.
-  Future<({String token, String id})> signUp() async {
-    final email = 'test-${DateTime.now().microsecondsSinceEpoch}@example.com';
-    final response = await http.post(
-      _auth.resolve('/signup'),
-      headers: {'content-type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': 'correct horse battery'}),
-    );
-    expect(response.statusCode, 200, reason: response.body);
-    final body = jsonDecode(response.body) as Map<String, Object?>;
-    return (
-      token: body['access_token'] as String,
-      id: (body['user'] as Map)['id'] as String,
-    );
-  }
-
-  /// Uploads operations shaped like PowerSync's `CrudEntry.toJson()`.
-  Future<http.Response> upload(String token, List<Map<String, Object?>> ops) =>
-      http.post(
-        _upload,
-        headers: {'authorization': 'Bearer $token'},
-        body: jsonEncode({'operations': ops}),
-      );
 
   Future<String> newId() async =>
       (await db.execute('SELECT gen_random_uuid()::text')).first.first
           as String;
 
+  /// The user's starter Workflow (ordered: without, row order changes with concurrent writes from other test files).
   Future<String> workflowOf(String userId) async =>
       (await db.execute(
-            r'SELECT id::text FROM workflows WHERE owner_id = $1::uuid',
+            r'SELECT id::text FROM workflows WHERE owner_id = $1::uuid ORDER BY starter DESC',
             parameters: [userId],
           )).first.first
           as String;
@@ -139,7 +98,7 @@ void main() {
   ];
 
   test('/health answers 200 while Postgres is up', () async {
-    final response = await http.get(_upload.resolve('/health'));
+    final response = await http.get(uploadUrl.resolve('/health'));
     expect(response.statusCode, 200);
   });
 
@@ -1378,7 +1337,7 @@ void main() {
         'eyJhbGciOiJub25lIn0.${base64Url.encode(utf8.encode('{"sub":"x","aud":"authenticated"}'))}.';
 
     expect(
-      (await http.post(_upload, body: '{"operations":[]}')).statusCode,
+      (await http.post(uploadUrl, body: '{"operations":[]}')).statusCode,
       401,
     );
     expect((await upload(forged, [op])).statusCode, 401);
@@ -1870,7 +1829,7 @@ void main() {
   final jpeg = [0xff, 0xd8, 0xff, 0xe0, ...List.filled(100, 7)];
   const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0];
 
-  Uri file(String id) => _upload.resolve('/photos/$id');
+  Uri file(String id) => uploadUrl.resolve('/photos/$id');
   Map<String, String> auth(String token, [String type = 'image/jpeg']) => {
     'authorization': 'Bearer $token',
     'content-type': type,
@@ -3566,7 +3525,7 @@ void main() {
     }
 
     Future<http.Response> deleteAccount(String token) => http.delete(
-      _upload.resolve('/account'),
+      uploadUrl.resolve('/account'),
       headers: {'authorization': 'Bearer $token'},
     );
 
@@ -3630,7 +3589,7 @@ void main() {
       final email =
           'reset-${DateTime.now().microsecondsSinceEpoch}@example.com';
       Future<http.Response> post(String path, Object body) => http.post(
-        _auth.resolve(path),
+        authUrl.resolve(path),
         headers: {'content-type': 'application/json'},
         body: jsonEncode(body),
       );
@@ -3680,7 +3639,7 @@ void main() {
       final token =
           (jsonDecode(verified.body) as Map)['access_token'] as String;
       final updated = await http.put(
-        _auth.resolve('/user'),
+        authUrl.resolve('/user'),
         headers: {
           'content-type': 'application/json',
           'authorization': 'Bearer $token',
