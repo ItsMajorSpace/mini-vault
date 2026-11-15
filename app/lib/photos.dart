@@ -1,4 +1,4 @@
-/// A Unit's photos: picked from the camera or gallery, resized on the device, and synced as files through
+/// A Unit's photos: picked from the camera or gallery (an image file on desktop), resized on the device, and synced as files through
 /// PowerSync's attachment queue, whose remote storage is the write API (`/photos/<file id>`).
 library;
 
@@ -41,6 +41,18 @@ Uint8List resizeForUpload(Uint8List bytes) {
   }
   return img.encodeJpg(image, quality: 85);
 }
+
+/// Whether this is a desktop OS: photos come from image files there, with no camera to take one.
+bool get isDesktop => switch (defaultTargetPlatform) {
+  TargetPlatform.linux ||
+  TargetPlatform.macOS ||
+  TargetPlatform.windows => true,
+  _ => false,
+};
+
+/// The label of the action choosing an existing photo (an image file on desktop).
+String get _chooseLabel =>
+    isDesktop ? 'Add a photo from a file' : 'Add a photo from the gallery';
 
 /// The attachments table PowerSync's queue keeps its state in; part of the app's database schema.
 final photoQueueTable = AttachmentsQueueTable();
@@ -290,14 +302,15 @@ class _UnitPhotosState extends State<UnitPhotos> {
           title: 'Photos',
           count: photos.length,
           actions: [
-            IconButton(
-              icon: const Icon(Icons.photo_camera),
-              tooltip: 'Take a photo',
-              onPressed: full ? null : () => _add(ImageSource.camera),
-            ),
+            if (!isDesktop)
+              IconButton(
+                icon: const Icon(Icons.photo_camera),
+                tooltip: 'Take a photo',
+                onPressed: full ? null : () => _add(ImageSource.camera),
+              ),
             IconButton(
               icon: const Icon(Icons.add_photo_alternate),
-              tooltip: 'Add a photo from the gallery',
+              tooltip: _chooseLabel,
               onPressed: full ? null : () => _add(ImageSource.gallery),
             ),
           ],
@@ -506,14 +519,15 @@ class _UnitThumbnailState extends State<UnitThumbnail> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera),
-              title: const Text('Take a photo'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
+            if (!isDesktop)
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('Take a photo'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
             ListTile(
               leading: const Icon(Icons.add_photo_alternate),
-              title: const Text('Add a photo from the gallery'),
+              title: Text(_chooseLabel),
               onTap: () => Navigator.pop(context, ImageSource.gallery),
             ),
           ],
