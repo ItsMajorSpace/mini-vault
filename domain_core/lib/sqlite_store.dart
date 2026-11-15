@@ -546,12 +546,6 @@ class SqliteVaultStore implements VaultStore {
   }
 
   @override
-  Future<void> deleteNotes(String collectionId, String unit) => _db.execute(
-    'DELETE FROM squad_notes WHERE id = ?',
-    [unitId(collectionId, unit)],
-  );
-
-  @override
   Stream<List<Category>> watchCategories(String collectionId) => _db
       .watch(
         'SELECT * FROM categories WHERE collection_id = ? ORDER BY position, id',
@@ -773,12 +767,6 @@ class SqliteVaultStore implements VaultStore {
         'INSERT INTO squad_photos (id, collection_id, squad_name, file_id) VALUES (?, ?, ?, ?)',
         [photo.id, photo.collectionId, photo.unit, photo.fileId],
       );
-
-  @override
-  Future<void> movePhoto(String id, String unit) => _db.execute(
-    'UPDATE squad_photos SET squad_name = ? WHERE id = ?',
-    [unit, id],
-  );
 
   @override
   Future<void> deletePhoto(String id) =>

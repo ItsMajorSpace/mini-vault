@@ -616,7 +616,6 @@ abstract interface class VaultStore {
 
   /// Sets the Unit's notes, in the row whose id is its [unitId].
   Future<void> setNotes(String collectionId, String unit, String notes);
-  Future<void> deleteNotes(String collectionId, String unit);
 
   /// Emits the Unit's Tags, by name, now and again whenever they change.
   Stream<List<String>> watchTags(String collectionId, String unit);
@@ -635,9 +634,6 @@ abstract interface class VaultStore {
   /// Emits the Unit's Photos, in the same order on every device, now and again whenever they change.
   Stream<List<Photo>> watchPhotos(String collectionId, String unit);
   Future<void> insertPhotos(List<Photo> photos);
-
-  /// Moves the Photo to Unit [unit] of its Collection.
-  Future<void> movePhoto(String id, String unit);
   Future<void> deletePhoto(String id);
 
   /// The Collection's Categories, in order: (position, id), as Stages.
